@@ -4,7 +4,7 @@ Each release is tagged `vN` on GitHub; HACS offers the newest release as the upd
 
 ## v52
 
-- PV string names from `pv_strings` are escaped before they are placed in the PV Strings table, its chart legend and the chart tooltip, so a name containing markup shows as text instead of being parsed as HTML.
+- PV string names from `pv_strings` are inserted as text in the PV Strings table, its chart legend and the chart tooltip, so a name containing markup shows as typed instead of being parsed as HTML.
 
 ## v51
 
