@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v52
+
+- PV string names from `pv_strings` are escaped before they are placed in the PV Strings table, its chart legend and the chart tooltip, so a name containing markup shows as text instead of being parsed as HTML.
+
 ## v51
 
 - The flow lines follow the house's perspective: their runs converge on the vanishing points of the roof ridge and eaves and of the window and door edges, with verticals kept vertical. The inverter line stops at the gateway's edge, the branch to the glass doors ends halfway across the window frame, and the HOME and GRID leaders meet the lines where they end.

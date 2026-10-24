@@ -222,6 +222,8 @@ const formatPower = kw => {
     const k = Math.abs(kw);
     return k < 999.995 ? `${k.toFixed(2)} kW` : `${(k / 1000).toFixed(2)} MW`;
 };
+// Text from the card config, such as the PV string names, made safe to place in an HTML template.
+const escapeHtml = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 // SigenStor and GRID share one row so their tops line up whatever each one's number of lines;
 // the row hangs from its bottom edge, which keeps the taller block inside the scene.
 const lowerStyle = (({ left, columns: [first, second], bottom }) =>
@@ -418,11 +420,11 @@ class SigenergyFlowCard extends HTMLElement {
       <div class="dlg-head"><h2 id="pvTitle">PV Strings</h2><button id="pvClose" title="Close" aria-label="Close">✕</button></div>
       <section class="panel"><h3>PV real time info</h3><div class="pv-wrap"><table class="pv-table">
         <thead><tr><th></th><th>Voltage<br>(V)</th><th>Current<br>(A)</th><th>Power<br>(kW)</th><th>Today<br>(kWh)</th><th>Lifetime<br>(kWh)</th></tr></thead>
-        <tbody>${this._pv.map(({ name }, i) => `<tr id="pvRow${i}"><th scope="row"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i>${name}</th>${['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'].map(k => `<td id="pv${i}_${k}">—</td>`).join('')}</tr>`).join('')}</tbody>
+        <tbody>${this._pv.map(({ name }, i) => `<tr id="pvRow${i}"><th scope="row"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i>${escapeHtml(name)}</th>${['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'].map(k => `<td id="pv${i}_${k}">—</td>`).join('')}</tr>`).join('')}</tbody>
         <tfoot><tr><th scope="row">Total</th><td></td><td></td><td id="pvTotal_power">—</td><td id="pvTotal_daily_energy">—</td><td id="pvTotal_accumulated_energy">—</td></tr><tr id="pvThirdRow" hidden><th scope="row">Third-party PV</th><td></td><td></td><td id="pvThird_power">—</td><td></td><td id="pvThird_accumulated_energy">—</td></tr></tfoot>
       </table></div></section>
       <section class="panel"><div class="charthead"><h3>PV power (kW) · Today</h3><span class="muted" id="pvChartStatus"></span></div>
-      <div class="legend">${this._pv.map(({ name }, i) => `<span id="pvLegend${i}"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i>${name}</span>`).join('')}</div>
+      <div class="legend">${this._pv.map(({ name }, i) => `<span id="pvLegend${i}"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i>${escapeHtml(name)}</span>`).join('')}</div>
       <div class="chart-wrap"><svg id="pvChart"></svg><div class="tip" id="pvChartTip" hidden></div></div></section>
     </div></dialog>
     <dialog id="energyDialog" aria-labelledby="energyTitle"><div class="dlg">
@@ -1368,7 +1370,7 @@ class SigenergyFlowCard extends HTMLElement {
         const time = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const html = [...rows.values()].map(r => {
             const note = r.note?.(r.v);
-            return `<div><i class="dot" style="background:${r.color}"></i>${r.name}${note ? ` <em>${note}</em>` : ''}<span>${r.unit ? `${Math.abs(r.v).toFixed(2)} ${r.unit}` : formatPower(r.v)}</span></div>`;
+            return `<div><i class="dot" style="background:${r.color}"></i>${escapeHtml(r.name)}${note ? ` <em>${note}</em>` : ''}<span>${r.unit ? `${Math.abs(r.v).toFixed(2)} ${r.unit}` : formatPower(r.v)}</span></div>`;
         }).join('');
         tip.innerHTML = `<b>${time}</b>${html || '<em>No data</em>'}`;
         tip.hidden = false;
