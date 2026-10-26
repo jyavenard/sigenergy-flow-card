@@ -5,6 +5,7 @@ Each release is tagged `vN` on GitHub; HACS offers the newest release as the upd
 ## v53
 
 - Clicking the battery percentage next to SigenStor opens a Battery level dialog with the current state of charge and today's history from the recorder.
+- The flow pulses follow the timing of Sigenergy's app instead of each line running its own pulse at its own speed. They share one cycle at one speed: the SigenStor pulse starts once the previous home pulse has run into HOME, the grid's pulse into the gateway starts with it, lines out of the gateway start as the SigenStor pulse comes out of it so it appears to run on through, and the solar pulse is halfway into SigenStor as the SigenStor pulse leaves. Unlike the app, the speed follows the home power, so everything runs quicker as the house uses more.
 
 ## v52
 

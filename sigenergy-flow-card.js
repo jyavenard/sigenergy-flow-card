@@ -93,6 +93,14 @@ const FLOWS = {
 };
 // A branch continues its parent's animation from the point where it leaves the parent's path.
 const BRANCHES = { homeBranch: 'homeFlow' };
+// The end of each line that meets the gateway.
+const GATEWAY_ENDS = { inverterFlow: 'end', homeFlow: 'start', gridFlow: 'start' };
+// As in Sigenergy's app, the pulses run on one cycle at one speed. The inverter's pulse starts once the home pulse has
+// run into HOME, and lines out of the gateway start as it comes out of the gateway, so it appears to run on through
+// it. The grid's pulse into the gateway starts with the inverter's, and the solar pulse is halfway into the inverter as
+// the inverter's pulse starts, so a pulse runs on from SOLAR too. The speed, in scene units per second, is
+// [speed][0] + [speed][1] × √(home kW), so everything runs quicker as the house uses more; [length] is in scene units.
+const PULSE = { speed: [110, 65], length: 130 };
 const LEADERS = ['M820 18 V200', 'M1110 18 V227', 'M712 498 V641', 'M1030 526 V641'];
 // Reading positions: [x, y, edge], where y is the reading's top or bottom edge. [lower] places the
 // SigenStor and GRID readings: the row's left edge, each reading's left edge, and the row's bottom edge.
@@ -454,7 +462,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._loadsEmpty = null;
         this._flowItems = Object.keys(FLOWS).map(id => {
             const group = this._id(id);
-            return { id, group, wire: group.querySelector('.wire'), length: 0, glow: group.querySelector('.glow'), comets: [...group.querySelectorAll('.comet')], pos: 0 };
+            return { id, group, wire: group.querySelector('.wire'), length: 0, glow: group.querySelector('.glow'), comets: [...group.querySelectorAll('.comet')] };
         });
         for (const item of this._flowItems)
             item.parent = this._flowItems.find(other => other.id === BRANCHES[item.id]);
@@ -867,39 +875,57 @@ class SigenergyFlowCard extends HTMLElement {
             }
             const dt = previousFrame === null ? 0 : Math.min(now - previousFrame, 100) / 1000;
             previousFrame = now;
+            // The speed eases towards the home power's, and the cycle advances by distance so a change of speed
+            // moves no pulse.
+            const home = this._flowStates?.homeFlow, target = PULSE.speed[0] + PULSE.speed[1] * Math.sqrt(home?.active ? home.kw : 0);
+            this._pulseSpeed = this._pulseSpeed === undefined ? target : this._pulseSpeed + (target - this._pulseSpeed) * Math.min(1, dt * 2);
+            const { cycle } = this._pulseCycle();
+            this._pulseAt = ((this._pulseAt ?? 0) + this._pulseSpeed * dt) % cycle;
             for (const item of this._flowItems) {
                 const state = this._flowStates?.[item.id];
-                if (!state?.active) continue;
+                if (!state?.active || (item.parent && !this._flowStates[item.parent.id]?.active)) continue;
                 if (!item.length) {
                     item.length = item.wire.getTotalLength();
                     this._addGlowFilter(item);
+                    if (item.parent) item.fork = this._forkDistance(item.parent, item);
                 }
-                let comet, travelled, fork = 0;
-                if (item.parent) {
-                    if (!this._flowStates[item.parent.id]?.active) continue;
-                    item.parent.length ||= item.parent.wire.getTotalLength();
-                    item.fork ??= this._forkDistance(item.parent, item);
-                    ({ comet, travelled } = item.parent);
-                    fork = item.fork;
-                    travelled -= fork;
-                } else {
-                    comet = Math.min(240, item.length * .7);
-                    item.pos = (item.pos + dt * (60 + 35 * Math.sqrt(state.kw))) % (item.length + comet);
-                    travelled = item.pos - comet / 2;
-                    Object.assign(item, { comet, travelled });
-                }
+                // Centre of the pulse, measured along the direction of travel.
+                const travelled = this._pulseAt - this._pulseStart(item.parent ?? item) - PULSE.length / 2 - (item.fork ?? 0);
                 const centre = state.reverse ? item.length - travelled : travelled;
-                const gap = item.length + 2 * comet + fork;
                 const place = (el, dash) => {
-                    el.setAttribute('stroke-dasharray', `${dash} ${gap}`);
+                    el.setAttribute('stroke-dasharray', `${dash} ${cycle - dash}`);
                     el.setAttribute('stroke-dashoffset', `${dash / 2 - centre}`);
                 };
-                place(item.glow, comet * .6);
-                item.comets.forEach((el, i) => place(el, comet * COMET_LAYERS[i]));
+                place(item.glow, PULSE.length * .6);
+                item.comets.forEach((el, i) => place(el, PULSE.length * COMET_LAYERS[i]));
             }
             this._flowFrame = requestAnimationFrame(draw);
         };
         this._flowFrame = requestAnimationFrame(draw);
+    }
+    // The cycle, measured as the distance the pulses travel in it: the inverter's pulse crossing its line and the
+    // gateway ([toGateway]) and then running on into HOME. Both are fixed by the scene's geometry.
+    _pulseCycle() {
+        if (!this._cycle) {
+            const wire = id => this._flowItems.find(item => item.id === id).wire;
+            const inverter = wire('inverterFlow'), home = wire('homeFlow');
+            const exit = inverter.getPointAtLength(inverter.getTotalLength()), entry = home.getPointAtLength(0);
+            const toGateway = inverter.getTotalLength() + Math.hypot(entry.x - exit.x, entry.y - exit.y);
+            this._cycle = { toGateway, cycle: toGateway + home.getTotalLength() + PULSE.length };
+        }
+        return this._cycle;
+    }
+    // How far into the cycle a line's pulse starts: the inverter's pulse and the lines into the gateway start the
+    // cycle, lines out of the gateway start as the inverter's pulse comes out of the gateway, and the solar pulse is
+    // halfway into the inverter as the cycle starts.
+    _pulseStart(item) {
+        const { toGateway, cycle } = this._pulseCycle();
+        if (item.id === 'solarFlow') {
+            item.length ||= item.wire.getTotalLength();
+            return cycle - item.length - PULSE.length / 2;
+        }
+        const end = GATEWAY_ENDS[item.id];
+        return end && (end === 'start') !== !!this._flowStates[item.id].reverse ? toGateway : 0;
     }
     // The blur region is fixed in scene units because a level or upright path has no area to scale from.
     _addGlowFilter(item) {
