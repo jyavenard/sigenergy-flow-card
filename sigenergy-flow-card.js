@@ -327,7 +327,7 @@ class SigenergyFlowCard extends HTMLElement {
       .sidecol{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:flex;flex-direction:column;justify-content:space-between;gap:max(14px,calc(24px * var(--s)));min-height:calc(184px * var(--s))}
       .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
-      .node button{all:unset;cursor:pointer;display:block}.node button:focus-visible{outline:2px solid #71d3d1}
+      .node button{all:unset;cursor:pointer;display:block}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
       .sidebar{display:flex;flex-direction:column;gap:12px}.panel{background:var(--panel);border:1px solid var(--panel-line);border-radius:12px;padding:13px}
       .panel h3{margin:0 0 11px;font-size:14px;font-weight:600;color:var(--heading)}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
       .stat{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:10px;cursor:pointer;transition:background .2s}.stat:hover{background:var(--tile-hover)}.stat:focus-visible{outline:2px solid #71d3d1}.stat small{font-size:11px;color:var(--tile-sub);display:block}.stat b{font-size:18px;display:block;margin-top:4px}
@@ -395,7 +395,7 @@ class SigenergyFlowCard extends HTMLElement {
             ? `<button id="homeButton" title="Show home power usage"><strong id="home">—</strong><small>HOME ›</small></button>`
             : `<strong id="home">—</strong><small>HOME</small>`}</div>
         <div class="lower" style="${lowerStyle}">
-          <div class="node"><strong id="battery">—</strong><small>SigenStor · <span id="soc">—</span></small><em id="battStatus"></em></div>
+          <div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>
           <div class="node"><strong id="grid">—</strong><small>GRID</small><em id="gridStatus"></em><em id="phaseMode"></em></div>
         </div>
         <div class="sidecol" id="chargers">
@@ -430,6 +430,12 @@ class SigenergyFlowCard extends HTMLElement {
       <section class="panel"><div class="home-total"><span>Stored now</span><b id="energyNow">—</b></div><div class="muted" id="energyOf"></div></section>
       <section class="panel"><div class="charthead"><h3>Stored energy (kWh) · Today</h3><span class="muted" id="energyChartStatus"></span></div>
       <div class="chart-wrap"><svg id="energyChart"></svg><div class="tip" id="energyChartTip" hidden></div></div></section>
+    </div></dialog>
+    <dialog id="socDialog" aria-labelledby="socTitle"><div class="dlg">
+      <div class="dlg-head"><h2 id="socTitle">Battery level</h2><button id="socClose" title="Close" aria-label="Close">✕</button></div>
+      <section class="panel"><div class="home-total"><span>State of charge</span><b id="socNow">—</b></div></section>
+      <section class="panel"><div class="charthead"><h3>State of charge (%) · Today</h3><span class="muted" id="socChartStatus"></span></div>
+      <div class="chart-wrap"><svg id="socChart"></svg><div class="tip" id="socChartTip" hidden></div></div></section>
     </div></dialog>
     <dialog id="homeDialog" aria-labelledby="homeTitle"><div class="dlg">
       <div class="dlg-head"><h2 id="homeTitle">Home power usage</h2><button id="homeClose" title="Close" aria-label="Close">✕</button></div>
@@ -481,9 +487,16 @@ class SigenergyFlowCard extends HTMLElement {
             this._loadEnergyHistory();
         });
         this._id('energyClose').addEventListener('click', () => energyDialog.close());
-        for (const d of [dialog, homeDialog, energyDialog]) d.addEventListener('click', e => { if (e.target === d) d.close(); });
+        const socDialog = this._id('socDialog');
+        this._id('socButton').addEventListener('click', () => {
+            socDialog.showModal();
+            this._updateSoc();
+            this._loadSocHistory();
+        });
+        this._id('socClose').addEventListener('click', () => socDialog.close());
+        for (const d of [dialog, homeDialog, energyDialog, socDialog]) d.addEventListener('click', e => { if (e.target === d) d.close(); });
         this._observeCharts();
-        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['energyChart', 'energyChartTip']]) {
+        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
             const show = e => this._hoverChart(svg, box, e);
             svg.addEventListener('pointermove', show);
@@ -502,6 +515,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartObserver.observe(this._id('chart'));
         this._chartObserver.observe(this._id('pvChart'));
         this._chartObserver.observe(this._id('energyChart'));
+        this._chartObserver.observe(this._id('socChart'));
         this._chartObserver.observe(this._id('statChart'));
         const scene = this._id('scene'), sidebar = this.root.querySelector('.sidebar');
         scene.fit = sidebar.fit = () => this._fitScene();
@@ -763,6 +777,30 @@ class SigenergyFlowCard extends HTMLElement {
             this._id('energyChart').replaceChildren();
         }
     }
+    _updateSoc() {
+        if (!this._hass || !this._id('socDialog').open) return;
+        const soc = this._num(this._socEntity);
+        this._text('socNow', soc === null ? '—' : `${soc.toFixed(1)}%`);
+    }
+    async _loadSocHistory() {
+        if (!this._hass) return;
+        if (!this._socEntity) {
+            this._text('socChartStatus', 'Battery SOC not configured');
+            return;
+        }
+        const day = new Date();
+        day.setHours(0, 0, 0, 0);
+        this._text('socChartStatus', 'Loading history…');
+        try {
+            const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(this._socEntity)}&minimal_response&no_attributes`;
+            const [points] = this._series(await this._hass.callApi('GET', query), [this._socEntity]);
+            const hasData = this._showChart(this._id('socChart'), [{ points, color: 'var(--c-battery)', name: 'SOC', unit: '%' }], day.getTime(), false, 100);
+            this._text('socChartStatus', hasData ? 'Midnight → now' : 'No recorded battery history today');
+        } catch (e) {
+            this._text('socChartStatus', 'Recorder history unavailable');
+            this._id('socChart').replaceChildren();
+        }
+    }
     async _loadPvHistory() {
         if (!this._hass) return;
         const day = new Date();
@@ -956,6 +994,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('socStat').dataset.entity = socEntity ?? '';
         this._id('socLevel').dataset.entity = socEntity ?? '';
         this._socEntity = socEntity;
+        this._updateSoc();
         this._updateEnergy();
         this._text('socLarge', soc === null ? '—' : `${soc.toFixed(1)}%`);
         this._id('socFill').style.width = `${Math.min(100, Math.max(0, soc ?? 0))}%`;

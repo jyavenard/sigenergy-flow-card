@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v53
+
+- Clicking the battery percentage next to SigenStor opens a Battery level dialog with the current state of charge and today's history from the recorder.
+
 ## v52
 
 - PV string names from `pv_strings` are inserted as text in the PV Strings table, its chart legend and the chart tooltip, so a name containing markup shows as typed instead of being parsed as HTML.
