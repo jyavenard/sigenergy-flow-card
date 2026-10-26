@@ -211,16 +211,17 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `dc_charger_limit` | `number.sigen_inverter_dc_charger_max_charging_power_limit` | Opened when tapping the DC charger (⚙) |
 | `dc_charger_lifetime_charged_energy` | `sensor.sigen_plant_total_charged_energy_of_the_evdc` | DC charger lifetime line (↓ charged) |
 | `dc_charger_lifetime_discharged_energy` | `sensor.sigen_plant_total_discharged_energy_of_the_evdc` | DC charger lifetime line (↑ discharged, hidden while 0) |
-| `pv_strings_power` | `sensor.sigen_plant_sigen_pv_power` | PV Strings **Total** power (Sigenergy PV inputs only) |
-| `pv_strings_lifetime_energy` | `sensor.sigen_plant_total_generation_of_self_pv`, fallback `sensor.sigen_plant_total_pv_generation`, then `sensor.sigen_inverter_total_pv_energy` | PV Strings **Total** lifetime energy. Systems with only Sigenergy PV usually have just `sensor.sigen_plant_total_pv_generation` enabled. That sensor covers all PV in the plant, so when it is used and `third_party_pv_lifetime_energy` is available, the third-party energy is subtracted. |
-| `third_party_pv_power` | `sensor.sigen_plant_third_party_pv_power` | PV Strings **Third-party PV** row |
-| `third_party_pv_lifetime_energy` | `sensor.sigen_plant_total_generation_of_third_party_inverter` | PV Strings **Third-party PV** row |
-| `daily_pv_energy` | `sensor.sigen_plant_daily_pv_energy`, fallback `sensor.sigen_inverter_daily_pv_energy` | Solar produced tile |
+| `pv_strings_power` | `sensor.sigen_plant_sigen_pv_power` | PV Strings **Total** power, for the Sigenergy PV inputs (the Total row adds `third_party_pv_power`) |
+| `pv_strings_lifetime_energy` | `sensor.sigen_plant_total_generation_of_self_pv`, fallback `sensor.sigen_plant_total_pv_generation`, then `sensor.sigen_inverter_total_pv_energy` | PV Strings **Total** lifetime energy, for the Sigenergy PV inputs (the Total row adds `third_party_pv_lifetime_energy`). Systems with only Sigenergy PV usually have just `sensor.sigen_plant_total_pv_generation` enabled. |
+| `third_party_pv_power` | `sensor.sigen_plant_third_party_pv_power` | PV Strings **Third-party PV** row and chart line |
+| `third_party_pv_daily_energy` | `sensor.sigen_plant_daily_third_party_inverter_energy` | PV Strings **Third-party PV** row (Today); added to the Solar produced tile |
+| `third_party_pv_lifetime_energy` | `sensor.sigen_plant_total_generation_of_third_party_inverter` | PV Strings **Third-party PV** row (Lifetime); added to the Energy statistics' solar |
+| `daily_pv_energy` | `sensor.sigen_plant_daily_pv_energy`, fallback `sensor.sigen_inverter_daily_pv_energy` | Solar produced tile, for the Sigenergy PV (the tile adds `third_party_pv_daily_energy`) |
 | `daily_grid_import_energy` | `sensor.sigen_plant_daily_grid_import_energy` | Grid imported tile |
 | `daily_grid_export_energy` | `sensor.sigen_plant_daily_grid_export_energy` | Grid exported tile |
 | `daily_battery_charge_energy` | `sensor.sigen_plant_daily_battery_charge_energy`, fallback `sensor.sigen_inverter_daily_charge_energy` | Battery charged tile |
 | `daily_battery_discharge_energy` | `sensor.sigen_plant_daily_battery_discharge_energy`, fallback `sensor.sigen_inverter_daily_discharge_energy` | Battery discharged tile |
-| `stat_pv` | `sensor.sigen_plant_total_pv_generation` | Energy statistics: solar |
+| `stat_pv` | `sensor.sigen_plant_total_pv_generation` | Energy statistics: solar, for the Sigenergy PV (`third_party_pv_lifetime_energy` is added to it) |
 | `stat_battery_discharge` | `sensor.sigen_plant_total_discharged_energy_of_the_ess` | Energy statistics: battery as a source |
 | `stat_battery_charge` | `sensor.sigen_plant_total_charged_energy_of_the_ess` | Energy statistics: battery as a consumer |
 | `stat_grid_import` | `sensor.sigen_plant_total_imported_energy` | Energy statistics: grid as a source |
@@ -267,7 +268,7 @@ pv_strings:
 
 The **Energy statistics** panel under the scene shows where energy came from and where it went: a diagram from sources (solar, battery, EVDC, grid import) to consumers (battery, EVDC, load, EVAC, grid export), for a day, week, month, year or the whole lifetime. Use the arrows to move between periods and the selector to change the range. Select a source to see how its energy was shared among the consumers, or a consumer to see its sources, with the percentages and kWh also listed under the diagram. Select it again to go back.
 
-Home Assistant only records totals (solar, grid, battery, load, chargers), not which source charged which consumer, so the split is an **estimate**. Each interval of the period (5 minutes for a day, an hour for a week or month, a day for a year or lifetime) is split between sources and consumers, never feeding a device from itself, with each source favouring some consumers over others (for instance solar favours the batteries and EVDC over the house), and the intervals are added up. The preferences are fitted to the flows the Sigenergy app showed for one system, and reproduce them within a few hundredths of a kWh on that data; other systems may differ somewhat. The totals come from the lifetime energy counters' long-term statistics, so the panel needs the Home Assistant recorder and these sensors, which the card reads from `entities` (`stat_*`, plus `dc_charger_lifetime_charged_energy` and `dc_charger_lifetime_discharged_energy` for EVDC). **Load** has no sensor: like the Sigenergy portal, it is what the sources supplied beyond the other consumers. A source or consumer whose sensor does not exist (the EVDC and EVAC totals are disabled by default in the Sigenergy integration) is left out. Set `show_energy_statistics: false` to hide the panel.
+Home Assistant only records totals (solar, grid, battery, load, chargers), not which source charged which consumer, so the split is an **estimate**. Each interval of the period (5 minutes for a day, an hour for a week or month, a day for a year or lifetime) is split between sources and consumers, never feeding a device from itself, with each source favouring some consumers over others (for instance solar favours the batteries and EVDC over the house), and the intervals are added up. The preferences are fitted to the flows the Sigenergy app showed for one system, and reproduce them within a few hundredths of a kWh on that data; other systems may differ somewhat. The totals come from the lifetime energy counters' long-term statistics, so the panel needs the Home Assistant recorder and these sensors, which the card reads from `entities` (`stat_*`, plus `third_party_pv_lifetime_energy` for a third-party inverter's solar, `dc_charger_lifetime_charged_energy` and `dc_charger_lifetime_discharged_energy` for EVDC). **Load** has no sensor: like the Sigenergy portal, it is what the sources supplied beyond the other consumers. A source or consumer whose sensor does not exist (the EVDC and EVAC totals are disabled by default in the Sigenergy integration) is left out. Set `show_energy_statistics: false` to hide the panel.
 
 ### PV strings
 
@@ -285,7 +286,9 @@ A string written as an object sets its own entities instead, and uses only the k
 
 A string none of whose entities exist in Home Assistant is treated as not fitted: its row, legend entry and chart line are hidden. The default four names therefore suit inverters with 2, 3 or 4 strings without changes.
 
-The **Total** row uses the system's own PV sensors when they exist (`pv_strings_power`, `daily_pv_energy` and `pv_strings_lifetime_energy`), otherwise the sum of the strings shown. When `third_party_pv_power` or `third_party_pv_lifetime_energy` exists, a **Third-party PV** row is shown below the Total.
+When `third_party_pv_power`, `third_party_pv_daily_energy` or `third_party_pv_lifetime_energy` exists, a **Third-party PV** row is shown under the strings, and the chart draws the third-party inverter's power too. The Sigenergy integration disables the third-party power and lifetime energy sensors by default, and derives the daily one from the lifetime one; enable both in Home Assistant if a third-party inverter is connected. Its daily energy also counts towards the **Solar produced** tile, and its lifetime energy towards the Energy statistics' solar.
+
+The **Total** row adds up the rows above it: the system's own PV sensors when they exist (`pv_strings_power`, `daily_pv_energy` and `pv_strings_lifetime_energy`), otherwise the sum of the strings shown, plus the Third-party PV row.
 
 ```yaml
 pv_strings:

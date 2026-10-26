@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v54
+
+- A third-party inverter is counted as solar alongside the Sigenergy PV. In the PV Strings dialog its row sits above the Total, which now adds it in, and shows today's energy (new `third_party_pv_daily_energy` entities key, `sensor.sigen_plant_daily_third_party_inverter_energy` by default); the chart draws its power too. Its daily energy counts towards the Solar produced tile, and its lifetime energy towards the Energy statistics' solar.
+- The PV Strings Total lifetime no longer subtracts the third-party inverter's energy from `sensor.sigen_plant_total_pv_generation`, which covers only the Sigenergy PV.
+
 ## v53
 
 - Clicking the battery percentage next to SigenStor opens a Battery level dialog with the current state of charge and today's history from the recorder.
