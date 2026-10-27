@@ -202,28 +202,52 @@ const allocateFlows = (sources, sinks) => {
     return flows;
 };
 
+// Dates and times follow Home Assistant's time zone ([zone]), not the browser's; undefined is the browser's.
+const zoneFormats = new Map();
+// Wall-clock fields of the instant [t] in [zone].
+const zoneParts = (t, zone) => {
+    let format = zoneFormats.get(zone);
+    if (!format) zoneFormats.set(zone, format = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }));
+    const p = Object.fromEntries(format.formatToParts(t).map(part => [part.type, Number(part.value)]));
+    return { y: p.year, m: p.month - 1, d: p.day, h: p.hour, min: p.minute, s: p.second };
+};
+// Instant of a wall-clock time in [zone]; out-of-range fields roll over as with new Date(y, m, d, h).
+const zoneDate = (zone, y, m, d, h = 0) => {
+    const wall = Date.UTC(y, m, d, h);
+    let t = wall;
+    for (let i = 0; i < 2; i++) {
+        const p = zoneParts(t, zone);
+        t = wall - (Date.UTC(p.y, p.m, p.d, p.h, p.min, p.s) - t);
+    }
+    return new Date(t);
+};
+const zoneMidnight = (t, zone) => {
+    const { y, m, d } = zoneParts(t, zone);
+    return zoneDate(zone, y, m, d);
+};
+
 // First and last instant (exclusive) of the range that contains [date].
-const statWindow = (range, date) => {
-    const y = date.getFullYear(), m = date.getMonth(), d = date.getDate();
-    if (range === 'Day') return [new Date(y, m, d), new Date(y, m, d + 1)];
-    if (range === 'Week') { const start = d - (date.getDay() + 6) % 7; return [new Date(y, m, start), new Date(y, m, start + 7)]; }
-    if (range === 'Month') return [new Date(y, m, 1), new Date(y, m + 1, 1)];
-    if (range === 'Year') return [new Date(y, 0, 1), new Date(y + 1, 0, 1)];
-    return [new Date(2015, 0, 1), new Date()];
+const statWindow = (range, date, zone) => {
+    const { y, m, d } = zoneParts(date, zone), at = (...fields) => zoneDate(zone, ...fields);
+    if (range === 'Day') return [at(y, m, d), at(y, m, d + 1)];
+    if (range === 'Week') { const start = d - (new Date(Date.UTC(y, m, d)).getUTCDay() + 6) % 7; return [at(y, m, start), at(y, m, start + 7)]; }
+    if (range === 'Month') return [at(y, m, 1), at(y, m + 1, 1)];
+    if (range === 'Year') return [at(y, 0, 1), at(y + 1, 0, 1)];
+    return [at(2015, 0, 1), new Date()];
 };
-const statStep = (range, date, direction) => {
-    const y = date.getFullYear(), m = date.getMonth(), d = date.getDate();
-    if (range === 'Day') return new Date(y, m, d + direction);
-    if (range === 'Week') return new Date(y, m, d + 7 * direction);
-    if (range === 'Month') return new Date(y, m + direction, 1);
-    return new Date(y + direction, 0, 1);
+const statStep = (range, date, direction, zone) => {
+    const { y, m, d } = zoneParts(date, zone);
+    if (range === 'Day') return zoneDate(zone, y, m, d + direction);
+    if (range === 'Week') return zoneDate(zone, y, m, d + 7 * direction);
+    if (range === 'Month') return zoneDate(zone, y, m + direction, 1);
+    return zoneDate(zone, y + direction, 0, 1);
 };
-const statLabel = (range, date) => {
-    const [start, end] = statWindow(range, date), day = d => d.toLocaleDateString('en-CA');
+const statLabel = (range, date, zone) => {
+    const [start, end] = statWindow(range, date, zone), day = d => d.toLocaleDateString('en-CA', { timeZone: zone });
     if (range === 'Day') return day(start);
     if (range === 'Week') return `${day(start)} – ${day(new Date(end - 1))}`;
     if (range === 'Month') return day(start).slice(0, 7);
-    return range === 'Year' ? String(start.getFullYear()) : 'Lifetime';
+    return range === 'Year' ? day(start).slice(0, 4) : 'Lifetime';
 };
 
 // Power given in kW, shown as W below 1 kW and MW from 1000 kW.
@@ -283,7 +307,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._update();
         this._updateSunTimes();
         this._updateScene();
-        const today = new Date().toLocaleDateString('en-CA');
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: this._zone });
         if (!previous || this._day !== today) {
             this._day = today;
             this._loadHistory();
@@ -602,6 +626,19 @@ class SigenergyFlowCard extends HTMLElement {
         for (const leader of this.root.querySelectorAll('.lowerLeader'))
             leader.setAttribute('d', leader.dataset.d.replace(/V([\d.]+)/, (_, end) => `V${+end + drop / scale}`));
     }
+    // Home Assistant's time zone, or the browser's when it is missing or unknown to the browser.
+    get _zone() {
+        const zone = this._hass?.config?.time_zone;
+        if (zone !== this._zoneName) {
+            this._zoneName = zone;
+            try {
+                this._zoneValid = zone ? (new Intl.DateTimeFormat('en-US', { timeZone: zone }), zone) : undefined;
+            } catch (e) {
+                this._zoneValid = undefined;
+            }
+        }
+        return this._zoneValid;
+    }
     // Day between today's sunrise and sunset (as shown under the chart), or as sun.sun reports without a location.
     _isDay() {
         const { style } = this.config;
@@ -768,8 +805,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('energyChartStatus', 'Rated capacity unavailable');
             return;
         }
-        const day = new Date();
-        day.setHours(0, 0, 0, 0);
+        const day = zoneMidnight(Date.now(), this._zone);
         this._text('energyChartStatus', 'Loading history…');
         if (!this._socEntity) {
             this._text('energyChartStatus', 'Battery SOC not configured');
@@ -797,8 +833,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('socChartStatus', 'Battery SOC not configured');
             return;
         }
-        const day = new Date();
-        day.setHours(0, 0, 0, 0);
+        const day = zoneMidnight(Date.now(), this._zone);
         this._text('socChartStatus', 'Loading history…');
         try {
             const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(this._socEntity)}&minimal_response&no_attributes`;
@@ -812,8 +847,7 @@ class SigenergyFlowCard extends HTMLElement {
     }
     async _loadPvHistory() {
         if (!this._hass) return;
-        const day = new Date();
-        day.setHours(0, 0, 0, 0);
+        const day = zoneMidnight(Date.now(), this._zone);
         const strings = this._pv.map((pv, i) => ({ ...pv, color: PV_COLORS[i % PV_COLORS.length] })).filter(pv => this._has(pv.power));
         const third = this._ent('third_party_pv_power');
         if (this._has(third)) strings.push({ name: 'Third-party PV', power: third, color: 'var(--pv-third)' });
@@ -1039,7 +1073,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._flow('gridFlow', grid === null ? null : -grid);
         this._updatePv();
         this._updateHome();
-        this._text('stamp', new Date().toLocaleTimeString());
+        this._text('stamp', new Date().toLocaleTimeString([], { timeZone: this._zone }));
     }
     _updateSunTimes() {
         // Calculate sunrise and sunset for *today* from Home Assistant's location.
@@ -1053,8 +1087,8 @@ class SigenergyFlowCard extends HTMLElement {
             return;
         }
         // SunCalc solar equations, evaluated at local noon for the selected day.
-        const now = new Date();
-        const noon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+        const today = zoneParts(Date.now(), this._zone);
+        const noon = zoneDate(this._zone, today.y, today.m, today.d, 12);
         const rad = Math.PI / 180, dayMs = 86400000, J1970 = 2440588, J2000 = 2451545;
         const toJulian = d => d.valueOf() / dayMs - .5 + J1970;
         const fromJulian = j => new Date((j + .5 - J1970) * dayMs);
@@ -1077,7 +1111,7 @@ class SigenergyFlowCard extends HTMLElement {
         const h = Math.acos(cosH);
         const Jset = J2000 + (.0009 + (h + lw) / (2 * Math.PI) + n) + .0053 * Math.sin(M) - .0069 * Math.sin(2 * L);
         const Jrise = Jnoon - (Jset - Jnoon);
-        const fmt = t => t.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+        const fmt = t => t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: this._zone });
         this._text('sunrise', `Sunrise ${fmt(fromJulian(Jrise))}`);
         this._text('sunset', `Sunset ${fmt(fromJulian(Jset))}`);
         this._sunTimes = { rise: fromJulian(Jrise).getTime(), set: fromJulian(Jset).getTime() };
@@ -1090,7 +1124,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._loadStatistics();
         });
         const step = direction => {
-            Object.assign(stat, { date: statStep(stat.range, stat.date, direction), selection: null });
+            Object.assign(stat, { date: statStep(stat.range, stat.date, direction, this._zone), selection: null });
             this._loadStatistics();
         };
         this._id('statPrev').addEventListener('click', () => step(-1));
@@ -1122,13 +1156,13 @@ class SigenergyFlowCard extends HTMLElement {
         this._drawStat();
     }
     _statCurrent() {
-        return this._stat.range === 'Lifetime' || statWindow(this._stat.range, this._stat.date)[1] > new Date();
+        return this._stat.range === 'Lifetime' || statWindow(this._stat.range, this._stat.date, this._zone)[1] > new Date();
     }
     _statControls() {
         const { range, date } = this._stat, lifetime = range === 'Lifetime';
-        this._text('statDate', statLabel(range, date));
+        this._text('statDate', statLabel(range, date, this._zone));
         this._id('statPrev').disabled = lifetime;
-        this._id('statNext').disabled = lifetime || statWindow(range, statStep(range, date, 1))[0] > new Date();
+        this._id('statNext').disabled = lifetime || statWindow(range, statStep(range, date, 1, this._zone), this._zone)[0] > new Date();
     }
     // Energy per interval comes from the lifetime counters' recorder statistics; each interval is split into
     // flows between sources and consumers and the splits are added up.
@@ -1156,7 +1190,7 @@ class SigenergyFlowCard extends HTMLElement {
         }
         const request = this._statRequest = (this._statRequest ?? 0) + 1;
         this._text('statStatus', 'Loading…');
-        const [start, end] = statWindow(stat.range, stat.date);
+        const [start, end] = statWindow(stat.range, stat.date, this._zone);
         const fetchStatistics = period => this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids, period, types: ['change'] });
         try {
             let period = STAT_PERIODS[stat.range], result = await fetchStatistics(period);
@@ -1285,8 +1319,7 @@ class SigenergyFlowCard extends HTMLElement {
         if (!this._hass || this._loading)
             return;
         this._loading = true;
-        const day = new Date();
-        day.setHours(0, 0, 0, 0);
+        const day = zoneMidnight(Date.now(), this._zone);
         const specs = CHART_SERIES.map(s => ({ ...s, id: this._ent(s.key) }))
             .filter(s => s.id && (!s.optional || this._has(s.id)));
         const ids = specs.map(s => s.id);
@@ -1443,7 +1476,7 @@ class SigenergyFlowCard extends HTMLElement {
             rows.set(s.name, row);
         });
         chart.cursor.setAttribute('display', 'inline');
-        const time = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const time = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: this._zone });
         // Series names can be PV string names from the card config, so the rows are built as text, not HTML.
         const lines = [...rows.values()].map(r => {
             const note = r.note?.(r.v);

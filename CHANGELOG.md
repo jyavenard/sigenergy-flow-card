@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v55
+
+- Times, today's sunrise and sunset, the day or night style, the charts' midnight and the Energy statistics' days, weeks, months and years follow Home Assistant's time zone instead of the browser's.
+
 ## v54
 
 - A third-party inverter is counted as solar alongside the Sigenergy PV. In the PV Strings dialog its row sits above the Total, which now adds it in, and shows today's energy (new `third_party_pv_daily_energy` entities key, `sensor.sigen_plant_daily_third_party_inverter_energy` by default); the chart draws its power too. Its daily energy counts towards the Solar produced tile, and its lifetime energy towards the Energy statistics' solar.
