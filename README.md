@@ -4,6 +4,7 @@ A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySige
 
 - Animated power flow between the solar panels, SigenStor, gateway, home and grid, drawn over a photo of the house. Each highlight moves in the direction power is flowing, faster at higher power, and stops when idle.
 - Day and night looks: a light theme with the daytime photo between sunrise and sunset, a dark theme with the night photo otherwise. Force either with the `style` option.
+- The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
 - Today's energy statistics and a battery level panel. Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
 - Power metrics chart from midnight to now, with sunrise and sunset times for your Home Assistant location. Hover (or tap) the chart to see every value at that time.
@@ -227,6 +228,7 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `stat_grid_import` | `sensor.sigen_plant_total_imported_energy` | Energy statistics: grid as a source |
 | `stat_grid_export` | `sensor.sigen_plant_total_exported_energy` | Energy statistics: grid as a consumer |
 | `stat_evac_charge` | `sensor.sigen_plant_total_charged_energy_of_the_evac`, fallback `sensor.sigen_ac_charger_total_energy_consumed` | Energy statistics: AC charger |
+| `weather` | `weather.forecast_home`, fallback `weather.home` | Weather icon and temperature at the top left of the scene (hidden when the entity does not exist); tapping it opens the forecast |
 
 Example for another brand:
 

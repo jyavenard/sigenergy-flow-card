@@ -5,6 +5,7 @@ Each release is tagged `vN` on GitHub; HACS offers the newest release as the upd
 ## v55
 
 - Times, today's sunrise and sunset, the day or night style, the charts' midnight and the Energy statistics' days, weeks, months and years follow Home Assistant's time zone instead of the browser's.
+- The current weather is shown at the top left of the scene, as in Sigenergy's app: an icon for the condition and the temperature, from the new `weather` entities key (`weather.forecast_home`, then `weather.home`, by default). Tapping it opens the forecast.
 
 ## v54
 

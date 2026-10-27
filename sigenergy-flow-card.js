@@ -71,6 +71,8 @@ const DEFAULT_ENTITIES = {
     stat_grid_export: ['sensor.sigen_plant_total_exported_energy'],
     stat_evac_charge: ['sensor.sigen_plant_total_charged_energy_of_the_evac', 'sensor.sigen_ac_charger_total_energy_consumed'],
     daily_battery_discharge_energy: ['sensor.sigen_plant_daily_battery_discharge_energy', 'sensor.sigen_inverter_daily_discharge_energy'],
+    // The weather shown at the scene's top left: Home Assistant's default (Met.no) forecast entity.
+    weather: ['weather.forecast_home', 'weather.home'],
 };
 const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'];
 // Today's energy tiles: [value element id, entities key, label, entities key whose energy adds to it].
@@ -179,6 +181,62 @@ const STAT_AFFINITY = [
     [0.0247, 0.0192, 0.1678, 0.0631, 0],
 ];
 const STAT_RANGES = ['Day', 'Week', 'Month', 'Year', 'Lifetime'];
+
+// Weather icons in the style of Sigenergy's app (a sun or moon behind a white cloud), drawn in a 64-unit square.
+// Clouds are circles over a rounded bar, filled with one gradient across the icon so the shapes merge.
+const WX_CLOUD = '<rect x="10" y="36" width="46" height="16" rx="8"/><circle cx="24" cy="37" r="10"/><circle cx="37" cy="32" r="13"/><circle cx="48" cy="40" r="8"/>';
+const WX_PARTS = {
+    sun: '<circle cx="32" cy="32" r="17" fill="url(#wxSun)"/>',
+    sunBehind: '<circle cx="23" cy="24" r="13" fill="url(#wxSun)"/>',
+    moon: '<path d="M38 12A21 21 0 1 0 54 44A17 17 0 0 1 38 12Z" fill="url(#wxMoon)"/>',
+    moonBehind: '<path d="M27 9A15 15 0 1 0 39 32A12 12 0 0 1 27 9Z" fill="url(#wxMoon)"/>',
+    cloud: `<g fill="url(#wxCloud)" filter="url(#wxShadow)">${WX_CLOUD}</g>`,
+    cloudBack: `<g fill="url(#wxCloudBack)" transform="translate(-6 -10) scale(.9)">${WX_CLOUD}</g>`,
+    cloudHigh: `<g fill="url(#wxCloud)" filter="url(#wxShadow)" transform="translate(0 -10)">${WX_CLOUD}</g>`,
+    cloudDark: `<g fill="url(#wxCloudDark)" filter="url(#wxShadow)" transform="translate(0 -10)">${WX_CLOUD}</g>`,
+    rain: '<path d="M23 47l-3 7M33 47l-3 7M43 47l-3 7" stroke="#3d9cff" stroke-width="3.2" stroke-linecap="round"/>',
+    pour: '<path d="M20 46l-4 10M28 46l-4 10M36 46l-4 10M44 46l-4 10" stroke="#2f7fe0" stroke-width="3.2" stroke-linecap="round"/>',
+    snow: '<g fill="#fff" stroke="#8fc3ec" stroke-width="1.2"><circle cx="22" cy="51" r="3"/><circle cx="32" cy="56" r="3"/><circle cx="42" cy="51" r="3"/></g>',
+    sleet: '<path d="M25 47l-3 7M41 47l-3 7" stroke="#3d9cff" stroke-width="3.2" stroke-linecap="round"/><circle cx="32" cy="54" r="3" fill="#fff" stroke="#8fc3ec" stroke-width="1.2"/>',
+    hail: '<g fill="#eef6ff" stroke="#7fa6c8" stroke-width="1.4"><circle cx="22" cy="50" r="3.4"/><circle cx="32" cy="56" r="3.4"/><circle cx="42" cy="50" r="3.4"/></g>',
+    bolt: '<path d="M35 38L25 53H32L28 63L42 46H35L39 38Z" fill="#ffc21a" stroke="#e59b00" stroke-width="1" stroke-linejoin="round"/>',
+    boltRain: '<path d="M20 47l-3 7M46 47l-3 7" stroke="#3d9cff" stroke-width="3.2" stroke-linecap="round"/><path d="M35 38L25 53H32L28 63L42 46H35L39 38Z" fill="#ffc21a" stroke="#e59b00" stroke-width="1" stroke-linejoin="round"/>',
+    fog: '<path d="M14 48H50M20 55H44" stroke="#aab6c4" stroke-width="3.2" stroke-linecap="round"/>',
+    wind: '<path d="M8 26H38A6 6 0 1 0 32 20M8 36H48A6 6 0 1 1 42 42M14 46H30" fill="none" stroke="#9fb3c8" stroke-width="3.6" stroke-linecap="round"/>',
+    windLow: '<path d="M10 52H40A5 5 0 1 1 35 57M16 60H30" fill="none" stroke="#9fb3c8" stroke-width="3" stroke-linecap="round"/>',
+    alert: '<circle cx="32" cy="32" r="20" fill="#ff8a3d"/><path d="M32 21V35" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="43" r="3" fill="#fff"/>',
+};
+// Home Assistant's weather conditions; [night] replaces the parts after sunset.
+const WX_CONDITIONS = {
+    sunny: { day: ['sun'], night: ['moon'] },
+    'clear-night': { day: ['moon'] },
+    partlycloudy: { day: ['sunBehind', 'cloud'], night: ['moonBehind', 'cloud'] },
+    cloudy: { day: ['cloudBack', 'cloud'] },
+    fog: { day: ['cloudHigh', 'fog'] },
+    rainy: { day: ['cloudHigh', 'rain'] },
+    pouring: { day: ['cloudDark', 'pour'] },
+    snowy: { day: ['cloudHigh', 'snow'] },
+    'snowy-rainy': { day: ['cloudHigh', 'sleet'] },
+    hail: { day: ['cloudHigh', 'hail'] },
+    lightning: { day: ['cloudDark', 'bolt'] },
+    'lightning-rainy': { day: ['cloudDark', 'boltRain'] },
+    windy: { day: ['wind'] },
+    'windy-variant': { day: ['cloudHigh', 'windLow'] },
+    exceptional: { day: ['alert'] },
+};
+const WX_DEFS = `<defs>
+    <radialGradient id="wxSun" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#ffe680"/><stop offset=".6" stop-color="#ffc21a"/><stop offset="1" stop-color="#ffa000"/></radialGradient>
+    <linearGradient id="wxMoon" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset="1" stop-color="#f5cf62"/></linearGradient>
+    <linearGradient id="wxCloud" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="52"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#dde5ef"/></linearGradient>
+    <linearGradient id="wxCloudBack" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="45"><stop offset="0" stop-color="#e3e9f1"/><stop offset="1" stop-color="#b9c4d2"/></linearGradient>
+    <linearGradient id="wxCloudDark" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="52"><stop offset="0" stop-color="#b9c3d0"/><stop offset="1" stop-color="#7e8a9a"/></linearGradient>
+    <filter id="wxShadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#42566e" flood-opacity=".35"/></filter>
+  </defs>`;
+const weatherIcon = (condition, day) => {
+    const icon = WX_CONDITIONS[condition];
+    if (!icon) return '';
+    return `<svg viewBox="0 0 64 64" aria-hidden="true">${WX_DEFS}${(day ? icon.day : icon.night ?? icon.day).map(part => WX_PARTS[part]).join('')}</svg>`;
+};
 const STAT_PERIODS = { Day: '5minute', Week: 'hour', Month: 'hour', Year: 'day', Lifetime: 'day' };
 
 // Splits one interval's energy into a sources x consumers matrix with those totals (iterative proportional
@@ -307,6 +365,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._update();
         this._updateSunTimes();
         this._updateScene();
+        this._updateWeather();
         const today = new Date().toLocaleDateString('en-CA', { timeZone: this._zone });
         if (!previous || this._day !== today) {
             this._day = today;
@@ -359,6 +418,7 @@ class SigenergyFlowCard extends HTMLElement {
       .compact .sidecol .node{max-width:calc(430px * var(--s))}.narrow .sidecol .node{max-width:calc(230px * var(--s))}.compact .sidecol em{white-space:normal}
       .compact .lower .node+.node{max-width:calc(240px * var(--s))}.narrow .lower .node+.node{max-width:calc(150px * var(--s))}.compact .lower em{white-space:normal}
       .compact .node em span{display:block}.compact .node em span+span::before{content:none}
+      .node.weather button{display:flex;align-items:center;gap:calc(10px * var(--s))}.weather svg{width:clamp(30px,calc(58px * var(--s)),62px);height:clamp(30px,calc(58px * var(--s)),62px);overflow:visible}
       .sidecol{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:flex;flex-direction:column;justify-content:space-between;gap:max(14px,calc(24px * var(--s)));min-height:calc(184px * var(--s))}
       .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
@@ -425,6 +485,7 @@ class SigenergyFlowCard extends HTMLElement {
           ${LEADERS.map((d, i) => `<path class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>`).join('')}
           ${flows}
         </svg>
+        <div class="node weather" id="weather" hidden><button id="weatherButton" title="Show the weather forecast"><span id="weatherIcon"></span><strong id="weatherTemp"></strong></button></div>
         <div class="node lead" style="${placeAt(READINGS.pv)}"><button id="pvButton" title="Show PV string details"><strong id="pv">—</strong><small>SOLAR ›</small></button></div>
         <div class="node lead" style="${placeAt(READINGS.home)}">${this.config.home_entities.length
             ? `<button id="homeButton" title="Show home power usage"><strong id="home">—</strong><small>HOME ›</small></button>`
@@ -539,6 +600,8 @@ class SigenergyFlowCard extends HTMLElement {
             svg.addEventListener('pointerleave', () => this._hideHover(svg, box));
         }
         this._id('dcButton').addEventListener('click', () => this._moreInfo(this._ent('dc_charger_limit')));
+        this._id('weatherButton').addEventListener('click', () => this._moreInfo(this._ent('weather')));
+        this._weatherKey = null;
         this._wireStatistics();
         if (this._flowStates) for (const id of Object.keys(this._flowStates)) this._applyFlowClass(id);
     }
@@ -611,6 +674,10 @@ class SigenergyFlowCard extends HTMLElement {
         const centre = Math.min(SCENE.width - visible / 2, Math.max(visible / 2, (keepLeft + keepRight) / 2));
         scene.style.height = `${height}px`;
         Object.assign(plane.style, { width: `${SCENE.width * scale}px`, height: `${SCENE.height * scale}px`, left: `${-(centre - visible / 2) * scale}px`, top: `${(height - SCENE.height * scale) / 2}px` });
+        // The weather stays in the top left corner of the visible sky: the photo's top edge (bleed included), or the
+        // scene's when the photo is cropped, wherever the plane is cropped or centred.
+        const inset = Math.max(10, 24 * scale), planeTop = (height - SCENE.height * scale) / 2;
+        Object.assign(this._id('weather').style, { left: `${(centre - visible / 2) * scale + inset}px`, top: `${Math.max(0, planeTop - PHOTO.bleed * scale) - planeTop + inset}px` });
         plane.style.setProperty('--s', scale);
         plane.classList.toggle('compact', scale < .6);
         plane.classList.toggle('narrow', narrow);
@@ -658,6 +725,19 @@ class SigenergyFlowCard extends HTMLElement {
         this._sceneFile = file;
         this._id('chargerArt').setAttribute('href', ARTWORK[day ? 'charger_day.png' : 'charger_night.png'].href);
         for (const photo of this.root.querySelectorAll('.photo')) photo.setAttribute('href', ARTWORK[file].href);
+    }
+    // The weather entity's condition as an icon, and its current temperature.
+    _updateWeather() {
+        const state = this._hass.states[this._ent('weather')];
+        const condition = state && !['unknown', 'unavailable'].includes(state.state) ? state.state : null;
+        const temperature = Number.parseFloat(state?.attributes?.temperature);
+        const unit = state?.attributes?.temperature_unit ?? this._hass.config?.unit_system?.temperature ?? '';
+        const icon = weatherIcon(condition, this._isDay());
+        this._id('weather').hidden = !icon && !Number.isFinite(temperature);
+        this._text('weatherTemp', Number.isFinite(temperature) ? `${Math.round(temperature)}\u00A0${unit}`.trim() : '');
+        if (this._weatherKey === icon) return;
+        this._weatherKey = icon;
+        this._id('weatherIcon').innerHTML = icon;
     }
     _id(id) {
         return this.root.getElementById(id)
