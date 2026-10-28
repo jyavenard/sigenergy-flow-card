@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v56
+
+- New `sigenergy_backend` option: `sigenergy2mqtt` makes the card read [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt)'s entities by default, PV strings included, instead of Sigenergy Local Modbus's (`sigenergy_local_modbus`, the default). Keys set under `entities:` still replace the defaults.
+
 ## v55
 
 - Times, today's sunrise and sunset, the day or night style, the charts' midnight and the Energy statistics' days, weeks, months and years follow Home Assistant's time zone instead of the browser's.

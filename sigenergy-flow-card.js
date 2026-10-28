@@ -74,7 +74,55 @@ const DEFAULT_ENTITIES = {
     // The weather shown at the scene's top left: Home Assistant's default (Met.no) forecast entity.
     weather: ['weather.forecast_home', 'weather.home'],
 };
+// The same keys for sigenergy2mqtt (`sigenergy_backend: sigenergy2mqtt`), with its default entity ID prefix `sigen`
+// and plant 0. Inverter and charger entities carry their Modbus device address: the inverter is assumed at 1, the
+// AC charger at 1 or 2. sigenergy2mqtt has no daily energy for a third-party inverter.
+const SIGENERGY2MQTT_ENTITIES = {
+    pv_power: ['sensor.sigen_0_total_pv_power', 'sensor.sigen_0_plant_pv_power'],
+    home_power: ['sensor.sigen_0_consumed_power', 'sensor.sigen_0_total_load_power'],
+    battery_power: ['sensor.sigen_0_plant_battery_power', 'sensor.sigen_0_inverter_1_charge_discharge_power'],
+    battery_soc: ['sensor.sigen_0_plant_battery_soc', 'sensor.sigen_0_inverter_1_battery_soc'],
+    battery_capacity: ['sensor.sigen_0_plant_rated_energy_capacity', 'sensor.sigen_0_inverter_1_rated_battery_capacity'],
+    grid_import_power: ['sensor.sigen_0_grid_sensor_import_power'],
+    grid_export_power: ['sensor.sigen_0_grid_sensor_export_power'],
+    phase_mode: ['switch.sigen_0_plant_independent_phase_power_control'],
+    ac_charger_power: ['sensor.sigen_0_ac_charger_1_charging_power', 'sensor.sigen_0_ac_charger_2_charging_power'],
+    ac_charger_state: ['sensor.sigen_0_ac_charger_1_running_state', 'sensor.sigen_0_ac_charger_2_running_state'],
+    ac_charger_total_energy: ['sensor.sigen_0_ac_charger_1_total_energy_consumed', 'sensor.sigen_0_ac_charger_2_total_energy_consumed'],
+    ac_charger_vehicle_soc: [],
+    ac_charger_vehicle_range: [],
+    dc_charger_power: ['sensor.sigen_0_dc_charger_1_output_power'],
+    dc_charger_vehicle_soc: ['sensor.sigen_0_dc_charger_1_vehicle_soc'],
+    dc_charger_limit: ['number.sigen_0_dc_charger_1_max_charging_power_limit'],
+    dc_charger_lifetime_charged_energy: ['sensor.sigen_0_evdc_total_charge_energy', 'sensor.sigen_0_si_evdc_total_charge_energy', 'sensor.sigen_0_dc_charger_1_total_charging_capacity'],
+    dc_charger_lifetime_discharged_energy: ['sensor.sigen_0_evdc_total_discharge_energy', 'sensor.sigen_0_si_evdc_total_discharge_energy', 'sensor.sigen_0_dc_charger_1_total_discharging_capacity'],
+    // plant_pv_power is the Sigenergy PV alone; total_pv_power and lifetime_pv_energy add the third-party inverter.
+    pv_strings_power: ['sensor.sigen_0_plant_pv_power', 'sensor.sigen_0_inverter_1_pv_power'],
+    pv_strings_lifetime_energy: ['sensor.sigen_0_si_total_self_pv_generation', 'sensor.sigen_0_plant_lifetime_pv_energy', 'sensor.sigen_0_inverter_1_lifetime_pv_energy'],
+    third_party_pv_power: ['sensor.sigen_0_third_party_pv_power'],
+    third_party_pv_daily_energy: [],
+    third_party_pv_lifetime_energy: ['sensor.sigen_0_third_party_pv_lifetime_production', 'sensor.sigen_0_si_total_third_party_pv_generation'],
+    daily_pv_energy: ['sensor.sigen_0_daily_pv_energy', 'sensor.sigen_0_inverter_1_daily_pv_energy'],
+    daily_grid_import_energy: ['sensor.sigen_0_grid_sensor_daily_import_energy'],
+    daily_grid_export_energy: ['sensor.sigen_0_grid_sensor_daily_export_energy'],
+    daily_battery_charge_energy: ['sensor.sigen_0_daily_charge_energy', 'sensor.sigen_0_inverter_1_daily_charge_energy'],
+    // The plant's lifetime counters come first; the Statistics Interface (si_) ones restart from 0 when the firmware
+    // gains that interface.
+    stat_pv: ['sensor.sigen_0_plant_lifetime_pv_energy', 'sensor.sigen_0_si_total_self_pv_generation'],
+    stat_battery_charge: ['sensor.sigen_0_accumulated_charge_energy', 'sensor.sigen_0_si_total_charged_energy'],
+    stat_battery_discharge: ['sensor.sigen_0_accumulated_discharge_energy', 'sensor.sigen_0_si_total_discharged_energy'],
+    stat_grid_import: ['sensor.sigen_0_grid_sensor_lifetime_import_energy', 'sensor.sigen_0_si_total_imported_energy'],
+    stat_grid_export: ['sensor.sigen_0_grid_sensor_lifetime_export_energy', 'sensor.sigen_0_si_total_exported_energy'],
+    stat_evac_charge: ['sensor.sigen_0_si_total_ev_ac_charged_energy', 'sensor.sigen_0_ac_charger_1_total_energy_consumed', 'sensor.sigen_0_ac_charger_2_total_energy_consumed'],
+    daily_battery_discharge_energy: ['sensor.sigen_0_daily_discharge_energy', 'sensor.sigen_0_inverter_1_daily_discharge_energy'],
+    weather: DEFAULT_ENTITIES.weather,
+};
 const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'];
+// Default entities and PV string entity for each `sigenergy_backend`.
+const BACKENDS = {
+    sigenergy_local_modbus: { entities: DEFAULT_ENTITIES, pvString: (n, key) => `sensor.sigen_inverter_pv${n}_${key}` },
+    sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}` },
+};
 // Today's energy tiles: [value element id, entities key, label, entities key whose energy adds to it].
 const DAILY_TILES = [
     ['dayPv', 'daily_pv_energy', 'Solar produced', 'third_party_pv_daily_energy'],
@@ -328,6 +376,8 @@ class SigenergyFlowCard extends HTMLElement {
         };
     }
     setConfig(config) {
+        const backend = config.sigenergy_backend ?? 'sigenergy_local_modbus';
+        if (!Object.hasOwn(BACKENDS, backend)) throw new Error(`Unknown sigenergy_backend "${backend}". Valid values: ${Object.keys(BACKENDS).join(', ')}`);
         const entities = config.entities ?? {};
         if (typeof entities !== 'object' || Array.isArray(entities)) throw new Error('entities must be a mapping of key: entity_id');
         for (const [key, value] of Object.entries(entities)) {
@@ -343,15 +393,18 @@ class SigenergyFlowCard extends HTMLElement {
             name: 'My Home',
             show_energy_statistics: true,
             debug_energy_statistics: false,
-            ...config
+            ...config,
+            sigenergy_backend: backend,
         };
-        // Each string is a name, which reads the Sigenergy pattern sensor.sigen_inverter_pv<n>_*, or an object
+        this._backend = BACKENDS[backend];
+        // Each string is a name, which reads the backend's pattern (sensor.sigen_inverter_pv<n>_* for Sigenergy Local
+        // Modbus, sensor.sigen_0_inverter_1_pv<n>_* for sigenergy2mqtt), or an object
         // { name, voltage, current, power, daily_energy, accumulated_energy } that uses only the keys it lists.
         // A string none of whose entities exist in Home Assistant is treated as not fitted and hidden.
         this._pv = this.config.pv_strings.map((item, i) => {
             const object = typeof item === 'object' && item !== null;
             const pv = { name: (object ? item.name : item) ?? `PV${i + 1}` };
-            for (const key of PV_KEYS) pv[key] = object ? (typeof item[key] === 'string' ? item[key] : null) : `sensor.sigen_inverter_pv${i + 1}_${key}`;
+            for (const key of PV_KEYS) pv[key] = object ? (typeof item[key] === 'string' ? item[key] : null) : this._backend.pvString(i + 1, key);
             return pv;
         });
         this._build();
@@ -754,7 +807,7 @@ class SigenergyFlowCard extends HTMLElement {
         const set = this.config.entities?.[key];
         if (set === false || set === null) return null;
         if (set) return set;
-        const ids = DEFAULT_ENTITIES[key];
+        const ids = this._backend.entities[key];
         return ids.find(id => !['unknown', 'unavailable', undefined].includes(this._hass?.states[id]?.state)) ?? ids[0] ?? null;
     }
     _num(id) {

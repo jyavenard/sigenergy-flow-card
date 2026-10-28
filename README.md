@@ -80,7 +80,7 @@ Between sunset and sunrise (or with `style: night`) the card switches to the dar
 
 ## Requirements
 
-All data is read locally over Modbus by the [Sigenergy Local Modbus](https://github.com/TypQxQ/Sigenergy-Local-Modbus) integration, which installs through HACS ([open it in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)). Install and configure it first; the card uses its default entity IDs (`sensor.sigen_plant_*`, `sensor.sigen_inverter_*`, `sensor.sigen_ac_charger_*`).
+All data is read locally over Modbus by the [Sigenergy Local Modbus](https://github.com/TypQxQ/Sigenergy-Local-Modbus) integration, which installs through HACS ([open it in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)). Install and configure it first; the card uses its default entity IDs (`sensor.sigen_plant_*`, `sensor.sigen_inverter_*`, `sensor.sigen_ac_charger_*`). With [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt) instead, set `sigenergy_backend: sigenergy2mqtt` (see [sigenergy2mqtt](#sigenergy2mqtt)).
 
 ## Installation
 
@@ -134,6 +134,7 @@ All options are optional.
 
 | Option | Default | Description |
 | --- | --- | --- |
+| `sigenergy_backend` | `sigenergy_local_modbus` | The integration the card's default entities come from: `sigenergy_local_modbus` ([Sigenergy Local Modbus](https://github.com/TypQxQ/Sigenergy-Local-Modbus)) or `sigenergy2mqtt` ([sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt)). See [sigenergy2mqtt](#sigenergy2mqtt). |
 | `entities` | Sigenergy entities | Replaces the entities the card reads, for other inverter brands or integrations. See [Custom entities](#custom-entities). |
 | `battery_power_invert` | `false` | Set `true` if your battery power sensor is positive while **discharging**. The card expects positive while charging. |
 | `pv_strings` | `[PV1, PV2, PV3, PV4]` | The PV strings, in order. Each is a display name, or an object with its own entities (see [PV strings](#pv-strings)). The number of entries sets how many strings are shown. |
@@ -186,7 +187,7 @@ Each flow's highlight moves from its source to its destination at `60 + 35 × �
 
 Every entity the card reads can be replaced under `entities:`. For each key:
 
-- **Not set:** the Sigenergy default is used (for the plant/inverter pairs, the plant sensor first, then the inverter fallback).
+- **Not set:** the default for the `sigenergy_backend` is used (for the plant/inverter pairs, the plant sensor first, then the inverter fallback). The table below lists the Sigenergy Local Modbus defaults; [sigenergy2mqtt](#sigenergy2mqtt) lists that backend's.
 - **Set to an entity ID:** that entity is used, with no fallback.
 - **Set to `false`:** that item is hidden (its tile, line or charger disappears).
 
@@ -266,6 +267,57 @@ pv_strings:
     accumulated_energy: false
 ```
 
+### sigenergy2mqtt
+
+With `sigenergy_backend: sigenergy2mqtt`, the card reads the entities [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt) publishes to Home Assistant, with its default entity ID prefix `sigen` and plant `0`. Inverter and charger entities carry their Modbus device address: the defaults assume the inverter (and its DC charger) at address 1, and try the AC charger at address 1, then 2. With another prefix or address, set the affected keys under `entities:`, which still replace the defaults.
+
+```yaml
+type: custom:sigenergy-flow-card
+sigenergy_backend: sigenergy2mqtt
+```
+
+| Key | sigenergy2mqtt default |
+| --- | --- |
+| `pv_power` | `sensor.sigen_0_total_pv_power`, fallback `sensor.sigen_0_plant_pv_power` |
+| `home_power` | `sensor.sigen_0_consumed_power`, fallback `sensor.sigen_0_total_load_power` |
+| `battery_power` | `sensor.sigen_0_plant_battery_power`, fallback `sensor.sigen_0_inverter_1_charge_discharge_power` |
+| `battery_soc` | `sensor.sigen_0_plant_battery_soc`, fallback `sensor.sigen_0_inverter_1_battery_soc` |
+| `battery_capacity` | `sensor.sigen_0_plant_rated_energy_capacity`, fallback `sensor.sigen_0_inverter_1_rated_battery_capacity` |
+| `grid_import_power` | `sensor.sigen_0_grid_sensor_import_power` |
+| `grid_export_power` | `sensor.sigen_0_grid_sensor_export_power` |
+| `phase_mode` | `switch.sigen_0_plant_independent_phase_power_control` |
+| `ac_charger_power` | `sensor.sigen_0_ac_charger_1_charging_power`, fallback `sensor.sigen_0_ac_charger_2_charging_power` |
+| `ac_charger_state` | `sensor.sigen_0_ac_charger_1_running_state`, fallback `sensor.sigen_0_ac_charger_2_running_state` |
+| `ac_charger_total_energy` | `sensor.sigen_0_ac_charger_1_total_energy_consumed`, fallback `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
+| `ac_charger_vehicle_soc` | none |
+| `ac_charger_vehicle_range` | none |
+| `dc_charger_power` | `sensor.sigen_0_dc_charger_1_output_power` |
+| `dc_charger_vehicle_soc` | `sensor.sigen_0_dc_charger_1_vehicle_soc` |
+| `dc_charger_limit` | `number.sigen_0_dc_charger_1_max_charging_power_limit` |
+| `dc_charger_lifetime_charged_energy` | `sensor.sigen_0_evdc_total_charge_energy`, fallback `sensor.sigen_0_si_evdc_total_charge_energy`, then `sensor.sigen_0_dc_charger_1_total_charging_capacity` |
+| `dc_charger_lifetime_discharged_energy` | `sensor.sigen_0_evdc_total_discharge_energy`, fallback `sensor.sigen_0_si_evdc_total_discharge_energy`, then `sensor.sigen_0_dc_charger_1_total_discharging_capacity` |
+| `pv_strings_power` | `sensor.sigen_0_plant_pv_power`, fallback `sensor.sigen_0_inverter_1_pv_power` |
+| `pv_strings_lifetime_energy` | `sensor.sigen_0_si_total_self_pv_generation`, fallback `sensor.sigen_0_plant_lifetime_pv_energy`, then `sensor.sigen_0_inverter_1_lifetime_pv_energy` |
+| `third_party_pv_power` | `sensor.sigen_0_third_party_pv_power` |
+| `third_party_pv_daily_energy` | none |
+| `third_party_pv_lifetime_energy` | `sensor.sigen_0_third_party_pv_lifetime_production`, fallback `sensor.sigen_0_si_total_third_party_pv_generation` |
+| `daily_pv_energy` | `sensor.sigen_0_daily_pv_energy`, fallback `sensor.sigen_0_inverter_1_daily_pv_energy` |
+| `daily_grid_import_energy` | `sensor.sigen_0_grid_sensor_daily_import_energy` |
+| `daily_grid_export_energy` | `sensor.sigen_0_grid_sensor_daily_export_energy` |
+| `daily_battery_charge_energy` | `sensor.sigen_0_daily_charge_energy`, fallback `sensor.sigen_0_inverter_1_daily_charge_energy` |
+| `stat_pv` | `sensor.sigen_0_plant_lifetime_pv_energy`, fallback `sensor.sigen_0_si_total_self_pv_generation` |
+| `stat_battery_charge` | `sensor.sigen_0_accumulated_charge_energy`, fallback `sensor.sigen_0_si_total_charged_energy` |
+| `stat_battery_discharge` | `sensor.sigen_0_accumulated_discharge_energy`, fallback `sensor.sigen_0_si_total_discharged_energy` |
+| `stat_grid_import` | `sensor.sigen_0_grid_sensor_lifetime_import_energy`, fallback `sensor.sigen_0_si_total_imported_energy` |
+| `stat_grid_export` | `sensor.sigen_0_grid_sensor_lifetime_export_energy`, fallback `sensor.sigen_0_si_total_exported_energy` |
+| `stat_evac_charge` | `sensor.sigen_0_si_total_ev_ac_charged_energy`, fallback `sensor.sigen_0_ac_charger_1_total_energy_consumed`, then `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
+| `daily_battery_discharge_energy` | `sensor.sigen_0_daily_discharge_energy`, fallback `sensor.sigen_0_inverter_1_daily_discharge_energy` |
+
+- `plant_pv_power` is the Sigenergy PV alone; `total_pv_power` and `lifetime_pv_energy` add the third-party inverter. `stat_pv` must therefore not be `sensor.sigen_0_lifetime_pv_energy`: the card adds `third_party_pv_lifetime_energy` to it, which would count the third-party inverter twice.
+- sigenergy2mqtt has no daily energy for a third-party inverter, so `third_party_pv_daily_energy` has no default and the **Solar produced** tile counts only the Sigenergy PV.
+- The `si_` sensors come from the Statistics Interface, whose counters restart from 0 when the firmware gains it; the plant's lifetime counters are used first.
+- `home_power` is sigenergy2mqtt's consumed power, which follows its `consumption` setting (by default the Total Load Power register).
+
 ### Energy statistics
 
 The **Energy statistics** panel under the scene shows where energy came from and where it went: a diagram from sources (solar, battery, EVDC, grid import) to consumers (battery, EVDC, load, EVAC, grid export), for a day, week, month, year or the whole lifetime. Use the arrows to move between periods and the selector to change the range. Select a source to see how its energy was shared among the consumers, or a consumer to see its sources, with the percentages and kWh also listed under the diagram. Select it again to go back.
@@ -283,6 +335,8 @@ sensor.sigen_inverter_pv<n>_power
 sensor.sigen_inverter_pv<n>_daily_energy
 sensor.sigen_inverter_pv<n>_accumulated_energy
 ```
+
+With `sigenergy_backend: sigenergy2mqtt`, they are `sensor.sigen_0_inverter_1_pv<n>_voltage`, `_current`, `_power`, `_daily_energy` and `_lifetime_energy`.
 
 A string written as an object sets its own entities instead, and uses only the keys it lists: a column left out (or set to `false`) shows `—`. Names and objects can be mixed.
 
