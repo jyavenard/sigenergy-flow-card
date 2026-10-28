@@ -344,7 +344,7 @@ A string written as an object sets its own entities instead, and uses only the k
 
 A string none of whose entities exist in Home Assistant is treated as not fitted: its row, legend entry and chart line are hidden. The default four names therefore suit inverters with 2, 3 or 4 strings without changes.
 
-When `third_party_pv_power`, `third_party_pv_daily_energy` or `third_party_pv_lifetime_energy` exists, a **Third-party PV** row is shown under the strings, and the chart draws the third-party inverter's power too. The Sigenergy integration disables the third-party power and lifetime energy sensors by default, and derives the daily one from the lifetime one; enable both in Home Assistant if a third-party inverter is connected. Its daily energy also counts towards the **Solar produced** tile, and its lifetime energy towards the Energy statistics' solar.
+When `third_party_pv_power`, `third_party_pv_daily_energy` or `third_party_pv_lifetime_energy` reports any energy or power (the integrations publish them as 0 on systems without a third-party inverter), a **Third-party PV** row is shown under the strings, and the chart draws the third-party inverter's power too. The Sigenergy integration disables the third-party power and lifetime energy sensors by default, and derives the daily one from the lifetime one; enable both in Home Assistant if a third-party inverter is connected. Its daily energy also counts towards the **Solar produced** tile, and its lifetime energy towards the Energy statistics' solar.
 
 The **Total** row adds up the rows above it: the system's own PV sensors when they exist (`pv_strings_power`, `daily_pv_energy` and `pv_strings_lifetime_energy`), otherwise the sum of the strings shown, plus the Third-party PV row.
 

@@ -926,8 +926,14 @@ class SigenergyFlowCard extends HTMLElement {
             this._text(`pvTotal_${key}`, total === null ? '—' : total.toFixed(2));
             this._text(`pvThird_${key}`, third[key] === null ? '—' : third[key].toFixed(2));
         }
-        this._id('pvThirdRow').hidden = !['third_party_pv_power', 'third_party_pv_daily_energy', 'third_party_pv_lifetime_energy'].some(key => this._has(this._ent(key)));
-        this._id('pvLegendThird').hidden = !this._has(this._ent('third_party_pv_power'));
+        const fitted = this._hasThirdPartyPv();
+        this._id('pvThirdRow').hidden = !fitted;
+        this._id('pvLegendThird').hidden = !fitted || !this._has(this._ent('third_party_pv_power'));
+    }
+    // A third-party inverter is fitted when its sensors have recorded any energy or power: the integrations create some
+    // of them, reading 0, on systems without one.
+    _hasThirdPartyPv() {
+        return ['third_party_pv_lifetime_energy', 'third_party_pv_daily_energy', 'third_party_pv_power'].some(key => (this._scaled(this._ent(key)) ?? 0) > .005);
     }
     // Stored energy is SOC × rated capacity; no sensor reports it directly.
     _updateEnergy() {
@@ -988,7 +994,7 @@ class SigenergyFlowCard extends HTMLElement {
         const day = zoneMidnight(Date.now(), this._zone);
         const strings = this._pv.map((pv, i) => ({ ...pv, color: PV_COLORS[i % PV_COLORS.length] })).filter(pv => this._has(pv.power));
         const third = this._ent('third_party_pv_power');
-        if (this._has(third)) strings.push({ name: 'Third-party PV', power: third, color: 'var(--pv-third)' });
+        if (this._has(third) && this._hasThirdPartyPv()) strings.push({ name: 'Third-party PV', power: third, color: 'var(--pv-third)' });
         const ids = strings.map(pv => pv.power);
         if (!ids.length) {
             this._text('pvChartStatus', 'No PV power entities configured');

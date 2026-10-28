@@ -7,6 +7,7 @@ Each release is tagged `vN` on GitHub; HACS offers the newest release as the upd
 - The Power metrics chart plots power as Sigenergy's app does: what is supplied to the home (solar, battery discharging, grid import, a vehicle supplying the DC charger) above zero, and what is consumed (home, battery charging, grid export, EV charging) below. The battery, home and both chargers were plotted the other way round.
 - The chart's axis ends on a round value (1.5, 2, 2.5, 5, 7.5, 15… kW) instead of the day's peak, so its labels are exact: a 1.22 kW peak used to be labelled 1.
 - The Today charts (Power metrics, PV power, stored energy, battery level) span the whole day, midnight to midnight, as in Sigenergy's app, with the lines running up to now; they used to stretch midnight to now across the full width. Past now, hovering shows the latest readings.
+- The PV Strings dialog shows the Third-party PV row, legend and chart line only when a third-party inverter has recorded energy or power. They showed whenever a third-party sensor existed, and the integrations create them on systems without one: Sigenergy Local Modbus's daily third-party energy sensor reads 0 kWh, as do sigenergy2mqtt's third-party sensors.
 
 ## v57
 
