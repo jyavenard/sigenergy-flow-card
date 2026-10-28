@@ -4,13 +4,13 @@
 //
 //     node tools/screenshots.js [card.js] [output directory]
 //
-// It needs Playwright: playwright-core is found through $PLAYWRIGHT_CORE (the package's directory) or the usual
-// module search, and the browser through $CHROMIUM or Playwright's own install, for example:
+// It renders with WebKit, Safari's engine, through Playwright: playwright-core is found through $PLAYWRIGHT_CORE (the
+// package's directory) or the usual module search, and the browser through $WEBKIT or Playwright's own install, e.g.:
 //
-//     npm install --prefix /tmp/sigpw playwright-core && npx --prefix /tmp/sigpw playwright-core install chromium
+//     npm install --prefix /tmp/sigpw playwright-core && npx --prefix /tmp/sigpw playwright-core install webkit
 //     PLAYWRIGHT_CORE=/tmp/sigpw/node_modules/playwright-core node tools/screenshots.js
 const path = require('path');
-const { chromium } = require(process.env.PLAYWRIGHT_CORE || 'playwright-core');
+const { webkit } = require(process.env.PLAYWRIGHT_CORE || 'playwright-core');
 const ROOT = path.resolve(__dirname, '..');
 const card = path.resolve(process.argv[2] || path.join(ROOT, 'sigenergy-flow-card.js'));
 const out = path.resolve(process.argv[3] || path.join(ROOT, 'docs', 'screenshots'));
@@ -145,7 +145,7 @@ async function statClip(page, pad) {
 }
 
 (async () => {
-    const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+    const browser = await webkit.launch(process.env.WEBKIT ? { executablePath: process.env.WEBKIT } : {});
     const device = (width, height, pad, scale) => ({ viewport: { width, height }, deviceScaleFactor: scale, locale: 'en-AU', timezoneId: 'Australia/Sydney', pad });
     const shots = [
         { name: 'desktop', ...device(1000, 625, 11, 1.6) },

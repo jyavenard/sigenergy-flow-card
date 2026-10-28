@@ -426,7 +426,7 @@ Small Python scripts in `tools/` that query the system directly over Modbus TCP 
 
 The card itself reads everything from Home Assistant entities (battery level, phase power mode and AC charger energy included), so it does not need these scripts; they are for use outside Home Assistant.
 
-`tools/screenshots.js` regenerates the screenshots in `docs/screenshots/` from one simulated day, so the tiles, charts and statistics agree; it needs Node.js and [Playwright](https://playwright.dev) (see the comment at its top).
+`tools/screenshots.js` regenerates the screenshots in `docs/screenshots/` from one simulated day, so the tiles, charts and statistics agree; it renders with WebKit through [Playwright](https://playwright.dev) and needs Node.js (see the comment at its top).
 
 ## License
 
