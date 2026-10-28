@@ -287,7 +287,7 @@ sigenergy_backend: sigenergy2mqtt
 | `grid_import_power` | `sensor.sigen_0_grid_sensor_import_power` |
 | `grid_export_power` | `sensor.sigen_0_grid_sensor_export_power` |
 | `phase_mode` | `switch.sigen_0_plant_independent_phase_power_control` |
-| `ac_charger_power` | `sensor.sigen_0_ac_charger_1_charging_power`, fallback `sensor.sigen_0_ac_charger_2_charging_power` |
+| `ac_charger_power` | `sensor.sigen_0_ac_charger_1_charging_power`, fallback `sensor.sigen_0_ac_charger_2_charging_power`, then `sensor.sigen_0_ac_charger_1_rated_charging_power`, then `sensor.sigen_0_ac_charger_2_rated_charging_power` |
 | `ac_charger_state` | `sensor.sigen_0_ac_charger_1_running_state`, fallback `sensor.sigen_0_ac_charger_2_running_state` |
 | `ac_charger_total_energy` | `sensor.sigen_0_ac_charger_1_total_energy_consumed`, fallback `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
 | `ac_charger_vehicle_soc` | none |
@@ -317,6 +317,7 @@ sigenergy_backend: sigenergy2mqtt
 - `plant_pv_power` is the Sigenergy PV alone; `total_pv_power` and `lifetime_pv_energy` add the third-party inverter. `stat_pv` must therefore not be `sensor.sigen_0_lifetime_pv_energy`: the card adds `third_party_pv_lifetime_energy` to it, which would count the third-party inverter twice.
 - sigenergy2mqtt has no daily energy for a third-party inverter, so `third_party_pv_daily_energy` has no default and the **Solar produced** tile counts only the Sigenergy PV.
 - The `si_` sensors come from the Statistics Interface, whose counters restart from 0 when the firmware gains it; the plant's lifetime counters are used first.
+- `ac_charger_power` falls back to `rated_charging_power`, the name sigenergy2mqtt used before February 2026: Home Assistant keeps the entity ID it first registered, so installs from before then still have it.
 - `home_power` is sigenergy2mqtt's consumed power, which follows its `consumption` setting (by default the Total Load Power register).
 
 ### Energy statistics

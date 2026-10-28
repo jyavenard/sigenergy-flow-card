@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v57
+
+- With `sigenergy_backend: sigenergy2mqtt`, the AC charger is also found under `rated_charging_power`, the name sigenergy2mqtt used before February 2026. Home Assistant keeps the entity ID it first registered, so installs from before then still have that name.
+- README: the card is in HACS's default list, so installing it no longer needs a custom repository.
+
 ## v56
 
 - New `sigenergy_backend` option: `sigenergy2mqtt` makes the card read [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt)'s entities by default, PV strings included, instead of Sigenergy Local Modbus's (`sigenergy_local_modbus`, the default). Keys set under `entities:` still replace the defaults.

@@ -76,7 +76,9 @@ const DEFAULT_ENTITIES = {
 };
 // The same keys for sigenergy2mqtt (`sigenergy_backend: sigenergy2mqtt`), with its default entity ID prefix `sigen`
 // and plant 0. Inverter and charger entities carry their Modbus device address: the inverter is assumed at 1, the
-// AC charger at 1 or 2. sigenergy2mqtt has no daily energy for a third-party inverter.
+// AC charger at 1 or 2. The AC charger's power was `rated_charging_power` before February 2026; Home Assistant
+// keeps the entity ID it first registered, so installs from before then still have that name. sigenergy2mqtt has
+// no daily energy for a third-party inverter.
 const SIGENERGY2MQTT_ENTITIES = {
     pv_power: ['sensor.sigen_0_total_pv_power', 'sensor.sigen_0_plant_pv_power'],
     home_power: ['sensor.sigen_0_consumed_power', 'sensor.sigen_0_total_load_power'],
@@ -86,7 +88,7 @@ const SIGENERGY2MQTT_ENTITIES = {
     grid_import_power: ['sensor.sigen_0_grid_sensor_import_power'],
     grid_export_power: ['sensor.sigen_0_grid_sensor_export_power'],
     phase_mode: ['switch.sigen_0_plant_independent_phase_power_control'],
-    ac_charger_power: ['sensor.sigen_0_ac_charger_1_charging_power', 'sensor.sigen_0_ac_charger_2_charging_power'],
+    ac_charger_power: ['sensor.sigen_0_ac_charger_1_charging_power', 'sensor.sigen_0_ac_charger_2_charging_power', 'sensor.sigen_0_ac_charger_1_rated_charging_power', 'sensor.sigen_0_ac_charger_2_rated_charging_power'],
     ac_charger_state: ['sensor.sigen_0_ac_charger_1_running_state', 'sensor.sigen_0_ac_charger_2_running_state'],
     ac_charger_total_energy: ['sensor.sigen_0_ac_charger_1_total_energy_consumed', 'sensor.sigen_0_ac_charger_2_total_energy_consumed'],
     ac_charger_vehicle_soc: [],
