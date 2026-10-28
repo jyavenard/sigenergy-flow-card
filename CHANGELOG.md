@@ -5,6 +5,7 @@ Each release is tagged `vN` on GitHub; HACS offers the newest release as the upd
 ## v56
 
 - New `sigenergy_backend` option: `sigenergy2mqtt` makes the card read [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt)'s entities by default, PV strings included, instead of Sigenergy Local Modbus's (`sigenergy_local_modbus`, the default). Keys set under `entities:` still replace the defaults.
+- The card file is about 40% smaller (405 KiB instead of 656 KiB): the house photos and charger overlays are embedded as AVIF instead of WebP, at the same visible quality. AVIF needs iOS / iPadOS 16 or later, or Safari on macOS 13 or later; Chrome, Edge, Firefox and the Android app show it on any current version. On older systems the card shows no photo.
 
 ## v55
 

@@ -82,6 +82,8 @@ Between sunset and sunrise (or with `style: night`) the card switches to the dar
 
 All data is read locally over Modbus by the [Sigenergy Local Modbus](https://github.com/TypQxQ/Sigenergy-Local-Modbus) integration, which installs through HACS ([open it in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)). Install and configure it first; the card uses its default entity IDs (`sensor.sigen_plant_*`, `sensor.sigen_inverter_*`, `sensor.sigen_ac_charger_*`). With [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt) instead, set `sigenergy_backend: sigenergy2mqtt` (see [sigenergy2mqtt](#sigenergy2mqtt)).
 
+The house photos are AVIF images, which need a browser (or Home Assistant app) that can show AVIF: on iPhone and iPad, iOS / iPadOS 16 or later; on a Mac, Safari on macOS 13 Ventura or later, or a current Chrome, Edge or Firefox; on Android, the Home Assistant app or Chrome on any Android version, as long as Android System WebView (for the app) or Chrome is version 85 or later, which Play Store updates provide. On older systems the card works but shows no photo.
+
 ## Installation
 
 The artwork is built into `sigenergy-flow-card.js`, so the card is a single file: nothing needs copying to `/config/www/Sigenergy/`.
@@ -408,7 +410,7 @@ The DC charger's vehicle state of charge is hidden while the charger is idle and
 
 ## Changing the artwork
 
-The scene photos `images/house_day.png` and `images/house_night.png` show the house without a car charger. The charger on the garage wall is a separate transparent image of the same size, `images/charger_day.png` and `images/charger_night.png`; the card draws it only when an AC or DC charger is present. `tools/embed-artwork.py` places each photo in the card's coordinates (a scale and offset measured against the first photo, kept in the tool), adds a short band above and below for the readings, scales each charger to the wall position, and embeds the result in the card. After changing any of the four, regenerate the embedded copy (requires [Pillow](https://python-pillow.org) and [NumPy](https://numpy.org)); if a new photo is framed differently, update its entry in `REGISTRATION` first:
+The scene photos `images/house_day.png` and `images/house_night.png` show the house without a car charger. The charger on the garage wall is a separate transparent image of the same size, `images/charger_day.png` and `images/charger_night.png`; the card draws it only when an AC or DC charger is present. `tools/embed-artwork.py` places each photo in the card's coordinates (a scale and offset measured against the first photo, kept in the tool), adds a short band above and below for the readings, scales each charger to the wall position, and embeds the result in the card. After changing any of the four, regenerate the embedded copy (requires [Pillow](https://python-pillow.org) 11.3 or later, for AVIF, and [NumPy](https://numpy.org)); if a new photo is framed differently, update its entry in `REGISTRATION` first:
 
 ```sh
 python3 tools/embed-artwork.py

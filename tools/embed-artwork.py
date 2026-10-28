@@ -5,13 +5,14 @@ The card positions everything in the coordinates of its first photo (1676 units 
 Each photo is resampled into that frame (REGISTRATION holds the scale and offset
 measured against it), so the layout does not depend on the size of the supplied image,
 then extended with a band above and below (its edge rows stretched and blurred), where
-the card places its readings, and stored as a WebP data URI so the card is a single
-self-contained file.
+the card places its readings, and stored as an AVIF data URI so the card is a single
+self-contained file. AVIF needs iOS / iPadOS 16 or later, Safari on macOS 13 or later, or Chrome / Edge 85,
+Firefox 93 or later; at the same quality it is about a third smaller than WebP.
 
 The charger overlays are transparent images of the charger on the garage wall; each
 is scaled so its charger has the height CHARGER_REFERENCE gives (in photo units),
-centred on the wall position, cropped to its visible pixels and stored losslessly
-at twice the card's resolution. Run after changing any of the images:
+centred on the wall position, cropped to its visible pixels and stored at twice the
+card's resolution. Run after changing any of the images:
 
     python3 tools/embed-artwork.py
 """
@@ -28,7 +29,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CARD = ROOT / 'sigenergy-flow-card.js'
 FILES = ['house_day.png', 'house_night.png']
 OVERLAYS = ['charger_day.png', 'charger_night.png']
-QUALITY = 88
+# AVIF quality of the photos and of the charger overlays, and the encoder's speed (0 is slowest and smallest).
+QUALITY, OVERLAY_QUALITY, SPEED = 60, 80, 2
 WIDTH = 1676
 # The photo's rows, starting EXTRA_TOP units above the first photo's top row.
 EXTRA_TOP, ROWS = 44, 557
@@ -74,10 +76,10 @@ def overlay(name):
     x = centre_x - ((body_left + body_right) / 2 - left) * unit
     y = body_top_y - (body_top - top) * unit + EXTRA_TOP
     buffer = io.BytesIO()
-    crop.save(buffer, 'WEBP', lossless=True, method=6)
+    crop.save(buffer, 'AVIF', quality=OVERLAY_QUALITY, speed=SPEED)
     data = base64.b64encode(buffer.getvalue()).decode('ascii')
     return (f"    '{name}': {{ size: [{(right - left) * unit:.2f}, {(bottom - top) * unit:.2f}], at: [{x:.2f}, {y:.2f}], "
-            f"href: 'data:image/webp;base64,{data}' }},")
+            f"href: 'data:image/avif;base64,{data}' }},")
 
 
 def place(name):
@@ -94,9 +96,9 @@ def place(name):
 def entry(name):
     image = extend(place(name))
     buffer = io.BytesIO()
-    image.save(buffer, 'WEBP', quality=QUALITY, method=6)
+    image.save(buffer, 'AVIF', quality=QUALITY, speed=SPEED)
     data = base64.b64encode(buffer.getvalue()).decode('ascii')
-    return f"    '{name}': {{ size: [{image.width}, {image.height}], href: 'data:image/webp;base64,{data}' }},"
+    return f"    '{name}': {{ size: [{image.width}, {image.height}], href: 'data:image/avif;base64,{data}' }},"
 
 
 def main():
