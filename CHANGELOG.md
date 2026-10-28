@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v59
+
+- The Power metrics chart names the chargers EVAC and EVDC, as the Energy statistics do, instead of AC and DC.
+
 ## v58
 
 - The Power metrics chart plots power as Sigenergy's app does: what is supplied to the home (solar, battery discharging, grid import, a vehicle supplying the DC charger) above zero, and what is consumed (home, battery charging, grid export, EV charging) below. The battery, home and both chargers were plotted the other way round.

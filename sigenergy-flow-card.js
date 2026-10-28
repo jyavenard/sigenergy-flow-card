@@ -176,8 +176,8 @@ const CHART_SERIES = [
     { key: 'battery_power', color: 'var(--c-battery)', name: 'Battery', negate: true },
     { key: 'grid_import_power', color: 'var(--c-grid)', name: 'Grid' },
     { key: 'grid_export_power', color: 'var(--c-grid)', name: 'Grid', negate: true },
-    { key: 'ac_charger_power', color: 'var(--c-ac)', name: 'AC', optional: true, negate: true },
-    { key: 'dc_charger_power', color: 'var(--c-dc)', name: 'DC', optional: true, negate: true },
+    { key: 'ac_charger_power', color: 'var(--c-ac)', name: 'EVAC', optional: true, negate: true },
+    { key: 'dc_charger_power', color: 'var(--c-dc)', name: 'EVDC', optional: true, negate: true },
     { key: 'home_power', color: 'var(--c-home)', name: 'Home', negate: true },
 ];
 const PV_COLORS = [0, 1, 2, 3, 4, 5].map(i => `var(--pv${i})`);
@@ -1159,8 +1159,8 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('acNode').hidden = !hasAc;
         this._id('dcNode').hidden = !hasDc;
         this._id('chargerArt').setAttribute('display', hasAc || hasDc ? 'inline' : 'none');
-        this._id('legendAC').hidden = !hasAc;
-        this._id('legendDC').hidden = !hasDc;
+        this._id('legendEVAC').hidden = !hasAc;
+        this._id('legendEVDC').hidden = !hasDc;
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));
@@ -1490,7 +1490,7 @@ class SigenergyFlowCard extends HTMLElement {
         const notes = {
             Battery: v => v > .005 ? 'discharging' : v < -.005 ? 'charging' : '',
             Grid: v => v > .005 ? 'import' : v < -.005 ? 'export' : '',
-            DC: v => v > .005 ? 'discharging' : v < -.005 ? 'charging' : '',
+            EVDC: v => v > .005 ? 'discharging' : v < -.005 ? 'charging' : '',
         };
         const series = this._series(data, specs.map(s => s.id)).map((points, i) => {
             // Scale W/MW to kW, flip the consumers' sign, and apply battery_power_invert to the battery series.
