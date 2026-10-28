@@ -50,8 +50,10 @@ const DEFAULT_ENTITIES = {
     dc_charger_power: ['sensor.sigen_inverter_dc_charger_output_power'],
     dc_charger_vehicle_soc: ['sensor.sigen_inverter_dc_charger_vehicle_soc'],
     dc_charger_limit: ['number.sigen_inverter_dc_charger_max_charging_power_limit'],
-    dc_charger_lifetime_charged_energy: ['sensor.sigen_plant_total_charged_energy_of_the_evdc'],
-    dc_charger_lifetime_discharged_energy: ['sensor.sigen_plant_total_discharged_energy_of_the_evdc'],
+    // The plant's EVDC counters cover every inverter but are disabled by default; the first inverter's DC charger
+    // totals are enabled.
+    dc_charger_lifetime_charged_energy: ['sensor.sigen_plant_total_charged_energy_of_the_evdc', 'sensor.sigen_inverter_dc_charger_total_charging_capacity'],
+    dc_charger_lifetime_discharged_energy: ['sensor.sigen_plant_total_discharged_energy_of_the_evdc', 'sensor.sigen_inverter_dc_charger_total_discharging_capacity'],
     // PV Strings dialog: the Sigenergy PV inputs and the third-party PV row, which the Total row adds up. The
     // third-party inverter's energy also counts towards Solar produced and the Energy statistics' solar.
     pv_strings_power: ['sensor.sigen_plant_sigen_pv_power'],

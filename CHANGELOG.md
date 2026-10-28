@@ -5,6 +5,7 @@ Each release is tagged `vN` on GitHub; HACS offers the newest release as the upd
 ## v60
 
 - The Power metrics chart continues past now with dashed forecast lines, as in Sigenergy's app: solar from Home Assistant's solar forecast (Forecast.Solar, Open-Meteo, Solcast… as set up in the Energy dashboard) or, without one, the average over the last 7 days at each time of day, and the home's consumption from its 7-day average. Hovering past now reads the forecast. New `show_forecast` option (default `true`).
+- EVDC appears in the Energy statistics, and the DC charger's lifetime line under DC CHARGER, without enabling anything: the card falls back to the inverter's DC charger totals (`sensor.sigen_inverter_dc_charger_total_charging_capacity` and `…_total_discharging_capacity`), which Sigenergy Local Modbus enables, when the plant's EVDC totals are disabled, as they are by default. Without either, the DC charger's energy was counted as Load.
 
 ## v59
 
