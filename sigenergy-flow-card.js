@@ -168,14 +168,17 @@ const READINGS = {
 
 const FLOW_COLOR = '#63d6c1';
 // Series colours are CSS variables so the day and night styles can each define their own.
+// As in Sigenergy's app, power supplied to the home is positive (solar, battery discharging, grid import, a vehicle
+// supplying the DC charger) and power consumed is negative (home, battery charging, grid export, vehicle charging);
+// [negate] flips a sensor whose sign is the other way.
 const CHART_SERIES = [
     { key: 'pv_power', color: 'var(--c-solar)', name: 'Solar' },
-    { key: 'battery_power', color: 'var(--c-battery)', name: 'Battery' },
+    { key: 'battery_power', color: 'var(--c-battery)', name: 'Battery', negate: true },
     { key: 'grid_import_power', color: 'var(--c-grid)', name: 'Grid' },
     { key: 'grid_export_power', color: 'var(--c-grid)', name: 'Grid', negate: true },
-    { key: 'ac_charger_power', color: 'var(--c-ac)', name: 'AC', optional: true },
-    { key: 'dc_charger_power', color: 'var(--c-dc)', name: 'DC', optional: true },
-    { key: 'home_power', color: 'var(--c-home)', name: 'Home' },
+    { key: 'ac_charger_power', color: 'var(--c-ac)', name: 'AC', optional: true, negate: true },
+    { key: 'dc_charger_power', color: 'var(--c-dc)', name: 'DC', optional: true, negate: true },
+    { key: 'home_power', color: 'var(--c-home)', name: 'Home', negate: true },
 ];
 const PV_COLORS = [0, 1, 2, 3, 4, 5].map(i => `var(--pv${i})`);
 const STYLES = {
@@ -1479,12 +1482,12 @@ class SigenergyFlowCard extends HTMLElement {
     }
     _renderChart(data, specs, start) {
         const notes = {
-            Battery: v => v > .005 ? 'charging' : v < -.005 ? 'discharging' : '',
+            Battery: v => v > .005 ? 'discharging' : v < -.005 ? 'charging' : '',
             Grid: v => v > .005 ? 'import' : v < -.005 ? 'export' : '',
-            DC: v => v > .005 ? 'charging' : v < -.005 ? 'discharging' : '',
+            DC: v => v > .005 ? 'discharging' : v < -.005 ? 'charging' : '',
         };
         const series = this._series(data, specs.map(s => s.id)).map((points, i) => {
-            // Scale W/MW to kW, flip export, and apply battery_power_invert to the battery series.
+            // Scale W/MW to kW, flip the consumers' sign, and apply battery_power_invert to the battery series.
             const k = this._chartFactor(specs[i]);
             return {
             points: k === 1 ? points : points.map(p => ({ t: p.t, v: p.v * k })),

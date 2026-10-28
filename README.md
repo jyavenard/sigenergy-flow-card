@@ -7,7 +7,7 @@ A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySige
 - The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
 - Today's energy statistics and a battery level panel. Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
-- Power metrics chart from midnight to now, with sunrise and sunset times for your Home Assistant location. Hover (or tap) the chart to see every value at that time.
+- Power metrics chart from midnight to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time.
 - Tap **SOLAR** for per-string PV details (voltage, current, power, today's and lifetime production) and a chart of each string's power today.
 - Tap **HOME** for a live breakdown of power usage across the entities you list, sorted from highest to lowest.
 - Tap **DC CHARGER** to adjust the DC charger's maximum charging power.

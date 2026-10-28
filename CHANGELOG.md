@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v58
+
+- The Power metrics chart plots power as Sigenergy's app does: what is supplied to the home (solar, battery discharging, grid import, a vehicle supplying the DC charger) above zero, and what is consumed (home, battery charging, grid export, EV charging) below. The battery, home and both chargers were plotted the other way round.
+
 ## v57
 
 - With `sigenergy_backend: sigenergy2mqtt`, the AC charger is also found under `rated_charging_power`, the name sigenergy2mqtt used before February 2026. Home Assistant keeps the entity ID it first registered, so installs from before then still have that name.
