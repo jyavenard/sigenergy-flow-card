@@ -5,6 +5,8 @@ Each release is tagged `vN` on GitHub; HACS offers the newest release as the upd
 ## v58
 
 - The Power metrics chart plots power as Sigenergy's app does: what is supplied to the home (solar, battery discharging, grid import, a vehicle supplying the DC charger) above zero, and what is consumed (home, battery charging, grid export, EV charging) below. The battery, home and both chargers were plotted the other way round.
+- The chart's axis ends on a round value (1.5, 2, 2.5, 5, 7.5, 15… kW) instead of the day's peak, so its labels are exact: a 1.22 kW peak used to be labelled 1.
+- The Today charts (Power metrics, PV power, stored energy, battery level) span the whole day, midnight to midnight, as in Sigenergy's app, with the lines running up to now; they used to stretch midnight to now across the full width. Past now, hovering shows the latest readings.
 
 ## v57
 

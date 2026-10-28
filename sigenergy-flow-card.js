@@ -1520,8 +1520,11 @@ class SigenergyFlowCard extends HTMLElement {
         svg._redraw();
         return series.some(s => s.points.length > 1);
     }
+    // As in Sigenergy's app, the time axis spans the whole day, midnight to midnight in Home Assistant's time zone (23 or
+    // 25 hours when the clocks change), and the lines run from midnight to now.
     _plot(svg, series, start, signed, top) {
-        const end = Date.now();
+        const now = Date.now(), day = zoneParts(start, this._zone), hour = h => zoneDate(this._zone, day.y, day.m, day.d, h).getTime();
+        const end = hour(24);
         const width = Math.max(240, svg.clientWidth || 900), height = 170;
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.replaceChildren();
@@ -1536,20 +1539,18 @@ class SigenergyFlowCard extends HTMLElement {
             return el;
         };
         const values = series.flatMap(s => s.points.map(p => Math.abs(p.v)));
-        const max = top ?? (signed ? Math.max(1, ...values) : Math.max(1, Math.ceil(Math.max(0, ...values))));
+        // A signed chart's limit is rounded up to a half, whole, 5, 10, 50… kW, as in Sigenergy's app, so the labels are exact.
+        const peak = Math.max(1, ...values), step = 10 ** Math.floor(Math.log10(peak)) / 2;
+        const max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.max(1, Math.ceil(Math.max(0, ...values))));
         const left = 38, right = width - 12;
         const x = t => left + (right - left) * (t - start) / Math.max(1, end - start);
         const y = signed ? v => 78 - 65 * v / max : v => 143 - 130 * v / max;
         for (const v of signed ? [-max, 0, max] : [0, max / 2, max]) {
             add('line', { x1: left, y1: y(v), x2: right, y2: y(v), stroke: 'var(--grid)', 'stroke-dasharray': '3 5' });
-            add('text', { x: 2, y: y(v) + 4, fill: 'var(--axis)', 'font-size': 10 }, v.toFixed(!signed && max < 10 && v % 1 ? 1 : 0));
+            add('text', { x: 2, y: y(v) + 4, fill: 'var(--axis)', 'font-size': 10 }, v.toFixed(max < 10 && v % 1 ? 1 : 0));
         }
-        for (let h = 0; h <= 24; h += 4) {
-            const t = start + h * 3600000;
-            if (t > end)
-                break;
-            add('text', { x: x(t), y: 162, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'middle' }, `${String(h).padStart(2, '0')}:00`);
-        }
+        for (let h = 0; h < 24; h += 4)
+            add('text', { x: x(hour(h)), y: 162, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'middle' }, `${String(h).padStart(2, '0')}:00`);
         for (const { points, color } of series) {
             if (points.length < 2)
                 continue;
@@ -1570,7 +1571,7 @@ class SigenergyFlowCard extends HTMLElement {
             cursor.append(dot);
             return dot;
         });
-        svg._chart = { series, start, end, width, left, right, x, y, top: y(max), bottom: y(signed ? -max : 0), cursor, line, dots };
+        svg._chart = { series, start, end, now, width, left, right, x, y, top: y(max), bottom: y(signed ? -max : 0), cursor, line, dots };
         if (svg._lastHover !== undefined) this._hoverAt(svg, svg._tip, svg._lastHover);
     }
     // Linear interpolation between recorded states, matching the drawn line.
@@ -1592,7 +1593,8 @@ class SigenergyFlowCard extends HTMLElement {
         const ux = (e.clientX - rect.left) * chart.width / rect.width;
         if (ux < chart.left || ux > chart.right) return this._hideHover(svg, tip);
         svg._tip = tip;
-        svg._lastHover = chart.start + (ux - chart.left) / (chart.right - chart.left) * (chart.end - chart.start);
+        // Past now there is no data: the readings stay at now.
+        svg._lastHover = Math.min(chart.now, chart.start + (ux - chart.left) / (chart.right - chart.left) * (chart.end - chart.start));
         this._hoverAt(svg, tip, svg._lastHover);
     }
     _hoverAt(svg, tip, t) {
