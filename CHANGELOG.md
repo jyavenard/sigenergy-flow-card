@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v60
+
+- The Power metrics chart continues past now with dashed forecast lines, as in Sigenergy's app: solar from Home Assistant's solar forecast (Forecast.Solar, Open-Meteo, Solcast… as set up in the Energy dashboard) or, without one, the average over the last 7 days at each time of day, and the home's consumption from its 7-day average. Hovering past now reads the forecast. New `show_forecast` option (default `true`).
+
 ## v59
 
 - The Power metrics chart names the chargers EVAC and EVDC, as the Energy statistics do, instead of AC and DC.

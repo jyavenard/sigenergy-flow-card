@@ -397,6 +397,7 @@ class SigenergyFlowCard extends HTMLElement {
             title: 'Sigenergy',
             name: 'My Home',
             show_energy_statistics: true,
+            show_forecast: true,
             debug_energy_statistics: false,
             ...config,
             sigenergy_backend: backend,
@@ -428,6 +429,7 @@ class SigenergyFlowCard extends HTMLElement {
         if (!previous || this._day !== today) {
             this._day = today;
             this._loadHistory();
+            this._loadForecast();
             this._loadStatistics();
         }
     }
@@ -441,7 +443,8 @@ class SigenergyFlowCard extends HTMLElement {
                 mode: 'open'
             });
         const legend = [...new Map(CHART_SERIES.map(s => [s.name, s])).values()]
-            .map(s => `<span id="legend${s.name}"><i class="dot" style="background:${s.color}"></i>${s.name}</span>`).join('');
+            .map(s => `<span id="legend${s.name}"><i class="dot" style="background:${s.color}"></i>${s.name}</span>`).join('')
+            + '<span id="legendForecast" hidden><i class="dash"></i>Forecast</span>';
         const comets = id => COMET_LAYERS.map(() => `<path class="comet" d="${FLOWS[id]}"/>`).join('');
         const flows = Object.keys(FLOWS).map(id => `<g class="flow" id="${id}"><path class="wire" d="${FLOWS[id]}"/><path class="glow" d="${FLOWS[id]}"/>${comets(id)}</g>`).join('');
         this.shadowRoot.innerHTML = `<style>
@@ -497,7 +500,7 @@ class SigenergyFlowCard extends HTMLElement {
       .statpanel pre{user-select:text;-webkit-user-select:text;white-space:pre-wrap;font-family:inherit;font-size:12px;margin:10px 0 0}
       .statcards{display:flex;flex-wrap:wrap;gap:9px}.statcard{flex:1 1 140px;box-sizing:border-box;background:var(--tile);border-radius:10px;padding:10px 12px}.statcard b{font-size:18px;display:block}.statcard span{font-size:13px;color:var(--tile-sub);display:block}
       .chartpanel{margin-top:14px}.charthead{display:flex;justify-content:space-between;align-items:center}.legend{font-size:11px;color:var(--legend)}
-      .legend span{margin-right:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+      .legend span{margin-right:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.dash{display:inline-block;width:14px;border-top:2px dashed var(--legend);vertical-align:middle;margin-right:4px}
       .sun-times{display:flex;justify-content:space-between;gap:12px;margin-top:10px;padding:10px 15px;border-radius:24px;background:var(--pill);color:var(--pill-fg);font-size:12px}
       #chart,#pvChart{width:100%;height:170px;display:block;touch-action:pan-y}.muted{color:var(--muted);font-size:12px}
       .chart-wrap{position:relative}
@@ -1044,7 +1047,11 @@ class SigenergyFlowCard extends HTMLElement {
         if (!this._chartObserver) this._observeCharts();
         if (!this._flowFrame) this._startFlowAnimation();
         this._statTimer ??= setInterval(() => { if (this._statCurrent()) this._loadStatistics(); }, 300000);
-        this._historyTimer ??= setInterval(() => { if (!document.hidden) this._advanceChart(); }, 30000);
+        this._historyTimer ??= setInterval(() => {
+            if (document.hidden) return;
+            this._advanceChart();
+            if (Date.now() - (this._forecastAt ?? 0) > 3600e3) this._loadForecast();
+        }, 30000);
     }
     _startFlowAnimation() {
         if (this._flowFrame) cancelAnimationFrame(this._flowFrame);
@@ -1471,7 +1478,6 @@ class SigenergyFlowCard extends HTMLElement {
             const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&minimal_response&no_attributes`;
             const response = await this._hass.callApi('GET', query);
             this._renderChart(response, specs, day.getTime());
-            this._text('chartStatus', 'Midnight → now');
         } catch (e) {
             this._text('chartStatus', 'Recorder history unavailable');
             this._id('chart').replaceChildren();
@@ -1502,9 +1508,90 @@ class SigenergyFlowCard extends HTMLElement {
             note: notes[specs[i].name]
         };
         });
-        this._chartLive = { specs, series };
-        if (!this._showChart(this._id('chart'), series, start, true))
-            this._text('chartStatus', 'No recorded power history today');
+        this._chartLive = { specs, series, start };
+        if (this._showPowerChart()) this._chartStatus();
+        else this._text('chartStatus', 'No recorded power history today');
+    }
+    // The power metrics chart: today's recorded series, then the forecast for the rest of the day.
+    _showPowerChart() {
+        const live = this._chartLive;
+        if (!live) return false;
+        this._showChart(this._id('chart'), [...live.series, ...(this._chartForecast?.series ?? [])], live.start, true);
+        this._id('legendForecast').hidden = !this._chartForecast;
+        return live.series.some(s => s.points.length > 1);
+    }
+    _chartStatus() {
+        const source = this._chartForecast?.source;
+        this._text('chartStatus', `Midnight → now${source ? ` · forecast from ${source}` : ''}`);
+    }
+    // Forecast for the rest of today, drawn dashed as in Sigenergy's app. Solar comes from Home Assistant's solar forecast
+    // (Forecast.Solar, Open-Meteo, Solcast… as set up in the Energy dashboard) when there is one; otherwise, like the
+    // home's load, from its average at each time of day over the last 7 days of recorder statistics.
+    async _loadForecast() {
+        this._forecastAt = Date.now();
+        const request = this._forecastRequest = (this._forecastRequest ?? 0) + 1;
+        if (!this.config.show_forecast || typeof this._hass?.callWS !== 'function') {
+            this._chartForecast = null;
+            return;
+        }
+        const zone = this._zone, now = Date.now(), today = zoneMidnight(now, zone), day = zoneParts(today, zone);
+        const end = zoneDate(zone, day.y, day.m, day.d + 1).getTime();
+        const specs = ['pv_power', 'home_power'].map(key => ({ ...CHART_SERIES.find(s => s.key === key), id: this._ent(key) })).filter(spec => this._has(spec.id));
+        // Today's points from now on, starting with the value at now so the line joins the recorded one.
+        const ahead = points => {
+            const at = this._valueAt(points, now), rest = points.filter(p => p.t > now && p.t <= end);
+            return at === null ? rest : [{ t: now, v: at }, ...rest];
+        };
+        let solar = null;
+        try {
+            const forecasts = await this._hass.callWS({ type: 'energy/solar_forecast' });
+            const hours = new Map();
+            for (const forecast of Object.values(forecasts ?? {}))
+                for (const [hour, wh] of Object.entries(forecast?.wh_hours ?? {})) {
+                    const t = Date.parse(hour);
+                    if (t >= today.getTime() && t < end && Number.isFinite(Number(wh))) hours.set(t, (hours.get(t) ?? 0) + Number(wh) / 1000);
+                }
+            // Each hour's energy (Wh) is its average power, placed at the middle of the hour; an hour the forecast
+            // leaves out (at night) produces nothing.
+            if (hours.size) {
+                solar = [];
+                for (let h = 0, t = today.getTime(); t < end; t = zoneDate(zone, day.y, day.m, day.d, ++h).getTime())
+                    solar.push({ t: t + 1800e3, v: hours.get(t) ?? 0 });
+            }
+        } catch (e) {
+            // No solar forecast in Home Assistant: the history average stands in.
+        }
+        let history = {}, slot = 300e3;
+        const ids = specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power'));
+        if (ids.length) {
+            const from = zoneDate(zone, day.y, day.m, day.d - 7);
+            const fetch = period => this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: from.toISOString(), end_time: today.toISOString(), statistic_ids: ids, period, types: ['mean'] }).catch(() => ({}));
+            history = await fetch('5minute');
+            // Five-minute statistics are kept 10 days by default; hourly ones are kept for good.
+            if (!ids.some(id => history[id]?.length)) { history = await fetch('hour'); slot = 3600e3; }
+        }
+        if (request !== this._forecastRequest) return;
+        // The average at each time of day, over the days that have data, placed at the middle of each slot.
+        const profile = spec => {
+            const slots = new Map(), k = this._chartFactor(spec);
+            for (const row of history[spec.id] ?? []) {
+                const v = Number(row.mean);
+                if (!Number.isFinite(v)) continue;
+                const p = zoneParts(typeof row.start === 'number' ? row.start : Date.parse(row.start), zone), minute = p.h * 60 + p.min;
+                const sum = slots.get(minute) ?? [0, 0];
+                sum[0] += v * k;
+                sum[1]++;
+                slots.set(minute, sum);
+            }
+            return [...slots].sort((a, b) => a[0] - b[0])
+                .map(([minute, [total, count]]) => ({ t: zoneDate(zone, day.y, day.m, day.d, Math.floor(minute / 60)).getTime() + (minute % 60) * 60e3 + slot / 2, v: total / count }));
+        };
+        const series = specs.map(spec => {
+            const points = ahead(spec.key === 'pv_power' && solar ? solar.map(p => ({ t: p.t, v: p.v * (spec.negate ? -1 : 1) })) : profile(spec));
+            return { points, color: spec.color, name: spec.name, forecast: true };
+        }).filter(s => s.points.length > 1);
+        this._chartForecast = series.length ? { series, source: solar ? 'the solar forecast and the last 7 days' : 'the last 7 days' } : null;
+        if (this._showPowerChart()) this._chartStatus();
     }
     _chartFactor(spec) {
         return this._factor(spec.id) * (spec.negate ? -1 : 1) * (spec.key === 'battery_power' ? this._batterySign() : 1);
@@ -1557,11 +1644,11 @@ class SigenergyFlowCard extends HTMLElement {
         }
         for (let h = 0; h < 24; h += 4)
             add('text', { x: x(hour(h)), y: 162, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'middle' }, `${String(h).padStart(2, '0')}:00`);
-        for (const { points, color } of series) {
+        for (const { points, color, forecast } of series) {
             if (points.length < 2)
                 continue;
             const d = points.map((p, j) => `${j ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
-            add('path', { d, fill: 'none', stroke: color, 'stroke-width': 1.7, 'stroke-linejoin': 'round' });
+            add('path', { d, fill: 'none', stroke: color, 'stroke-width': forecast ? 1.4 : 1.7, 'stroke-linejoin': 'round', ...(forecast ? { 'stroke-dasharray': '5 4' } : {}) });
         }
         const cursor = add('g', { display: 'none' });
         const line = document.createElementNS(ns, 'line');
@@ -1599,8 +1686,9 @@ class SigenergyFlowCard extends HTMLElement {
         const ux = (e.clientX - rect.left) * chart.width / rect.width;
         if (ux < chart.left || ux > chart.right) return this._hideHover(svg, tip);
         svg._tip = tip;
-        // Past now there is no data: the readings stay at now.
-        svg._lastHover = Math.min(chart.now, chart.start + (ux - chart.left) / (chart.right - chart.left) * (chart.end - chart.start));
+        // Past now the forecast is read; without one the readings stay at now.
+        const t = chart.start + (ux - chart.left) / (chart.right - chart.left) * (chart.end - chart.start);
+        svg._lastHover = chart.series.some(s => s.forecast) ? t : Math.min(chart.now, t);
         this._hoverAt(svg, tip, svg._lastHover);
     }
     _hoverAt(svg, tip, t) {
@@ -1610,9 +1698,10 @@ class SigenergyFlowCard extends HTMLElement {
         chart.line.setAttribute('x2', px);
         chart.line.setAttribute('y1', chart.top);
         chart.line.setAttribute('y2', chart.bottom);
-        const rows = new Map();
+        // Up to now the recorded series are read, after it the forecast ones.
+        const rows = new Map(), ahead = t > chart.now;
         chart.series.forEach((s, i) => {
-            const v = this._valueAt(s.points, t);
+            const v = !!s.forecast === ahead ? this._valueAt(s.points, t) : null;
             chart.dots[i].setAttribute('display', v === null ? 'none' : 'inline');
             if (v === null) return;
             chart.dots[i].setAttribute('cx', px);
@@ -1634,7 +1723,7 @@ class SigenergyFlowCard extends HTMLElement {
             line.append(Object.assign(document.createElement('span'), { textContent: r.unit ? `${Math.abs(r.v).toFixed(2)} ${r.unit}` : formatPower(r.v) }));
             return line;
         });
-        tip.replaceChildren(Object.assign(document.createElement('b'), { textContent: time }), ...(lines.length ? lines : [Object.assign(document.createElement('em'), { textContent: 'No data' })]));
+        tip.replaceChildren(Object.assign(document.createElement('b'), { textContent: ahead ? `${time} · forecast` : time }), ...(lines.length ? lines : [Object.assign(document.createElement('em'), { textContent: 'No data' })]));
         tip.hidden = false;
         const scale = svg.getBoundingClientRect().width / chart.width;
         const cssX = px * scale;

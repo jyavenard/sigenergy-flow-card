@@ -7,7 +7,7 @@ A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySige
 - The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
 - Today's energy statistics and a battery level panel. Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
-- Power metrics chart of the day, its time axis running from midnight to midnight as in Sigenergy's app and its lines up to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time.
+- Power metrics chart of the day, its time axis running from midnight to midnight as in Sigenergy's app and its lines up to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time. The rest of the day shows a dashed solar and home forecast (see [Forecast](#forecast)).
 - Tap **SOLAR** for per-string PV details (voltage, current, power, today's and lifetime production) and a chart of each string's power today.
 - Tap **HOME** for a live breakdown of power usage across the entities you list, sorted from highest to lowest.
 - Tap **DC CHARGER** to adjust the DC charger's maximum charging power.
@@ -147,6 +147,7 @@ All options are optional.
 | `name` | `My Home` | Second part of the heading (your home's name). An empty value hides that part. |
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
+| `show_forecast` | `true` | Draw the dashed solar and home forecast for the rest of the day on the Power metrics chart (see [Forecast](#forecast)). |
 | `debug_energy_statistics` | `false` | List, under the Energy statistics panel, the energy each statistics sensor recorded over the period (to check the sensors against another source). |
 | `style` | `auto` | Artwork and theme: `day`, `night` or `auto` (day between sunrise and sunset). |
 
@@ -319,6 +320,15 @@ sigenergy_backend: sigenergy2mqtt
 - The `si_` sensors come from the Statistics Interface, whose counters restart from 0 when the firmware gains it; the plant's lifetime counters are used first.
 - `ac_charger_power` falls back to `rated_charging_power`, the name sigenergy2mqtt used before February 2026: Home Assistant keeps the entity ID it first registered, so installs from before then still have it.
 - `home_power` is sigenergy2mqtt's consumed power, which follows its `consumption` setting (by default the Total Load Power register).
+
+### Forecast
+
+As in Sigenergy's app, the Power metrics chart continues past now with dashed lines: the solar production and the home's consumption expected for the rest of the day. Hover over them to read the forecast.
+
+- **Solar:** Home Assistant's own solar forecast, from an integration such as [Forecast.Solar](https://www.home-assistant.io/integrations/forecast_solar/), Open-Meteo Solar Forecast or Solcast, added to the solar production in the **Energy** dashboard. Without one, the average production at each time of day over the last 7 days stands in; it doesn't know tomorrow's weather.
+- **Home:** the average consumption at each time of day over the last 7 days.
+
+The averages come from the recorder's statistics of `pv_power` and `home_power` (5-minute statistics, kept 10 days by default, or hourly ones), so those sensors need `state_class: measurement`, which the Sigenergy integrations set. Without statistics, no forecast is drawn. Sigenergy's AI forecast of the battery and grid is not available to Home Assistant. Set `show_forecast: false` to hide the forecast.
 
 ### Energy statistics
 

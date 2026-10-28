@@ -23,12 +23,13 @@ const STRINGS = [ // name, live kW, offset (h), voltage, current, lifetime kWh
     ['S', 3.44, 0, 349.7, 9.83, 3988.9], ['W', 2.88, 1.2, 302.6, 9.51, 3067.2]];
 const amp = STRINGS.map(([, kw, off]) => kw / bell(14.5 - off));
 const stringKw = (i, h) => amp[i] * bell(h - STRINGS[i][2]);
-const LOADS = [ // entity, name, kW, from (h)
-    ['sensor.pool_heat_pump_power', 'Pool Heat Pump', 1.83, 11], ['sensor.pool_pump_power', 'Pool Pump', .75, 10],
-    ['sensor.air_conditioning_power', 'Air Conditioning', .344, 12], ['sensor.data_centre_power', 'Data Centre', .259, 0],
-    ['sensor.kitchen_fridge_power', 'Kitchen Fridge', .12, 0]];
+const LOADS = [ // entity, name, kW, on from and until (h)
+    ['sensor.pool_heat_pump_power', 'Pool Heat Pump', 1.83, 11, 17], ['sensor.pool_pump_power', 'Pool Pump', .75, 10, 16],
+    ['sensor.air_conditioning_power', 'Air Conditioning', .344, 12, 22], ['sensor.data_centre_power', 'Data Centre', .259, 0, 24],
+    ['sensor.kitchen_fridge_power', 'Kitchen Fridge', .12, 0, 24]];
 const OTHER = .42;
-const homeKw = h => OTHER + LOADS.reduce((a, [, , kw, from]) => a + (h >= from ? kw : 0), 0) + (h >= 6.2 && h < 7.6 ? 1.4 : 0);
+// The loads above, plus breakfast and dinner cooking.
+const homeKw = h => OTHER + LOADS.reduce((a, [, , kw, from, to]) => a + (h >= from && h < to ? kw : 0), 0) + (h >= 6.2 && h < 7.6 ? 1.4 : 0) + (h >= 18 && h < 20 ? 1.6 : 0);
 const acKw = h => h >= 12.8 ? 7.2 : 0;
 const at = h => {
     const pv = STRINGS.reduce((a, _, i) => a + stringKw(i, h), 0), home = homeKw(h), ac = acKw(h);
@@ -91,8 +92,19 @@ const statistics = {
     'sensor.sigen_plant_total_imported_energy': 'imp', 'sensor.sigen_plant_total_charged_energy_of_the_ess': 'charge',
     'sensor.sigen_plant_total_exported_energy': 'exp', 'sensor.sigen_plant_total_charged_energy_of_the_evac': 'ac',
 };
+// The 7 days before, for the forecast's averages: 5-minute means of the PV and home power, the solar varying with
+// each day's weather.
+const means = { 'sensor.sigen_plant_pv_power': [], 'sensor.sigen_plant_consumed_power': [] };
+[0.92, 1.04, 0.78, 1.08, 0.97, 0.88, 1.02].forEach((sun, i) => {
+    const dayStart = MIDNIGHT - (7 - i) * 86400e3;
+    for (let h = 0; h < 24; h += STEP) {
+        const p = at(h + STEP / 2), start = dayStart + h * 3600e3;
+        means['sensor.sigen_plant_pv_power'].push({ start, end: start + 300e3, mean: +(p.pv * sun).toFixed(3) });
+        means['sensor.sigen_plant_consumed_power'].push({ start, end: start + 300e3, mean: +(p.home * (0.95 + 0.1 * ((i * 7) % 5) / 4)).toFixed(3) });
+    }
+});
 const data = {
-    states, times: samples.map(s => s.t),
+    states, times: samples.map(s => s.t), means,
     history: Object.fromEntries(Object.entries(history).map(([id, v]) => [id, v.map(x => +x.toFixed(3))])),
     statistics: Object.fromEntries(Object.entries(statistics).map(([id, key]) => [id, intervals.map(r => ({ start: r.t, end: r.t + 300e3, change: +(r[key] * STEP).toFixed(4) }))])),
 };
@@ -112,7 +124,12 @@ async function mount(page, style) {
                 const ids = decodeURIComponent(query.split('filter_entity_id=')[1].split('&')[0]).split(',');
                 return ids.filter(id => data.history[id]).map(id => data.history[id].map((v, i) => ({ ...(i ? {} : { entity_id: id }), state: String(v), last_changed: new Date(data.times[i]).toISOString() })));
             },
-            callWS: async msg => Object.fromEntries(msg.statistic_ids.filter(id => data.statistics[id]).map(id => [id, data.statistics[id].filter(r => r.start >= Date.parse(msg.start_time) && r.start < Date.parse(msg.end_time))])),
+            // No solar forecast integration: the forecast uses the 7-day averages.
+            callWS: async msg => {
+                if (msg.type === 'energy/solar_forecast') return {};
+                const rows = msg.types.includes('mean') ? data.means : data.statistics;
+                return Object.fromEntries(msg.statistic_ids.filter(id => rows[id]).map(id => [id, rows[id].filter(r => r.start >= Date.parse(msg.start_time) && r.start < Date.parse(msg.end_time))]));
+            },
         };
         const el = document.createElement('sigenergy-flow-card');
         el.setConfig({ ...config, ...(style ? { style } : {}) });
@@ -166,7 +183,7 @@ async function statClip(page, pad) {
             const fullHeight = await page.evaluate(() => document.documentElement.scrollHeight);
             await page.setViewportSize({ width: shot.viewport.width, height: fullHeight });
             await page.waitForTimeout(400);
-            if (shot.name === 'desktop') await hoverChart(page, Date.parse('2026-10-19T14:15:00+11:00'));
+            if (shot.name === 'desktop') await hoverChart(page, Date.parse(process.env.HOVER || '2026-10-19T18:00:00+11:00'));
             await page.screenshot({ path: `${out}/${shot.name}-main${suffix}.png`, fullPage: true });
             await page.mouse.move(0, 0);
             await page.setViewportSize(shot.viewport);
