@@ -168,7 +168,6 @@ const READINGS = {
     chargers: [170, 410],
 };
 
-const FLOW_COLOR = '#63d6c1';
 // Series colours are CSS variables so the day and night styles can each define their own.
 // As in Sigenergy's app, power supplied to the home is positive (solar, battery discharging, grid import, a vehicle
 // supplying the DC charger) and power consumed is negative (home, battery charging, grid export, vehicle charging);
@@ -447,6 +446,7 @@ class SigenergyFlowCard extends HTMLElement {
         const legend = [...new Map(CHART_SERIES.map(s => [s.name, s])).values()]
             .map(s => `<span id="legend${s.name}"><i class="dot" style="background:${s.color}"></i>${s.name}</span>`).join('')
             + '<span id="legendForecast" hidden><i class="dash"></i>Forecast</span>';
+        const head = (id, title) => `<div class="dlg-head"><h2 id="${id}Title">${title}</h2><button title="Close" aria-label="Close">✕</button></div>`;
         const comets = id => COMET_LAYERS.map(() => `<path class="comet" d="${FLOWS[id]}"/>`).join('');
         const flows = Object.keys(FLOWS).map(id => `<g class="flow" id="${id}"><path class="wire" d="${FLOWS[id]}"/><path class="glow" d="${FLOWS[id]}"/>${comets(id)}</g>`).join('');
         this.shadowRoot.innerHTML = `<style>
@@ -574,7 +574,7 @@ class SigenergyFlowCard extends HTMLElement {
       <svg id="statChart" role="group" aria-label="Energy flows, estimated"></svg><div class="statsum" id="statSummary" hidden></div><div class="statcards" id="statCards"></div><pre class="muted" id="statDebug" hidden></pre><div class="statdata" id="statData" hidden><button id="statCopy">Copy the recorded data</button><a id="statDownload" download="sigenergy-statistics.json">Download (JSON)</a><span class="muted" id="statCopied"></span></div></section>
     </ha-card>
     <dialog id="pvDialog" aria-labelledby="pvTitle"><div class="dlg">
-      <div class="dlg-head"><h2 id="pvTitle">PV Strings</h2><button id="pvClose" title="Close" aria-label="Close">✕</button></div>
+      ${head('pv', 'PV Strings')}
       <section class="panel"><h3>PV real time info</h3><div class="pv-wrap"><table class="pv-table">
         <thead><tr><th></th><th>Voltage<br>(V)</th><th>Current<br>(A)</th><th>Power<br>(kW)</th><th>Today<br>(kWh)</th><th>Lifetime<br>(kWh)</th></tr></thead>
         <tbody>${this._pv.map(({ name }, i) => `<tr id="pvRow${i}"><th scope="row"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i></th>${['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'].map(k => `<td id="pv${i}_${k}">—</td>`).join('')}</tr>`).join('')}</tbody>
@@ -585,19 +585,19 @@ class SigenergyFlowCard extends HTMLElement {
       <div class="chart-wrap"><svg id="pvChart"></svg><div class="tip" id="pvChartTip" hidden></div></div></section>
     </div></dialog>
     <dialog id="energyDialog" aria-labelledby="energyTitle"><div class="dlg">
-      <div class="dlg-head"><h2 id="energyTitle">Battery energy</h2><button id="energyClose" title="Close" aria-label="Close">✕</button></div>
+      ${head('energy', 'Battery energy')}
       <section class="panel"><div class="home-total"><span>Stored now</span><b id="energyNow">—</b></div><div class="muted" id="energyOf"></div></section>
       <section class="panel"><div class="charthead"><h3>Stored energy (kWh) · Today</h3><span class="muted" id="energyChartStatus"></span></div>
       <div class="chart-wrap"><svg id="energyChart"></svg><div class="tip" id="energyChartTip" hidden></div></div></section>
     </div></dialog>
     <dialog id="socDialog" aria-labelledby="socTitle"><div class="dlg">
-      <div class="dlg-head"><h2 id="socTitle">Battery level</h2><button id="socClose" title="Close" aria-label="Close">✕</button></div>
+      ${head('soc', 'Battery level')}
       <section class="panel"><div class="home-total"><span>State of charge</span><b id="socNow">—</b></div></section>
       <section class="panel"><div class="charthead"><h3>State of charge (%) · Today</h3><span class="muted" id="socChartStatus"></span></div>
       <div class="chart-wrap"><svg id="socChart"></svg><div class="tip" id="socChartTip" hidden></div></div></section>
     </div></dialog>
     <dialog id="homeDialog" aria-labelledby="homeTitle"><div class="dlg">
-      <div class="dlg-head"><h2 id="homeTitle">Home power usage</h2><button id="homeClose" title="Close" aria-label="Close">✕</button></div>
+      ${head('home', 'Home power usage')}
       <section class="panel"><div class="home-total"><span>Home consumption</span><b id="homeTotal">—</b></div><div class="muted" id="homeMeasured"></div></section>
       <section class="panel"><div class="loads" id="homeLoads"></div></section>
     </div></dialog>`;
@@ -617,43 +617,27 @@ class SigenergyFlowCard extends HTMLElement {
         });
         for (const item of this._flowItems)
             item.parent = this._flowItems.find(other => other.id === BRANCHES[item.id]);
-        const dialog = this._id('pvDialog');
-        this._id('pvButton').addEventListener('click', () => {
-            dialog.showModal();
-            this._updatePv();
-            this._loadPvHistory();
-        });
-        this._id('pvClose').addEventListener('click', () => dialog.close());
-        const homeDialog = this._id('homeDialog');
-        this._id('homeButton')?.addEventListener('click', () => {
-            homeDialog.showModal();
-            this._updateHome();
-        });
-        this._id('homeClose').addEventListener('click', () => homeDialog.close());
+        // Each dialog: the button that opens it, and what it shows when it opens. A dialog closes with its ✕ or a click
+        // on its backdrop.
+        for (const [button, id, show] of [
+            ['pvButton', 'pvDialog', () => { this._updatePv(); this._loadPvHistory(); }],
+            ['homeButton', 'homeDialog', () => this._updateHome()],
+            ['capacity', 'energyDialog', () => { this._updateEnergy(); this._loadEnergyHistory(); }],
+            ['socButton', 'socDialog', () => { this._updateSoc(); this._loadSocHistory(); }],
+        ]) this._id(button)?.addEventListener('click', () => { this._id(id).showModal(); show(); });
+        for (const d of this.root.querySelectorAll('dialog')) {
+            d.querySelector('.dlg-head button').addEventListener('click', () => d.close());
+            d.addEventListener('click', e => { if (e.target === d) d.close(); });
+        }
         // A modal dialog sits above HA's more-info dialog, so it closes first.
         this._id('homeLoads').addEventListener('click', e => {
             const entityId = e.target.closest('[data-entity]')?.dataset.entity;
             if (!entityId) return;
-            homeDialog.close();
+            this._id('homeDialog').close();
             this._moreInfo(entityId);
         });
         for (const stat of this.root.querySelectorAll('.stat, #socLevel'))
             stat.addEventListener('click', () => this._moreInfo(stat.dataset.entity));
-        const energyDialog = this._id('energyDialog');
-        this._id('capacity').addEventListener('click', () => {
-            energyDialog.showModal();
-            this._updateEnergy();
-            this._loadEnergyHistory();
-        });
-        this._id('energyClose').addEventListener('click', () => energyDialog.close());
-        const socDialog = this._id('socDialog');
-        this._id('socButton').addEventListener('click', () => {
-            socDialog.showModal();
-            this._updateSoc();
-            this._loadSocHistory();
-        });
-        this._id('socClose').addEventListener('click', () => socDialog.close());
-        for (const d of [dialog, homeDialog, energyDialog, socDialog]) d.addEventListener('click', e => { if (e.target === d) d.close(); });
         this._observeCharts();
         for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
@@ -673,11 +657,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartObserver = new ResizeObserver(entries => {
             for (const entry of entries) (entry.target._redraw ?? entry.target.fit)?.();
         });
-        this._chartObserver.observe(this._id('chart'));
-        this._chartObserver.observe(this._id('pvChart'));
-        this._chartObserver.observe(this._id('energyChart'));
-        this._chartObserver.observe(this._id('socChart'));
-        this._chartObserver.observe(this._id('statChart'));
+        for (const id of ['chart', 'pvChart', 'energyChart', 'socChart', 'statChart']) this._chartObserver.observe(this._id(id));
         const scene = this._id('scene'), sidebar = this.root.querySelector('.sidebar');
         scene.fit = sidebar.fit = () => this._fitScene();
         this._chartObserver.observe(scene);
@@ -692,16 +672,14 @@ class SigenergyFlowCard extends HTMLElement {
     _stackLifetime(narrow, scale) {
         const art = ARTWORK['charger_day.png'], single = this._id('acNode').hidden !== this._id('dcNode').hidden;
         const room = narrow ? 230 : single ? art.at[0] - READINGS.chargers[0] - 8 : 420;
-        for (const id of ['dcLifetime']) {
-            const el = this._id(id);
-            el.classList.remove('stack');
-            el.style.whiteSpace = 'nowrap';
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            const width = range.getBoundingClientRect().width;
-            el.style.whiteSpace = '';
-            el.classList.toggle('stack', width > room * scale);
-        }
+        const el = this._id('dcLifetime');
+        el.classList.remove('stack');
+        el.style.whiteSpace = 'nowrap';
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const width = range.getBoundingClientRect().width;
+        el.style.whiteSpace = '';
+        el.classList.toggle('stack', width > room * scale);
     }
     // With one charger its readings are level with the charger on the garage wall; otherwise they are
     // centred vertically.
@@ -954,22 +932,12 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('energyChartStatus', 'Rated capacity unavailable');
             return;
         }
-        const day = zoneMidnight(Date.now(), this._zone);
-        this._text('energyChartStatus', 'Loading history…');
         if (!this._socEntity) {
             this._text('energyChartStatus', 'Battery SOC not configured');
             return;
         }
-        try {
-            const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(this._socEntity)}&minimal_response&no_attributes`;
-            const [points] = this._series(await this._hass.callApi('GET', query), [this._socEntity]);
-            const series = [{ points: points.map(p => ({ t: p.t, v: p.v * cap / 100 })), color: 'var(--c-battery)', name: 'Stored', unit: 'kWh' }];
-            const hasData = this._showChart(this._id('energyChart'), series, day.getTime(), false, Math.ceil(cap / 2) * 2);
-            this._text('energyChartStatus', hasData ? 'Midnight → now' : 'No recorded battery history today');
-        } catch (e) {
-            this._text('energyChartStatus', 'Recorder history unavailable');
-            this._id('energyChart').replaceChildren();
-        }
+        await this._dialogChart('energyChart', 'energyChartStatus', 'No recorded battery history today', [this._socEntity],
+            ([points]) => [{ points: points.map(p => ({ t: p.t, v: p.v * cap / 100 })), color: 'var(--c-battery)', name: 'Stored', unit: 'kWh' }], Math.ceil(cap / 2) * 2);
     }
     _updateSoc() {
         if (!this._hass || !this._id('socDialog').open) return;
@@ -982,21 +950,11 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('socChartStatus', 'Battery SOC not configured');
             return;
         }
-        const day = zoneMidnight(Date.now(), this._zone);
-        this._text('socChartStatus', 'Loading history…');
-        try {
-            const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(this._socEntity)}&minimal_response&no_attributes`;
-            const [points] = this._series(await this._hass.callApi('GET', query), [this._socEntity]);
-            const hasData = this._showChart(this._id('socChart'), [{ points, color: 'var(--c-battery)', name: 'SOC', unit: '%' }], day.getTime(), false, 100);
-            this._text('socChartStatus', hasData ? 'Midnight → now' : 'No recorded battery history today');
-        } catch (e) {
-            this._text('socChartStatus', 'Recorder history unavailable');
-            this._id('socChart').replaceChildren();
-        }
+        await this._dialogChart('socChart', 'socChartStatus', 'No recorded battery history today', [this._socEntity],
+            ([points]) => [{ points, color: 'var(--c-battery)', name: 'SOC', unit: '%' }], 100);
     }
     async _loadPvHistory() {
         if (!this._hass) return;
-        const day = zoneMidnight(Date.now(), this._zone);
         const strings = this._pv.map((pv, i) => ({ ...pv, color: PV_COLORS[i % PV_COLORS.length] })).filter(pv => this._has(pv.power));
         const third = this._ent('third_party_pv_power');
         if (this._has(third) && this._hasThirdPartyPv()) strings.push({ name: 'Third-party PV', power: third, color: 'var(--pv-third)' });
@@ -1005,18 +963,27 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('pvChartStatus', 'No PV power entities configured');
             return;
         }
-        this._text('pvChartStatus', 'Loading history…');
+        await this._dialogChart('pvChart', 'pvChartStatus', 'No recorded PV history today', ids, series => series.map((points, i) => {
+            const factor = this._factor(ids[i]);
+            return { points: points.map(p => ({ t: p.t, v: p.v * factor })), color: strings[i].color, name: strings[i].name };
+        }));
+    }
+    // Today's recorded states of [ids], from midnight in Home Assistant's time zone.
+    async _todayHistory(ids) {
+        const day = zoneMidnight(Date.now(), this._zone);
+        const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&minimal_response&no_attributes`;
+        return { start: day.getTime(), data: await this._hass.callApi('GET', query) };
+    }
+    // A dialog's chart of today's history and its status: [toSeries] turns each id's points into the chart's series.
+    async _dialogChart(chart, status, empty, ids, toSeries, top) {
+        this._text(status, 'Loading history…');
         try {
-            const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&minimal_response&no_attributes`;
-            const series = this._series(await this._hass.callApi('GET', query), ids).map((points, i) => {
-                const factor = this._factor(ids[i]);
-                return { points: points.map(p => ({ t: p.t, v: p.v * factor })), color: strings[i].color, name: strings[i].name };
-            });
-            const hasData = this._showChart(this._id('pvChart'), series, day.getTime(), false);
-            this._text('pvChartStatus', hasData ? 'Midnight → now' : 'No recorded PV history today');
+            const { start, data } = await this._todayHistory(ids);
+            const hasData = this._showChart(this._id(chart), toSeries(this._series(data, ids)), start, false, top);
+            this._text(status, hasData ? 'Midnight → now' : empty);
         } catch (e) {
-            this._text('pvChartStatus', 'Recorder history unavailable');
-            this._id('pvChart').replaceChildren();
+            this._text(status, 'Recorder history unavailable');
+            this._id(chart).replaceChildren();
         }
     }
     _power(v) {
@@ -1231,13 +1198,15 @@ class SigenergyFlowCard extends HTMLElement {
     _updateSunTimes() {
         // Calculate sunrise and sunset for *today* from Home Assistant's location.
         // sun.sun next_rising / next_setting refer to tomorrow after today's event.
-        const lat = Number(this._hass?.config?.latitude);
-        const lon = Number(this._hass?.config?.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+        const unknown = () => {
             this._text('sunrise', 'Sunrise —');
             this._text('sunset', 'Sunset —');
             this._sunTimes = null;
-            return;
+        };
+        const lat = Number(this._hass?.config?.latitude);
+        const lon = Number(this._hass?.config?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+            return unknown();
         }
         // SunCalc solar equations, evaluated at local noon for the selected day.
         const today = zoneParts(Date.now(), this._zone);
@@ -1256,10 +1225,7 @@ class SigenergyFlowCard extends HTMLElement {
         const Jnoon = J2000 + ds + .0053 * Math.sin(M) - .0069 * Math.sin(2 * L);
         const cosH = (Math.sin(-.833 * rad) - Math.sin(phi) * Math.sin(dec)) / (Math.cos(phi) * Math.cos(dec));
         if (cosH < -1 || cosH > 1) {
-            this._text('sunrise', 'Sunrise —');
-            this._text('sunset', 'Sunset —');
-            this._sunTimes = null;
-            return;
+            return unknown();
         }
         const h = Math.acos(cosH);
         const Jset = J2000 + (.0009 + (h + lw) / (2 * Math.PI) + n) + .0053 * Math.sin(M) - .0069 * Math.sin(2 * L);
@@ -1472,14 +1438,11 @@ class SigenergyFlowCard extends HTMLElement {
         if (!this._hass || this._loading)
             return;
         this._loading = true;
-        const day = zoneMidnight(Date.now(), this._zone);
         const specs = CHART_SERIES.map(s => ({ ...s, id: this._ent(s.key) }))
             .filter(s => s.id && (!s.optional || this._has(s.id)));
-        const ids = specs.map(s => s.id);
         try {
-            const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&minimal_response&no_attributes`;
-            const response = await this._hass.callApi('GET', query);
-            this._renderChart(response, specs, day.getTime());
+            const { start, data } = await this._todayHistory(specs.map(s => s.id));
+            this._renderChart(data, specs, start);
         } catch (e) {
             this._text('chartStatus', 'Recorder history unavailable');
             this._id('chart').replaceChildren();
