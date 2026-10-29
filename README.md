@@ -6,6 +6,7 @@ A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySige
 - Day and night looks: a light theme with the daytime photo between sunrise and sunset, a dark theme with the night photo otherwise. Force either with the `style` option.
 - The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
+- The battery's remaining time under SigenStor, as in Sigenergy's app: the time to its charge or discharge cut-off SOC at the current power (e.g. "Discharging (remaining time: 17h50m)"), or, while idle, how long it would run the home in a power cut, down to its Backup SOC: the home's consumption plus the inverters' and system's own base load, which the card learns (and keeps in the browser) while the battery alone supplies the home, typically at night. Idle shows no time until it has been learnt. Enable the Sigenergy integration's cut-off and backup SOC entities for exact figures; without them it counts to 100% and 0%.
 - Today's energy statistics and a battery level panel. Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
 - Power metrics chart of the day, its time axis running from midnight to midnight as in Sigenergy's app and its lines up to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time. The rest of the day shows a dashed solar and home forecast (see [Forecast](#forecast)).
 - Tap **SOLAR** for per-string PV details (voltage, current, power, today's and lifetime production) and a chart of each string's power today.
@@ -201,7 +202,10 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `home_power` | `sensor.sigen_plant_consumed_power` | HOME value, home wire, chart, home usage dialog |
 | `battery_power` | `sensor.sigen_plant_battery_power`, fallback `sensor.sigen_inverter_battery_power` | Battery value and status, wire, chart. Positive = charging (see `battery_power_invert`). |
 | `battery_soc` | `sensor.sigen_plant_battery_state_of_charge`, fallback `sensor.sigen_inverter_battery_state_of_charge` | SOC label, tile, bar and stored-energy history |
-| `battery_capacity` | `sensor.sigen_plant_rated_energy_capacity` | Stored energy (SOC × capacity) |
+| `battery_capacity` | `sensor.sigen_plant_rated_energy_capacity` | Stored energy (SOC × capacity), battery remaining time |
+| `battery_charge_cut_off_soc` | `sensor.sigen_plant_charge_cut_off_soc`, fallback `number.sigen_plant_ess_charge_cut_off_state_of_charge` | Battery remaining time while charging (counts to 100% without it). Disabled by default in the Sigenergy integration. |
+| `battery_discharge_cut_off_soc` | `sensor.sigen_plant_discharge_cut_off_soc`, fallback `number.sigen_plant_ess_discharge_cut_off_state_of_charge` | Battery remaining time while discharging (counts to 0% without it). Disabled by default in the Sigenergy integration. |
+| `battery_backup_soc` | `number.sigen_plant_ess_backup_state_of_charge` | Battery remaining time while idle: how long it would run the home in a power cut, down to this SOC (to 0% without it). Disabled by default in the Sigenergy integration. |
 | `grid_import_power` | `sensor.sigen_plant_grid_import_power` | GRID value and status, wire, chart (positive while importing) |
 | `grid_export_power` | `sensor.sigen_plant_grid_export_power` | GRID value and status, wire, chart (positive while exporting) |
 | `phase_mode` | `switch.sigen_plant_independent_phase_power_control` | Phase power mode line under GRID |
@@ -285,6 +289,9 @@ sigenergy_backend: sigenergy2mqtt
 | `battery_power` | `sensor.sigen_0_plant_battery_power`, fallback `sensor.sigen_0_inverter_1_charge_discharge_power` |
 | `battery_soc` | `sensor.sigen_0_plant_battery_soc`, fallback `sensor.sigen_0_inverter_1_battery_soc` |
 | `battery_capacity` | `sensor.sigen_0_plant_rated_energy_capacity`, fallback `sensor.sigen_0_inverter_1_rated_battery_capacity` |
+| `battery_charge_cut_off_soc` | `number.sigen_0_plant_ess_charge_cut_off_soc` |
+| `battery_discharge_cut_off_soc` | `number.sigen_0_plant_ess_discharge_cut_off_soc` |
+| `battery_backup_soc` | `number.sigen_0_plant_ess_backup_soc` |
 | `grid_import_power` | `sensor.sigen_0_grid_sensor_import_power` |
 | `grid_export_power` | `sensor.sigen_0_grid_sensor_export_power` |
 | `phase_mode` | `switch.sigen_0_plant_independent_phase_power_control` |

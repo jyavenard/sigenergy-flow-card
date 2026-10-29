@@ -39,6 +39,11 @@ const DEFAULT_ENTITIES = {
     battery_power: ['sensor.sigen_plant_battery_power', 'sensor.sigen_inverter_battery_power'],
     battery_soc: ['sensor.sigen_plant_battery_state_of_charge', 'sensor.sigen_inverter_battery_state_of_charge'],
     battery_capacity: ['sensor.sigen_plant_rated_energy_capacity'],
+    // The SOCs the battery stops charging and discharging at, for its remaining time (disabled by default).
+    battery_charge_cut_off_soc: ['sensor.sigen_plant_charge_cut_off_soc', 'number.sigen_plant_ess_charge_cut_off_state_of_charge'],
+    battery_discharge_cut_off_soc: ['sensor.sigen_plant_discharge_cut_off_soc', 'number.sigen_plant_ess_discharge_cut_off_state_of_charge'],
+    // The SOC the battery can run down to in a power cut, for its remaining time while idle (disabled by default).
+    battery_backup_soc: ['number.sigen_plant_ess_backup_state_of_charge'],
     grid_import_power: ['sensor.sigen_plant_grid_import_power'],
     grid_export_power: ['sensor.sigen_plant_grid_export_power'],
     phase_mode: ['switch.sigen_plant_independent_phase_power_control'],
@@ -89,6 +94,9 @@ const SIGENERGY2MQTT_ENTITIES = {
     battery_power: ['sensor.sigen_0_plant_battery_power', 'sensor.sigen_0_inverter_1_charge_discharge_power'],
     battery_soc: ['sensor.sigen_0_plant_battery_soc', 'sensor.sigen_0_inverter_1_battery_soc'],
     battery_capacity: ['sensor.sigen_0_plant_rated_energy_capacity', 'sensor.sigen_0_inverter_1_rated_battery_capacity'],
+    battery_charge_cut_off_soc: ['number.sigen_0_plant_ess_charge_cut_off_soc'],
+    battery_discharge_cut_off_soc: ['number.sigen_0_plant_ess_discharge_cut_off_soc'],
+    battery_backup_soc: ['number.sigen_0_plant_ess_backup_soc'],
     grid_import_power: ['sensor.sigen_0_grid_sensor_import_power'],
     grid_export_power: ['sensor.sigen_0_grid_sensor_export_power'],
     phase_mode: ['switch.sigen_0_plant_independent_phase_power_control'],
@@ -124,6 +132,8 @@ const SIGENERGY2MQTT_ENTITIES = {
     weather: DEFAULT_ENTITIES.weather,
 };
 const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'];
+// Browser storage of the battery's learnt overhead (see _learnOverhead).
+const OVERHEAD_KEY = 'sigenergy-flow-card-battery-overhead';
 // Default entities and PV string entity for each `sigenergy_backend`; [homeBalance] computes HOME when its entity is missing.
 const BACKENDS = {
     sigenergy_local_modbus: { entities: DEFAULT_ENTITIES, pvString: (n, key) => `sensor.sigen_inverter_pv${n}_${key}` },
@@ -485,7 +495,7 @@ class SigenergyFlowCard extends HTMLElement {
       .compact .node em span{display:block}.compact .node em span+span::before{content:none}
       .node.weather button{display:flex;align-items:center;gap:calc(10px * var(--s))}.weather svg{width:clamp(30px,calc(58px * var(--s)),62px);height:clamp(30px,calc(58px * var(--s)),62px);overflow:visible}
       .sidecol{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:flex;flex-direction:column;justify-content:space-between;gap:max(14px,calc(24px * var(--s)));min-height:calc(184px * var(--s))}
-      .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}
+      .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}.lower>.node:first-child{min-width:0;padding-right:calc(12px * var(--s))}.lower>.node:first-child em{white-space:normal}
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
       .node button{all:unset;cursor:pointer;display:block}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
       .sidebar{display:flex;flex-direction:column;gap:12px}.panel{background:var(--panel);border:1px solid var(--panel-line);border-radius:12px;padding:13px}
@@ -826,6 +836,53 @@ class SigenergyFlowCard extends HTMLElement {
     _factor(id) {
         return { W: .001, Wh: .001, MW: 1000, MWh: 1000 }[this._hass?.states[id]?.attributes?.unit_of_measurement] ?? 1;
     }
+    // Time until the battery reaches its charge cut-off SOC while charging, or its discharge cut-off SOC while
+    // discharging, at the current power, as "1h10m". While idle, it is how long the battery would run the home in a power
+    // cut, down to its Backup SOC: the home's consumption plus the base load learnt by _learnOverhead, and nothing until it
+    // has been learnt. Empty when unknown, at the limit or 100 hours or more. Without the cut-off and backup entities, it
+    // counts to 100% and 0%.
+    _batteryRemaining(bat, soc, home) {
+        const cap = this._scaled(this._ent('battery_capacity'));
+        if (bat === null || soc === null || cap === null) return '';
+        const idle = Math.abs(bat) <= .025, overhead = this._overhead();
+        if (idle && overhead.samples < 10) return '';
+        const charging = bat > .025, power = idle ? (home === null ? 0 : home + overhead.kw) : Math.abs(bat);
+        if (power <= .025) return '';
+        const cutOff = this._num(this._ent(charging ? 'battery_charge_cut_off_soc' : idle ? 'battery_backup_soc' : 'battery_discharge_cut_off_soc')) ?? (charging ? 100 : 0);
+        const minutes = Math.round((charging ? cutOff - soc : soc - cutOff) / 100 * cap / power * 60);
+        return minutes > 0 && minutes < 6000 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m` : '';
+    }
+    // While the battery alone supplies the home (discharging, with no solar, grid or charger flow), what it supplies
+    // beyond the home's consumption is the base load of the inverters and the system. A running average of it, in kW, is
+    // kept in the browser, at most a sample every 30 s, for the remaining time while idle.
+    _learnOverhead(pv, imp, exp, bat, ac, dc, home) {
+        const now = Date.now();
+        if (now - (this._overheadAt ?? 0) < 30e3 || bat === null || home === null || bat > -.1 || home < .1) return;
+        if ((pv ?? 0) > .05 || Math.max(imp ?? 0, exp ?? 0) > .05 || Math.abs(ac ?? 0) > .05 || Math.abs(dc ?? 0) > .05) return;
+        const kw = -bat - home;
+        if (kw < 0 || kw > 1) return;
+        this._overheadAt = now;
+        const { kw: average, samples } = this._overhead();
+        // The mean of the first 100 samples, then a slowly moving average.
+        this._overheadValue = { kw: samples ? average + (kw - average) / Math.min(samples + 1, 100) : kw, samples: samples + 1 };
+        try {
+            localStorage.setItem(OVERHEAD_KEY, JSON.stringify(this._overheadValue));
+        } catch (e) {
+            // Without storage the average lasts until the page reloads.
+        }
+    }
+    _overhead() {
+        if (!this._overheadValue) {
+            let stored = null;
+            try {
+                stored = JSON.parse(localStorage.getItem(OVERHEAD_KEY));
+            } catch (e) {
+                // Nothing usable stored.
+            }
+            this._overheadValue = stored && stored.kw >= 0 && stored.kw <= 1 && stored.samples > 0 ? stored : { kw: 0, samples: 0 };
+        }
+        return this._overheadValue;
+    }
     // Battery power with charging positive, whatever the source's sign convention.
     _batterySign() {
         return this.config.battery_power_invert ? -1 : 1;
@@ -1157,7 +1214,10 @@ class SigenergyFlowCard extends HTMLElement {
         this._text('home', this._power(home));
         this._text('battery', this._power(bat));
         this._text('soc', soc === null ? '—' : `${soc.toFixed(1)}%`);
-        this._text('battStatus', bat === null ? '' : bat > 0.025 ? 'Charging' : bat < -.025 ? 'Discharging' : 'Idle');
+        const battStatus = bat === null ? '' : bat > 0.025 ? 'Charging' : bat < -.025 ? 'Discharging' : 'Idle', remaining = this._batteryRemaining(bat, soc, home);
+        this._learnOverhead(pv, imp, exp, bat, ac, dc, home);
+        // The bracket stays on one line: a narrow column wraps before it.
+        this._text('battStatus', remaining ? `${battStatus} (remaining\u00A0time:\u00A0${remaining})` : battStatus);
         this._text('grid', this._power(grid));
         this._text('gridStatus', grid === null ? '' : grid > 0.025 ? 'Importing' : grid < -.025 ? 'Exporting' : 'Idle');
         const phase = this._hass.states[e('phase_mode')]?.state;

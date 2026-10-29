@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v62
+
+- SigenStor's status shows the battery's remaining time: the time to the charge or discharge cut-off SOC at the current power, e.g. "Charging (remaining time: 2h19m)". The cut-offs come from the new `battery_charge_cut_off_soc` and `battery_discharge_cut_off_soc` keys (Sigenergy Local Modbus's `sensor.sigen_plant_charge_cut_off_soc` / `…_discharge_…`, disabled by default; sigenergy2mqtt's `number.sigen_0_plant_ess_charge_cut_off_soc` / `…_discharge_…`); without them it counts to 100% and 0%. While idle, it is how long the battery would run the home in a power cut, down to its Backup SOC, at the home's consumption plus the inverters' and system's base load, which the card learns while the battery alone supplies the home (kept in the browser; no idle time until learnt) (new `battery_backup_soc` key: `number.sigen_plant_ess_backup_state_of_charge`, disabled by default, or `number.sigen_0_plant_ess_backup_soc`). It is left out at the cut-off, without a reading, or beyond 99 hours.
+
 ## v61
 
 - With `sigenergy_backend: sigenergy2mqtt`, HOME no longer includes EV charging. It reads `sensor.sigen_0_general_load_power` (the home without the EV chargers) instead of `sensor.sigen_0_consumed_power`, which copies Total Load Power, including the DC charger, by default. On a system without General Load Power, HOME, its chart line and its forecast are calculated as solar + grid import − grid export − battery charging − AC charger − DC charger. Sigenergy Local Modbus is unchanged.
