@@ -83,7 +83,9 @@ const DEFAULT_ENTITIES = {
 // no daily energy for a third-party inverter.
 const SIGENERGY2MQTT_ENTITIES = {
     pv_power: ['sensor.sigen_0_total_pv_power', 'sensor.sigen_0_plant_pv_power'],
-    home_power: ['sensor.sigen_0_consumed_power', 'sensor.sigen_0_total_load_power'],
+    // General Load Power is the home without the EV chargers; Total Load Power (and consumed_power, which copies it by
+    // default) includes the DC charger. Without General Load Power, HOME is the balance of the other flows.
+    home_power: ['sensor.sigen_0_general_load_power'],
     battery_power: ['sensor.sigen_0_plant_battery_power', 'sensor.sigen_0_inverter_1_charge_discharge_power'],
     battery_soc: ['sensor.sigen_0_plant_battery_soc', 'sensor.sigen_0_inverter_1_battery_soc'],
     battery_capacity: ['sensor.sigen_0_plant_rated_energy_capacity', 'sensor.sigen_0_inverter_1_rated_battery_capacity'],
@@ -122,10 +124,10 @@ const SIGENERGY2MQTT_ENTITIES = {
     weather: DEFAULT_ENTITIES.weather,
 };
 const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'];
-// Default entities and PV string entity for each `sigenergy_backend`.
+// Default entities and PV string entity for each `sigenergy_backend`; [homeBalance] computes HOME when its entity is missing.
 const BACKENDS = {
     sigenergy_local_modbus: { entities: DEFAULT_ENTITIES, pvString: (n, key) => `sensor.sigen_inverter_pv${n}_${key}` },
-    sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}` },
+    sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, homeBalance: true, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}` },
 };
 // Today's energy tiles: [value element id, entities key, label, entities key whose energy adds to it].
 const DAILY_TILES = [
@@ -831,9 +833,22 @@ class SigenergyFlowCard extends HTMLElement {
     _pvEntity(i, key) {
         return this._pv[i][key];
     }
+    // HOME is the balance of the other flows for a backend without a home entity (sigenergy2mqtt when the inverter
+    // doesn't provide General Load Power), unless home_power is set: what solar, grid and battery supply less the chargers.
+    _homeFromBalance() {
+        return !!this._backend.homeBalance && this.config.entities?.home_power === undefined && !this._has(this._ent('home_power'));
+    }
+    // Home consumption in kW.
+    _homePower() {
+        if (!this._homeFromBalance()) return this._scaled(this._ent('home_power'));
+        const kw = key => this._scaled(this._ent(key));
+        const pv = kw('pv_power'), bat = kw('battery_power'), imp = kw('grid_import_power'), exp = kw('grid_export_power');
+        if (pv === null || bat === null || (imp === null && exp === null)) return null;
+        return Math.max(0, pv + (imp ?? 0) - (exp ?? 0) - bat * this._batterySign() - (kw('ac_charger_power') ?? 0) - (kw('dc_charger_power') ?? 0));
+    }
     _updateHome() {
         if (!this._hass || !this._id('homeDialog').open) return;
-        const home = this._scaled(this._ent('home_power'));
+        const home = this._homePower();
         const loads = this.config.home_entities.map(item => {
             const entity = typeof item === 'string' ? item : item.entity;
             const name = (typeof item === 'object' && item.name) || this._hass.states[entity]?.attributes?.friendly_name || entity;
@@ -1122,7 +1137,7 @@ class SigenergyFlowCard extends HTMLElement {
           , e = key => this._ent(key)
           , kw = key => this._scaled(this._ent(key))   // kW or kWh, whatever unit the entity reports
           , pv = kw('pv_power')
-          , home = kw('home_power');
+          , home = this._homePower();
         const batRaw = kw('battery_power'), bat = batRaw === null ? null : batRaw * this._batterySign();
         const socEntity = e('battery_soc');
         const soc = n(socEntity);
@@ -1438,8 +1453,9 @@ class SigenergyFlowCard extends HTMLElement {
         if (!this._hass || this._loading)
             return;
         this._loading = true;
+        const balance = this._homeFromBalance();
         const specs = CHART_SERIES.map(s => ({ ...s, id: this._ent(s.key) }))
-            .filter(s => s.id && (!s.optional || this._has(s.id)));
+            .filter(s => s.id && (!s.optional || this._has(s.id)) && !(balance && s.key === 'home_power'));
         try {
             const { start, data } = await this._todayHistory(specs.map(s => s.id));
             this._renderChart(data, specs, start);
@@ -1473,7 +1489,15 @@ class SigenergyFlowCard extends HTMLElement {
             note: notes[specs[i].name]
         };
         });
-        this._chartLive = { specs, series, start };
+        // Without a home entity, Home is the balance of the other series at each of their times.
+        let home = null;
+        if (this._homeFromBalance()) {
+            const times = [...new Set(series.flatMap(s => s.points.map(p => p.t)))].sort((a, b) => a - b);
+            const spec = CHART_SERIES.find(s => s.key === 'home_power');
+            home = { points: times.map(t => ({ t, v: Math.min(0, -series.reduce((sum, s) => sum + (this._valueAt(s.points, t) ?? 0), 0)) })), color: spec.color, name: spec.name };
+            series.push(home);
+        }
+        this._chartLive = { specs, series, start, home };
         if (this._showPowerChart()) this._chartStatus();
         else this._text('chartStatus', 'No recorded power history today');
     }
@@ -1501,7 +1525,10 @@ class SigenergyFlowCard extends HTMLElement {
         }
         const zone = this._zone, now = Date.now(), today = zoneMidnight(now, zone), day = zoneParts(today, zone);
         const end = zoneDate(zone, day.y, day.m, day.d + 1).getTime();
-        const specs = ['pv_power', 'home_power'].map(key => ({ ...CHART_SERIES.find(s => s.key === key), id: this._ent(key) })).filter(spec => this._has(spec.id));
+        const spec = key => ({ ...CHART_SERIES.find(s => s.key === key), id: this._ent(key) });
+        const specs = ['pv_power', 'home_power'].map(spec).filter(spec => this._has(spec.id));
+        // Without a home entity, the home's forecast is the balance of the other flows' averages.
+        const parts = this._homeFromBalance() ? ['pv_power', 'grid_import_power', 'grid_export_power', 'battery_power', 'ac_charger_power', 'dc_charger_power'].map(spec).filter(spec => this._has(spec.id)) : [];
         // Today's points from now on, starting with the value at now so the line joins the recorded one.
         const ahead = points => {
             const at = this._valueAt(points, now), rest = points.filter(p => p.t > now && p.t <= end);
@@ -1527,7 +1554,7 @@ class SigenergyFlowCard extends HTMLElement {
             // No solar forecast in Home Assistant: the history average stands in.
         }
         let history = {}, slot = 300e3;
-        const ids = specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power'));
+        const ids = [...new Set([...specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power')), ...parts.map(spec => spec.id)])];
         if (ids.length) {
             const from = zoneDate(zone, day.y, day.m, day.d - 7);
             const fetch = period => this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: from.toISOString(), end_time: today.toISOString(), statistic_ids: ids, period, types: ['mean'] }).catch(() => ({}));
@@ -1551,10 +1578,17 @@ class SigenergyFlowCard extends HTMLElement {
             return [...slots].sort((a, b) => a[0] - b[0])
                 .map(([minute, [total, count]]) => ({ t: zoneDate(zone, day.y, day.m, day.d, Math.floor(minute / 60)).getTime() + (minute % 60) * 60e3 + slot / 2, v: total / count }));
         };
-        const series = specs.map(spec => {
+        let series = specs.map(spec => {
             const points = ahead(spec.key === 'pv_power' && solar ? solar.map(p => ({ t: p.t, v: p.v * (spec.negate ? -1 : 1) })) : profile(spec));
             return { points, color: spec.color, name: spec.name, forecast: true };
-        }).filter(s => s.points.length > 1);
+        });
+        if (parts.length) {
+            const slots = new Map();
+            for (const part of parts) for (const p of profile(part)) slots.set(p.t, (slots.get(p.t) ?? 0) + p.v);
+            const home = CHART_SERIES.find(s => s.key === 'home_power');
+            series.push({ points: ahead([...slots].sort((a, b) => a[0] - b[0]).map(([t, v]) => ({ t, v: Math.min(0, -v) }))), color: home.color, name: home.name, forecast: true });
+        }
+        series = series.filter(s => s.points.length > 1);
         this._chartForecast = series.length ? { series, source: solar ? 'the solar forecast and the last 7 days' : 'the last 7 days' } : null;
         if (this._showPowerChart()) this._chartStatus();
     }
@@ -1570,6 +1604,8 @@ class SigenergyFlowCard extends HTMLElement {
             const v = this._num(spec.id);
             if (v !== null) live.series[i].points.push({ t, v: v * this._chartFactor(spec) });
         });
+        const home = live.home && this._homePower();
+        if (home !== null && home !== undefined && live.home) live.home.points.push({ t, v: -home });
         this._id('chart')._redraw?.();
     }
     // Draws now and again whenever the chart is resized; returns whether any series has data.

@@ -281,7 +281,7 @@ sigenergy_backend: sigenergy2mqtt
 | Key | sigenergy2mqtt default |
 | --- | --- |
 | `pv_power` | `sensor.sigen_0_total_pv_power`, fallback `sensor.sigen_0_plant_pv_power` |
-| `home_power` | `sensor.sigen_0_consumed_power`, fallback `sensor.sigen_0_total_load_power` |
+| `home_power` | `sensor.sigen_0_general_load_power`; without it, calculated (see below) |
 | `battery_power` | `sensor.sigen_0_plant_battery_power`, fallback `sensor.sigen_0_inverter_1_charge_discharge_power` |
 | `battery_soc` | `sensor.sigen_0_plant_battery_soc`, fallback `sensor.sigen_0_inverter_1_battery_soc` |
 | `battery_capacity` | `sensor.sigen_0_plant_rated_energy_capacity`, fallback `sensor.sigen_0_inverter_1_rated_battery_capacity` |
@@ -319,7 +319,7 @@ sigenergy_backend: sigenergy2mqtt
 - sigenergy2mqtt has no daily energy for a third-party inverter, so `third_party_pv_daily_energy` has no default and the **Solar produced** tile counts only the Sigenergy PV.
 - The `si_` sensors come from the Statistics Interface, whose counters restart from 0 when the firmware gains it; the plant's lifetime counters are used first.
 - `ac_charger_power` falls back to `rated_charging_power`, the name sigenergy2mqtt used before February 2026: Home Assistant keeps the entity ID it first registered, so installs from before then still have it.
-- `home_power` is sigenergy2mqtt's consumed power, which follows its `consumption` setting (by default the Total Load Power register).
+- `home_power` is General Load Power, the home without the EV chargers. Total Load Power, and `sensor.sigen_0_consumed_power`, which copies it with sigenergy2mqtt's default `consumption` setting, include the DC charger, so the card doesn't use them. On a system without General Load Power (sigenergy2mqtt removes a sensor whose register the inverter doesn't provide), HOME is calculated as solar + grid import − grid export − battery charging − AC charger − DC charger, in the chart and forecast too, unless `home_power` is set.
 
 ### Forecast
 

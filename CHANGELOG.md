@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v61
+
+- With `sigenergy_backend: sigenergy2mqtt`, HOME no longer includes EV charging. It reads `sensor.sigen_0_general_load_power` (the home without the EV chargers) instead of `sensor.sigen_0_consumed_power`, which copies Total Load Power, including the DC charger, by default. On a system without General Load Power, HOME, its chart line and its forecast are calculated as solar + grid import − grid export − battery charging − AC charger − DC charger. Sigenergy Local Modbus is unchanged.
+
 ## v60
 
 - The Power metrics chart continues past now with dashed forecast lines, as in Sigenergy's app: solar from Home Assistant's solar forecast (Forecast.Solar, Open-Meteo, Solcast… as set up in the Energy dashboard) or, without one, the average over the last 7 days at each time of day, and the home's consumption from its 7-day average. Hovering past now reads the forecast. New `show_forecast` option (default `true`).
