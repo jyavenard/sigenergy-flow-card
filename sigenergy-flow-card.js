@@ -29,6 +29,18 @@ const PHOTO = { width: 1676, height: 557, top: 56, bottom: 60, bleed: 100 };
 const FADE = { topEnd: 140, bottomStart: 533 };
 const SCENE = { width: PHOTO.width, height: PHOTO.top + PHOTO.height + PHOTO.bottom, keep: [160, 1320], keepNarrow: [385, 1215], narrowBelow: 560, scale: 1 };
 
+// The Grid dialog's phases, and each phase's keys: the inverter's voltage and current, from [inverter] of the entity
+// IDs, and the grid sensor's active power, from [plant].
+const GRID_PHASES = ['a', 'b', 'c'];
+const gridPhaseEntities = (inverter, plant) => Object.fromEntries(GRID_PHASES.flatMap(phase => [
+    ...['voltage', 'current'].map(kind => [`grid_phase_${phase}_${kind}`, [`${inverter(phase)}_${kind}`]]),
+    [`grid_phase_${phase}_active_power`, [`${plant(phase)}_active_power`]]]));
+// The Grid dialog's columns: power is voltage × current, the apparent power; grid is the grid sensor's active power,
+// positive while importing.
+const GRID_KINDS = ['voltage', 'current', 'power', 'active_power'];
+const GRID_UNITS = { voltage: 'V', current: 'A', power: 'kVA', active_power: 'kW', power_factor: '' };
+const GRID_NAMES = { voltage: 'voltage', current: 'current', power: 'power', active_power: 'grid power' };
+
 // Default entities for each `entities:` key in the card config, in priority order.
 // Plant sensors are the primary source (they combine every inverter and battery);
 // inverter sensors are the secondary / fallback source, used only when the plant sensor is unavailable.
@@ -47,6 +59,12 @@ const DEFAULT_ENTITIES = {
     grid_import_power: ['sensor.sigen_plant_grid_import_power'],
     grid_export_power: ['sensor.sigen_plant_grid_export_power'],
     phase_mode: ['switch.sigen_plant_independent_phase_power_control'],
+    // Grid dialog: the inverter's per-phase readings at its AC terminals and the grid sensor's per-phase power (all
+    // disabled by default), and the value shown beside GRID with show_grid_voltage (the phases' average voltage when
+    // unset).
+    grid_voltage: [],
+    ...gridPhaseEntities(phase => `sensor.sigen_inverter_phase_${phase}`, phase => `sensor.sigen_plant_grid_phase_${phase}`),
+    grid_power_factor: ['sensor.sigen_inverter_power_factor'],
     ac_charger_power: ['sensor.sigen_ac_charger_charging_power'],
     ac_charger_state: ['sensor.sigen_ac_charger_system_state'],
     ac_charger_total_energy: ['sensor.sigen_ac_charger_total_energy_consumed'],
@@ -100,6 +118,9 @@ const SIGENERGY2MQTT_ENTITIES = {
     grid_import_power: ['sensor.sigen_0_grid_sensor_import_power'],
     grid_export_power: ['sensor.sigen_0_grid_sensor_export_power'],
     phase_mode: ['switch.sigen_0_plant_independent_phase_power_control'],
+    grid_voltage: [],
+    ...gridPhaseEntities(phase => `sensor.sigen_0_inverter_1_phase_${phase}`, phase => `sensor.sigen_0_plant_grid_phase_${phase}`),
+    grid_power_factor: ['sensor.sigen_0_inverter_1_power_factor'],
     ac_charger_power: ['sensor.sigen_0_ac_charger_1_charging_power', 'sensor.sigen_0_ac_charger_2_charging_power', 'sensor.sigen_0_ac_charger_1_rated_charging_power', 'sensor.sigen_0_ac_charger_2_rated_charging_power'],
     ac_charger_state: ['sensor.sigen_0_ac_charger_1_running_state', 'sensor.sigen_0_ac_charger_2_running_state'],
     ac_charger_total_energy: ['sensor.sigen_0_ac_charger_1_total_energy_consumed', 'sensor.sigen_0_ac_charger_2_total_energy_consumed'],
@@ -407,6 +428,8 @@ class SigenergyFlowCard extends HTMLElement {
             home_entities: [],
             show_lifetime: true,
             show_phase_mode: false,
+            show_grid_voltage: false,
+            grid_phases: null,
             title: 'Sigenergy',
             name: 'My Home',
             show_energy_statistics: true,
@@ -497,7 +520,7 @@ class SigenergyFlowCard extends HTMLElement {
       .sidecol{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:flex;flex-direction:column;justify-content:space-between;gap:max(14px,calc(24px * var(--s)));min-height:calc(184px * var(--s))}
       .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}.lower>.node:first-child{min-width:0;padding-right:calc(12px * var(--s))}.lower>.node:first-child em{white-space:normal}
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
-      .node button{all:unset;cursor:pointer;display:block}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
+      .node button{all:unset;cursor:pointer;display:block}.node button[disabled]{cursor:default}.nobreak{white-space:nowrap}.narrow #gridButton small{white-space:normal}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
       .sidebar{display:flex;flex-direction:column;gap:12px}.panel{background:var(--panel);border:1px solid var(--panel-line);border-radius:12px;padding:13px}
       .panel h3{margin:0 0 11px;font-size:14px;font-weight:600;color:var(--heading)}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
       .stat{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:10px;cursor:pointer;transition:background .2s}.stat:hover{background:var(--tile-hover)}.stat:focus-visible{outline:2px solid #71d3d1}.stat small{font-size:11px;color:var(--tile-sub);display:block}.stat b{font-size:18px;display:block;margin-top:4px}
@@ -533,6 +556,9 @@ class SigenergyFlowCard extends HTMLElement {
       .pv-table th[scope=row]{text-align:left;font-size:13px;color:var(--fg);white-space:nowrap}
       .pv-table tfoot td{background:transparent;color:var(--heading);font-weight:600}
       .pv-table .dot{margin-right:6px}
+      .pv-table td.pick{padding:0}.pick button{all:unset;box-sizing:border-box;display:block;width:100%;padding:9px 8px;border-radius:8px;cursor:pointer}.pick button[disabled]{cursor:default}
+      .pick button[aria-pressed=true],.gridpf[aria-pressed=true]{outline:2px solid var(--c-grid);outline-offset:-2px}.pick button:focus-visible,.gridpf:focus-visible{outline:2px solid #71d3d1}
+      #gridNote{margin:4px 14px 0}.gridpf{all:unset;cursor:pointer;display:inline-block;margin:6px 6px 0;padding:4px 8px;border-radius:8px;font-size:14px;font-variant-numeric:tabular-nums}
       .loads{display:flex;flex-direction:column;gap:6px}
       .load{all:unset;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto 3.5em;gap:2px 12px;align-items:center;background:var(--tile);border-radius:8px;padding:9px 12px;cursor:pointer;font-size:14px;font-variant-numeric:tabular-nums}
       .load:focus-visible{outline:2px solid #71d3d1}
@@ -567,7 +593,7 @@ class SigenergyFlowCard extends HTMLElement {
             : `<strong id="home">—</strong><small>HOME</small>`}</div>
         <div class="lower" style="${lowerStyle}">
           <div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>
-          <div class="node"><strong id="grid">—</strong><small>GRID</small><em id="gridStatus"></em><em id="phaseMode"></em></div>
+          <div class="node"><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
         </div>
         <div class="sidecol" id="chargers">
           <div class="node" id="acNode"><strong id="ac">—</strong><small>AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
@@ -595,6 +621,15 @@ class SigenergyFlowCard extends HTMLElement {
       <section class="panel"><div class="charthead"><h3>PV power (kW) · Today</h3><span class="muted" id="pvChartStatus"></span></div>
       <div class="legend">${this._pv.map(({ name }, i) => `<span id="pvLegend${i}"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i></span>`).join('')}<span id="pvLegendThird" hidden><i class="dot" style="background:var(--pv-third)"></i>Third-party PV</span></div>
       <div class="chart-wrap"><svg id="pvChart"></svg><div class="tip" id="pvChartTip" hidden></div></div></section>
+    </div></dialog>
+    <dialog id="gridDialog" aria-labelledby="gridTitle"><div class="dlg">
+      ${head('grid', 'Grid')}
+      <section class="panel"><h3>Grid real time info</h3><div class="pv-wrap"><table class="pv-table">
+        <thead><tr><th></th>${GRID_KINDS.map(kind => `<th data-column="${kind}">${{ voltage: 'Voltage', current: 'Current', power: 'Power', active_power: 'Grid' }[kind]}<br>(${GRID_UNITS[kind]})</th>`).join('')}</tr></thead>
+        <tbody>${GRID_PHASES.map(phase => `<tr id="gridRow_${phase}"><th scope="row">Phase ${phase.toUpperCase()}</th>${GRID_KINDS.map(kind => `<td class="pick" data-column="${kind}"><button id="grid_${phase}_${kind}" data-phase="${phase}" data-kind="${kind}">—</button></td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div><div class="muted" id="gridNote">Grid: the grid sensor's active power, positive while importing.</div><button class="gridpf" id="gridPf" data-kind="power_factor">Power factor <span id="gridPfValue">—</span></button></section>
+      <section class="panel"><div class="charthead"><h3 id="gridChartTitle"></h3><span class="muted" id="gridChartStatus"></span></div>
+      <div class="chart-wrap"><svg id="gridChart"></svg><div class="tip" id="gridChartTip" hidden></div></div></section>
     </div></dialog>
     <dialog id="energyDialog" aria-labelledby="energyTitle"><div class="dlg">
       ${head('energy', 'Battery energy')}
@@ -633,6 +668,7 @@ class SigenergyFlowCard extends HTMLElement {
         // on its backdrop.
         for (const [button, id, show] of [
             ['pvButton', 'pvDialog', () => { this._updatePv(); this._loadPvHistory(); }],
+            ['gridButton', 'gridDialog', () => { this._updateGrid(); this._loadGridHistory(); }],
             ['homeButton', 'homeDialog', () => this._updateHome()],
             ['capacity', 'energyDialog', () => { this._updateEnergy(); this._loadEnergyHistory(); }],
             ['socButton', 'socDialog', () => { this._updateSoc(); this._loadSocHistory(); }],
@@ -648,10 +684,19 @@ class SigenergyFlowCard extends HTMLElement {
             this._id('homeDialog').close();
             this._moreInfo(entityId);
         });
+        // A grid reading or the power factor charts its history.
+        this._gridPick ??= { phase: 'a', kind: 'voltage' };
+        this._id('gridDialog').addEventListener('click', e => {
+            const pick = e.target.closest('[data-kind]');
+            if (!pick || pick.disabled) return;
+            this._gridPick = { phase: pick.dataset.phase ?? null, kind: pick.dataset.kind };
+            this._updateGrid();
+            this._loadGridHistory();
+        });
         for (const stat of this.root.querySelectorAll('.stat, #socLevel'))
             stat.addEventListener('click', () => this._moreInfo(stat.dataset.entity));
         this._observeCharts();
-        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip']]) {
+        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
             const show = e => this._hoverChart(svg, box, e);
             svg.addEventListener('pointermove', show);
@@ -669,7 +714,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartObserver = new ResizeObserver(entries => {
             for (const entry of entries) (entry.target._redraw ?? entry.target.fit)?.();
         });
-        for (const id of ['chart', 'pvChart', 'energyChart', 'socChart', 'statChart']) this._chartObserver.observe(this._id(id));
+        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'statChart']) this._chartObserver.observe(this._id(id));
         const scene = this._id('scene'), sidebar = this.root.querySelector('.sidebar');
         scene.fit = sidebar.fit = () => this._fitScene();
         this._chartObserver.observe(scene);
@@ -990,6 +1035,93 @@ class SigenergyFlowCard extends HTMLElement {
     _hasThirdPartyPv() {
         return ['third_party_pv_lifetime_energy', 'third_party_pv_daily_energy', 'third_party_pv_power'].some(key => (this._scaled(this._ent(key)) ?? 0) > .005);
     }
+    // The phases: grid_phases when set, else the last phase whose voltage or grid power isn't 0 (a single-phase system
+    // can have phase B and C entities that read 0), else 1 when phase A has an entity; 0 is none.
+    _gridPhases() {
+        const set = Number(this.config.grid_phases);
+        if ([1, 2, 3].includes(set)) return set;
+        const live = phase => (this._num(this._ent(`grid_phase_${phase}_voltage`)) ?? 0) > 0 || Math.abs(this._num(this._ent(`grid_phase_${phase}_active_power`)) ?? 0) > 0;
+        const last = GRID_PHASES.map(live).lastIndexOf(true);
+        if (last >= 0) return last + 1;
+        return ['voltage', 'current', 'active_power'].some(kind => this._has(this._ent(`grid_phase_a_${kind}`))) ? 1 : 0;
+    }
+    // Beside GRID: the grid_voltage entity, else the phases' average voltage, as "(231V)"; it wraps below GRID in the
+    // narrow layout.
+    _gridLabel(phases) {
+        const set = this._ent('grid_voltage');
+        const ids = set ? [set] : GRID_PHASES.slice(0, phases).map(phase => this._ent(`grid_phase_${phase}_voltage`));
+        const values = ids.map(id => this._num(id)).filter(v => v !== null);
+        if (!values.length) return '';
+        const unit = this._hass.states[ids[0]]?.attributes?.unit_of_measurement ?? (set ? '' : 'V');
+        return `(${Math.round(values.reduce((a, b) => a + b, 0) / values.length)}${unit})`;
+    }
+    // The entities a Grid dialog reading comes from: power is voltage × current.
+    _gridIds(phase, kind) {
+        if (kind === 'power_factor') return [this._ent('grid_power_factor')];
+        return (kind === 'power' ? ['voltage', 'current'] : [kind]).map(k => this._ent(`grid_phase_${phase}_${k}`));
+    }
+    _gridValue(phase, kind) {
+        if (kind === 'active_power') return this._scaled(this._ent(`grid_phase_${phase}_active_power`));
+        const [first, second] = this._gridIds(phase, kind).map(id => this._num(id));
+        return kind !== 'power' ? first : first === null || second === null ? null : first * second / 1000;
+    }
+    _gridAvailable(phase, kind) {
+        return this._gridIds(phase, kind).every(id => this._has(id));
+    }
+    _updateGrid() {
+        if (!this._hass || !this._id('gridDialog').open) return;
+        const phases = Math.max(1, this._gridPhases()), pick = this._gridPick;
+        // A column shows when any phase has its entities.
+        for (const kind of GRID_KINDS) {
+            const shown = GRID_PHASES.slice(0, phases).some(phase => this._gridAvailable(phase, kind));
+            for (const el of this._id('gridDialog').querySelectorAll(`[data-column="${kind}"]`)) el.hidden = !shown;
+            if (kind === 'active_power') this._id('gridNote').hidden = !shown;
+        }
+        GRID_PHASES.forEach((phase, i) => {
+            this._id(`gridRow_${phase}`).hidden = i >= phases;
+            for (const kind of GRID_KINDS) {
+                const cell = this._id(`grid_${phase}_${kind}`), v = this._gridValue(phase, kind);
+                this._setText(cell, v === null ? '—' : v.toFixed(kind === 'voltage' ? 1 : 2));
+                cell.disabled = !this._gridAvailable(phase, kind);
+                cell.setAttribute('aria-pressed', pick.phase === phase && pick.kind === kind);
+            }
+        });
+        const pfId = this._ent('grid_power_factor'), pf = this._num(pfId), button = this._id('gridPf');
+        button.hidden = !this._has(pfId);
+        button.setAttribute('aria-pressed', pick.kind === 'power_factor');
+        this._text('gridPfValue', pf === null ? '—' : pf.toFixed(2));
+    }
+    // The last 24 hours of the chosen reading; power is voltage × current at each time either changed.
+    // Without the chosen reading's entities, the first available reading is charted.
+    async _loadGridHistory() {
+        if (!this._hass) return;
+        const available = ({ phase, kind }) => kind === 'power_factor' ? this._has(this._ent('grid_power_factor')) : this._gridAvailable(phase, kind);
+        if (!available(this._gridPick)) {
+            const first = GRID_PHASES.flatMap(phase => GRID_KINDS.map(kind => ({ phase, kind }))).find(available);
+            if (first) {
+                this._gridPick = first;
+                this._updateGrid();
+            }
+        }
+        const { phase, kind } = this._gridPick, ids = this._gridIds(phase, kind), unit = GRID_UNITS[kind];
+        const name = kind === 'power_factor' ? 'Power factor' : `Phase ${phase.toUpperCase()} ${GRID_NAMES[kind]}`;
+        this._text('gridChartTitle', `${name}${unit ? ` (${unit})` : ''}`);
+        if (!ids.every(id => this._has(id))) {
+            this._id('gridChart').replaceChildren();
+            this._text('gridChartStatus', 'Not available');
+            return;
+        }
+        await this._dialogChart('gridChart', 'gridChartStatus', 'No recorded history in the last 24 hours', ids, ([first, second]) => {
+            if (kind === 'active_power') {
+                const factor = this._factor(ids[0]);
+                return [{ points: first.map(p => ({ t: p.t, v: p.v * factor })), color: 'var(--c-grid)', name, unit, digits: 2, note: v => v > .005 ? 'import' : v < -.005 ? 'export' : '' }];
+            }
+            const points = kind !== 'power' ? first : [...new Set([...first, ...second].map(p => p.t))].sort((a, b) => a - b)
+                .map(t => ({ t, volts: this._valueAt(first, t), amps: this._valueAt(second, t) }))
+                .filter(p => p.volts !== null && p.amps !== null).map(p => ({ t: p.t, v: p.volts * p.amps / 1000 }));
+            return [{ points, color: 'var(--c-grid)', name, unit, digits: kind === 'voltage' || kind === 'current' ? 1 : 2 }];
+        }, undefined, { hours: 24, fit: kind === 'voltage' || kind === 'current' || kind === 'power_factor', signed: kind === 'active_power' });
+    }
     // Stored energy is SOC × rated capacity; no sensor reports it directly.
     _updateEnergy() {
         if (!this._hass || !this._id('energyDialog').open) return;
@@ -1040,22 +1172,26 @@ class SigenergyFlowCard extends HTMLElement {
             return { points: points.map(p => ({ t: p.t, v: p.v * factor })), color: strings[i].color, name: strings[i].name };
         }));
     }
-    // Today's recorded states of [ids], from midnight in Home Assistant's time zone.
-    async _todayHistory(ids) {
-        const day = zoneMidnight(Date.now(), this._zone);
-        const query = `history/period/${encodeURIComponent(day.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&minimal_response&no_attributes`;
-        return { start: day.getTime(), data: await this._hass.callApi('GET', query) };
+    // Recorded states of [ids] from [start] (today's midnight in Home Assistant's time zone) until now.
+    async _history(ids, start = zoneMidnight(Date.now(), this._zone)) {
+        const query = `history/period/${encodeURIComponent(start.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&end_time=${encodeURIComponent(new Date().toISOString())}&minimal_response&no_attributes`;
+        return { start: start.getTime(), data: await this._hass.callApi('GET', query) };
     }
     // A dialog's chart of today's history and its status: [toSeries] turns each id's points into the chart's series.
-    async _dialogChart(chart, status, empty, ids, toSeries, top) {
+    // With [hours], it shows the last [hours] hours instead; [fit] fits the value axis to the data.
+    // [signed] draws values either side of 0.
+    async _dialogChart(chart, status, empty, ids, toSeries, top, { hours, fit, signed = false } = {}) {
+        const svg = this._id(chart), request = svg._request = (svg._request ?? 0) + 1;
         this._text(status, 'Loading history…');
         try {
-            const { start, data } = await this._todayHistory(ids);
-            const hasData = this._showChart(this._id(chart), toSeries(this._series(data, ids)), start, false, top);
-            this._text(status, hasData ? 'Midnight → now' : empty);
+            const { start, data } = await this._history(ids, hours ? new Date(Date.now() - hours * 3600e3) : undefined);
+            if (request !== svg._request) return;
+            const hasData = this._showChart(svg, toSeries(this._series(data, ids)), start, signed, top, hours ? { end: Date.now(), fit } : undefined);
+            this._text(status, hasData ? hours ? `Last ${hours} hours` : 'Midnight → now' : empty);
         } catch (e) {
+            if (request !== svg._request) return;
             this._text(status, 'Recorder history unavailable');
-            this._id(chart).replaceChildren();
+            svg.replaceChildren();
         }
     }
     _power(v) {
@@ -1220,6 +1356,10 @@ class SigenergyFlowCard extends HTMLElement {
         this._text('battStatus', remaining ? `${battStatus} (remaining\u00A0time:\u00A0${remaining})` : battStatus);
         this._text('grid', this._power(grid));
         this._text('gridStatus', grid === null ? '' : grid > 0.025 ? 'Importing' : grid < -.025 ? 'Exporting' : 'Idle');
+        const phases = this._gridPhases();
+        this._id('gridButton').disabled = !phases;
+        this._id('gridMore').hidden = !phases;
+        this._text('gridLabel', this.config.show_grid_voltage ? this._gridLabel(phases) : '');
         const phase = this._hass.states[e('phase_mode')]?.state;
         this._text('phaseMode', !this.config.show_phase_mode ? '' : phase === 'on' ? 'Power Per Phase Mode' : phase === 'off' ? 'Total Power Mode' : '');
         const acTotal = kw('ac_charger_total_energy');
@@ -1267,6 +1407,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._flow('homeBranch', home);
         this._flow('gridFlow', grid === null ? null : -grid);
         this._updatePv();
+        this._updateGrid();
         this._updateHome();
         this._text('stamp', new Date().toLocaleTimeString([], { timeZone: this._zone }));
     }
@@ -1517,7 +1658,7 @@ class SigenergyFlowCard extends HTMLElement {
         const specs = CHART_SERIES.map(s => ({ ...s, id: this._ent(s.key) }))
             .filter(s => s.id && (!s.optional || this._has(s.id)) && !(balance && s.key === 'home_power'));
         try {
-            const { start, data } = await this._todayHistory(specs.map(s => s.id));
+            const { start, data } = await this._history(specs.map(s => s.id));
             this._renderChart(data, specs, start);
         } catch (e) {
             this._text('chartStatus', 'Recorder history unavailable');
@@ -1669,16 +1810,17 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('chart')._redraw?.();
     }
     // Draws now and again whenever the chart is resized; returns whether any series has data.
-    _showChart(svg, series, start, signed, top) {
-        svg._redraw = () => this._plot(svg, series, start, signed, top);
+    _showChart(svg, series, start, signed, top, window) {
+        svg._redraw = () => this._plot(svg, series, start, signed, top, window);
         svg._redraw();
         return series.some(s => s.points.length > 1);
     }
     // As in Sigenergy's app, the time axis spans the whole day, midnight to midnight in Home Assistant's time zone (23 or
-    // 25 hours when the clocks change), and the lines run from midnight to now.
-    _plot(svg, series, start, signed, top) {
+    // 25 hours when the clocks change), and the lines run from midnight to now. A [window] ends at [window.end] instead,
+    // with [window.fit] fitting the value axis to the data rather than starting it at 0.
+    _plot(svg, series, start, signed, top, window) {
         const now = Date.now(), day = zoneParts(start, this._zone), hour = h => zoneDate(this._zone, day.y, day.m, day.d, h).getTime();
-        const end = hour(24);
+        const end = window?.end ?? hour(24);
         const width = Math.max(240, svg.clientWidth || 900), height = 170;
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.replaceChildren();
@@ -1695,16 +1837,29 @@ class SigenergyFlowCard extends HTMLElement {
         const values = series.flatMap(s => s.points.map(p => Math.abs(p.v)));
         // A signed chart's limit is rounded up to a half, whole, 5, 10, 50… kW, as in Sigenergy's app, so the labels are exact.
         const peak = Math.max(1, ...values), step = 10 ** Math.floor(Math.log10(peak)) / 2;
-        const max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.max(1, Math.ceil(Math.max(0, ...values))));
+        let max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.max(1, Math.ceil(Math.max(0, ...values))));
+        let low = 0, places = null;
+        if (window?.fit && values.length) {
+            // Three labels a 1, 2, 2.5 or 5 × 10ⁿ step apart, spanning the data.
+            const all = series.flatMap(s => s.points.map(p => p.v)), least = Math.min(...all), most = Math.max(...all);
+            const nice = v => { const e = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(m => m * e).find(m => m >= v * (1 - 1e-9)); };
+            let gap = nice(Math.max(most - least, Math.abs(most) * .02, 1e-3) * .6);
+            while (Math.floor(least / gap) * gap + 2 * gap < most) gap = nice(gap * 1.01);
+            low = Math.floor(least / gap) * gap;
+            max = low + 2 * gap;
+            places = [gap, low].reduce((d, v) => { while (d < 4 && Math.abs(Math.round(v * 10 ** d) - v * 10 ** d) > 1e-6) d++; return d; }, 0);
+        }
         const left = 38, right = width - 12;
         const x = t => left + (right - left) * (t - start) / Math.max(1, end - start);
-        const y = signed ? v => 78 - 65 * v / max : v => 143 - 130 * v / max;
-        for (const v of signed ? [-max, 0, max] : [0, max / 2, max]) {
+        const y = signed ? v => 78 - 65 * v / max : v => 143 - 130 * (v - low) / (max - low);
+        for (const v of signed ? [-max, 0, max] : [low, (low + max) / 2, max]) {
             add('line', { x1: left, y1: y(v), x2: right, y2: y(v), stroke: 'var(--grid)', 'stroke-dasharray': '3 5' });
-            add('text', { x: 2, y: y(v) + 4, fill: 'var(--axis)', 'font-size': 10 }, v.toFixed(max < 10 && v % 1 ? 1 : 0));
+            add('text', { x: 2, y: y(v) + 4, fill: 'var(--axis)', 'font-size': 10 }, v.toFixed(places ?? (max < 10 && v % 1 ? 1 : 0)));
         }
-        for (let h = 0; h < 24; h += 4)
-            add('text', { x: x(hour(h)), y: 162, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'middle' }, `${String(h).padStart(2, '0')}:00`);
+        const time = h => add('text', { x: x(hour(h)), y: 162, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'middle' }, `${String(zoneParts(hour(h), this._zone).h).padStart(2, '0')}:00`);
+        // A window is labelled at every fourth hour of the clock within it.
+        if (window) for (let h = 0; h < 72 && hour(h) <= end; h++) { if (hour(h) >= start && zoneParts(hour(h), this._zone).h % 4 === 0) time(h); }
+        else for (let h = 0; h < 24; h += 4) time(h);
         for (const { points, color, forecast } of series) {
             if (points.length < 2)
                 continue;
@@ -1725,7 +1880,7 @@ class SigenergyFlowCard extends HTMLElement {
             cursor.append(dot);
             return dot;
         });
-        svg._chart = { series, start, end, now, width, left, right, x, y, top: y(max), bottom: y(signed ? -max : 0), cursor, line, dots };
+        svg._chart = { series, start, end, now, width, left, right, x, y, top: y(max), bottom: y(signed ? -max : low), cursor, line, dots };
         if (svg._lastHover !== undefined) this._hoverAt(svg, svg._tip, svg._lastHover);
     }
     // Linear interpolation between recorded states, matching the drawn line.
@@ -1781,7 +1936,8 @@ class SigenergyFlowCard extends HTMLElement {
             dot.style.background = r.color;
             line.append(dot, String(r.name));
             if (note) line.append(' ', Object.assign(document.createElement('em'), { textContent: note }));
-            line.append(Object.assign(document.createElement('span'), { textContent: r.unit ? `${Math.abs(r.v).toFixed(2)} ${r.unit}` : formatPower(r.v) }));
+            const value = r.digits !== undefined ? `${r.v.toFixed(r.digits)}${r.unit ? ` ${r.unit}` : ''}` : r.unit ? `${Math.abs(r.v).toFixed(2)} ${r.unit}` : formatPower(r.v);
+            line.append(Object.assign(document.createElement('span'), { textContent: value }));
             return line;
         });
         tip.replaceChildren(Object.assign(document.createElement('b'), { textContent: ahead ? `${time} · forecast` : time }), ...(lines.length ? lines : [Object.assign(document.createElement('em'), { textContent: 'No data' })]));

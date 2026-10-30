@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v63
+
+- Tapping GRID shows the grid details: each phase's voltage, current and apparent power (voltage × current, in kVA) from the inverter, its grid power from the grid sensor, and the inverter's power factor. Tapping a value charts its last 24 hours. The readings come from the new `grid_phase_{a,b,c}_voltage`, `grid_phase_{a,b,c}_current`, `grid_phase_{a,b,c}_active_power` and `grid_power_factor` keys (Sigenergy Local Modbus's `sensor.sigen_inverter_phase_a_voltage`, `…_current`, `sensor.sigen_plant_grid_phase_a_active_power` and `sensor.sigen_inverter_power_factor`, disabled by default; sigenergy2mqtt's `sensor.sigen_0_inverter_1_phase_a_voltage`, `sensor.sigen_0_plant_grid_phase_a_active_power`, …); any of them makes GRID tappable, and a column shows only when its entities exist. The phases shown are those whose voltage or grid power isn't 0; `grid_phases` sets them instead.
+- New `show_grid_voltage` option (default `false`): GRID shows the phases' average voltage, e.g. GRID (231V), or the new `grid_voltage` key's entity.
+
 ## v62
 
 - SigenStor's status shows the battery's remaining time: the time to the charge or discharge cut-off SOC at the current power, e.g. "Charging (remaining time: 2h19m)". The cut-offs come from the new `battery_charge_cut_off_soc` and `battery_discharge_cut_off_soc` keys (Sigenergy Local Modbus's `sensor.sigen_plant_charge_cut_off_soc` / `…_discharge_…`, disabled by default; sigenergy2mqtt's `number.sigen_0_plant_ess_charge_cut_off_soc` / `…_discharge_…`); without them it counts to 100% and 0%. While idle, it is how long the battery would run the home in a power cut, down to its Backup SOC, at the home's consumption plus the inverters' and system's base load, which the card learns while the battery alone supplies the home (kept in the browser; no idle time until learnt) (new `battery_backup_soc` key: `number.sigen_plant_ess_backup_state_of_charge`, disabled by default, or `number.sigen_0_plant_ess_backup_soc`). It is left out at the cut-off, without a reading, or beyond 99 hours.

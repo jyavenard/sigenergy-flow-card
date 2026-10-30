@@ -33,6 +33,10 @@ Tapping **SOLAR**:
 
 ![Desktop PV strings](docs/screenshots/desktop-solar.png)
 
+Tapping **GRID**:
+
+![Desktop grid details](docs/screenshots/desktop-grid.png)
+
 Tapping **HOME**:
 
 ![Desktop home power usage](docs/screenshots/desktop-home.png)
@@ -48,6 +52,7 @@ Tapping the stored energy under **Battery level**:
     <th>Main view</th>
     <th>Energy statistics</th>
     <th>SOLAR</th>
+    <th>GRID</th>
     <th>HOME</th>
     <th>Battery energy</th>
   </tr>
@@ -55,6 +60,7 @@ Tapping the stored energy under **Battery level**:
     <td><img src="docs/screenshots/iphone-main.png" alt="iPhone main view" width="200"></td>
     <td valign="top"><img src="docs/screenshots/stat-phone-day.png" alt="iPhone energy statistics, GRID selected" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-solar.png" alt="iPhone PV strings" width="200"></td>
+    <td valign="top"><img src="docs/screenshots/iphone-grid.png" alt="iPhone grid details" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-home.png" alt="iPhone home power usage" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-energy.png" alt="iPhone battery energy" width="200"></td>
   </tr>
@@ -147,6 +153,8 @@ All options are optional.
 | `title` | `Sigenergy` | First part of the card heading. |
 | `name` | `My Home` | Second part of the heading (your home's name). An empty value hides that part. |
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
+| `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
+| `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
 | `show_forecast` | `true` | Draw the dashed solar and home forecast for the rest of the day on the Power metrics chart (see [Forecast](#forecast)). |
 | `debug_energy_statistics` | `false` | List, under the Energy statistics panel, the energy each statistics sensor recorded over the period (to check the sensors against another source). |
@@ -209,6 +217,11 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `grid_import_power` | `sensor.sigen_plant_grid_import_power` | GRID value and status, wire, chart (positive while importing) |
 | `grid_export_power` | `sensor.sigen_plant_grid_export_power` | GRID value and status, wire, chart (positive while exporting) |
 | `phase_mode` | `switch.sigen_plant_independent_phase_power_control` | Phase power mode line under GRID |
+| `grid_voltage` | none (the phases' average voltage) | Value beside GRID with `show_grid_voltage` |
+| `grid_phase_a_voltage`, `grid_phase_b_voltage`, `grid_phase_c_voltage` | `sensor.sigen_inverter_phase_a_voltage`, `…_b_…`, `…_c_…` | Grid details voltage, phase detection, GRID voltage. Disabled by default in the Sigenergy integration. |
+| `grid_phase_a_current`, `grid_phase_b_current`, `grid_phase_c_current` | `sensor.sigen_inverter_phase_a_current`, `…_b_…`, `…_c_…` | Grid details current and apparent power. Disabled by default in the Sigenergy integration. |
+| `grid_power_factor` | `sensor.sigen_inverter_power_factor` | Grid details power factor. Disabled by default in the Sigenergy integration. |
+| `grid_phase_a_active_power`, `grid_phase_b_active_power`, `grid_phase_c_active_power` | `sensor.sigen_plant_grid_phase_a_active_power`, `…_b_…`, `…_c_…` | Grid details grid power (positive while importing), phase detection. Disabled by default in the Sigenergy integration. |
 | `ac_charger_power` | `sensor.sigen_ac_charger_charging_power` | AC charger value, chart; the AC charger only appears if this exists |
 | `ac_charger_state` | `sensor.sigen_ac_charger_system_state` | AC charger state text |
 | `ac_charger_total_energy` | `sensor.sigen_ac_charger_total_energy_consumed` | AC charger energy consumed |
@@ -295,6 +308,11 @@ sigenergy_backend: sigenergy2mqtt
 | `grid_import_power` | `sensor.sigen_0_grid_sensor_import_power` |
 | `grid_export_power` | `sensor.sigen_0_grid_sensor_export_power` |
 | `phase_mode` | `switch.sigen_0_plant_independent_phase_power_control` |
+| `grid_voltage` | none (the phases' average voltage) |
+| `grid_phase_a_voltage`, `…_b_…`, `…_c_…` | `sensor.sigen_0_inverter_1_phase_a_voltage`, `…_b_…`, `…_c_…` |
+| `grid_phase_a_current`, `…_b_…`, `…_c_…` | `sensor.sigen_0_inverter_1_phase_a_current`, `…_b_…`, `…_c_…` |
+| `grid_power_factor` | `sensor.sigen_0_inverter_1_power_factor` |
+| `grid_phase_a_active_power`, `…_b_…`, `…_c_…` | `sensor.sigen_0_plant_grid_phase_a_active_power`, `…_b_…`, `…_c_…` |
 | `ac_charger_power` | `sensor.sigen_0_ac_charger_1_charging_power`, fallback `sensor.sigen_0_ac_charger_2_charging_power`, then `sensor.sigen_0_ac_charger_1_rated_charging_power`, then `sensor.sigen_0_ac_charger_2_rated_charging_power` |
 | `ac_charger_state` | `sensor.sigen_0_ac_charger_1_running_state`, fallback `sensor.sigen_0_ac_charger_2_running_state` |
 | `ac_charger_total_energy` | `sensor.sigen_0_ac_charger_1_total_energy_consumed`, fallback `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
@@ -408,6 +426,14 @@ With `show_phase_mode: true` (off by default), the card shows the inverter's pha
 
 - **Power Per Phase Mode** (switch on): each phase is tracked and balanced individually.
 - **Total Power Mode** (switch off): the sum of all three phases is balanced, so import on one phase can offset export on another.
+
+### Grid details
+
+Tapping **GRID** shows each phase's voltage, current and apparent power (voltage × current, in kVA), its grid power (the grid sensor's active power, positive while importing), and the power factor below. Tapping a value charts its last 24 hours. A column shows only when its entities exist. Voltage, current and power factor are the inverter's readings at its AC terminals, from the first inverter only: neither integration reads the grid side's voltage and current over Modbus. With Sigenergy Local Modbus, enable the inverter's **Phase A/B/C Voltage**, **Phase A/B/C Current** and **Power Factor** entities and the plant's **Grid Phase A/B/C Active Power** entities, which are disabled by default; it creates all three phases' entities even on a single-phase system, where phases B and C read 0. sigenergy2mqtt creates only the phases the inverter has, keeping the `phase_a` entity IDs on a single-phase inverter.
+
+The phases shown are those whose voltage or grid power isn't 0 (a single-phase system can have phase B and C entities reading 0), or `grid_phases` when set. Without any phase entity, GRID can't be tapped.
+
+With `show_grid_voltage: true`, **GRID (231V)** shows the phases' average voltage, or the `grid_voltage` entity when set. In the narrow portrait layout, the voltage wraps below GRID.
 
 ### AC and DC chargers
 

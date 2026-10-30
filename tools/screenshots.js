@@ -87,6 +87,29 @@ const history = {
     'sensor.sigen_plant_battery_state_of_charge': stored.map(e => e / CAP * 100),
 };
 STRINGS.forEach((_, i) => { history[`sensor.sigen_inverter_pv${i + 1}_power`] = hours.map(h => stringKw(i, h)); });
+// The last 24 hours of the inverter's three phases: the voltage rises as it exports, the current follows its output
+// (shared unevenly between the phases), and the power factor stays near 1.
+const PHASE_SHARE = [.36, .33, .31];
+const phaseAt = (h, i) => {
+    const p = at(((h % 24) + 24) % 24), output = Math.max(0, p.pv - p.bat);
+    const volts = 229.5 + 1.4 * i + 4.5 * Math.max(0, p.exp) / 6 - 1.8 * p.imp / 6 + .6 * Math.sin(h * 2.7 + i);
+    return { volts, amps: output * 1000 * PHASE_SHARE[i] / volts + .4 };
+};
+const times24 = [], grid24 = {};
+for (let t = NOW - 86400e3; t <= NOW; t += 300e3) times24.push(t);
+['a', 'b', 'c'].forEach((phase, i) => {
+    const now = phaseAt(14.5, i);
+    states[`sensor.sigen_inverter_phase_${phase}_voltage`] = { state: now.volts.toFixed(1), attributes: { unit_of_measurement: 'V' } };
+    states[`sensor.sigen_inverter_phase_${phase}_current`] = { state: now.amps.toFixed(2), attributes: { unit_of_measurement: 'A' } };
+    grid24[`sensor.sigen_inverter_phase_${phase}_voltage`] = times24.map(t => +phaseAt((t - MIDNIGHT) / 3600e3, i).volts.toFixed(1));
+    grid24[`sensor.sigen_inverter_phase_${phase}_current`] = times24.map(t => +phaseAt((t - MIDNIGHT) / 3600e3, i).amps.toFixed(2));
+    // The grid sensor's share of the import or export, positive while importing.
+    const gridKw = h => { const p = at(((h % 24) + 24) % 24); return (p.imp - p.exp) * PHASE_SHARE[2 - i]; };
+    states[`sensor.sigen_plant_grid_phase_${phase}_active_power`] = kw(gridKw(14.5));
+    grid24[`sensor.sigen_plant_grid_phase_${phase}_active_power`] = times24.map(t => +gridKw((t - MIDNIGHT) / 3600e3).toFixed(3));
+});
+states['sensor.sigen_inverter_power_factor'] = { state: '0.99' };
+grid24['sensor.sigen_inverter_power_factor'] = times24.map((t, i) => +(.985 + .01 * Math.sin(i / 9)).toFixed(3));
 const statistics = {
     'sensor.sigen_plant_total_pv_generation': 'pv', 'sensor.sigen_plant_total_discharged_energy_of_the_ess': 'discharge',
     'sensor.sigen_plant_total_imported_energy': 'imp', 'sensor.sigen_plant_total_charged_energy_of_the_ess': 'charge',
@@ -104,13 +127,13 @@ const means = { 'sensor.sigen_plant_pv_power': [], 'sensor.sigen_plant_consumed_
     }
 });
 const data = {
-    states, times: samples.map(s => s.t), means,
+    states, times: samples.map(s => s.t), means, times24, grid24,
     history: Object.fromEntries(Object.entries(history).map(([id, v]) => [id, v.map(x => +x.toFixed(3))])),
     statistics: Object.fromEntries(Object.entries(statistics).map(([id, key]) => [id, intervals.map(r => ({ start: r.t, end: r.t + 300e3, change: +(r[key] * STEP).toFixed(4) }))])),
 };
 const config = {
     home_entities: LOADS.map(([id]) => id), pv_strings: STRINGS.map(s => s[0]),
-    ac_charger_soc: 'sensor.car_soc', ac_charger_range: 'sensor.car_range',
+    ac_charger_soc: 'sensor.car_soc', ac_charger_range: 'sensor.car_range', show_grid_voltage: true,
 };
 
 async function mount(page, style) {
@@ -122,7 +145,8 @@ async function mount(page, style) {
             config: { latitude: -33.87, longitude: 151.21, time_zone: 'Australia/Sydney', unit_system: { temperature: '°C' } },
             callApi: async (method, query) => {
                 const ids = decodeURIComponent(query.split('filter_entity_id=')[1].split('&')[0]).split(',');
-                return ids.filter(id => data.history[id]).map(id => data.history[id].map((v, i) => ({ ...(i ? {} : { entity_id: id }), state: String(v), last_changed: new Date(data.times[i]).toISOString() })));
+                const rows = id => data.grid24[id] ? [data.grid24[id], data.times24] : [data.history[id], data.times];
+                return ids.filter(id => rows(id)[0]).map(id => rows(id)[0].map((v, i) => ({ ...(i ? {} : { entity_id: id }), state: String(v), last_changed: new Date(rows(id)[1][i]).toISOString() })));
             },
             // No solar forecast integration: the forecast uses the 7-day averages.
             callWS: async msg => {
@@ -194,7 +218,7 @@ async function statClip(page, pad) {
             const statName = `stat-${shot.name === 'desktop' ? 'desk' : 'phone'}-${night ? 'night' : 'day'}`;
             await page.screenshot({ path: `${out}/${statName}.png`, clip: await statClip(page, shot.pad), fullPage: true });
             if (!night) {
-                for (const [file, button] of [['solar', 'pvButton'], ['home', 'homeButton'], ['energy', 'capacity']]) {
+                for (const [file, button] of [['solar', 'pvButton'], ['grid', 'gridButton'], ['home', 'homeButton'], ['energy', 'capacity']]) {
                     await page.evaluate(() => scrollTo(0, 0));
                     await openDialog(page, button);
                     await page.screenshot({ path: `${out}/${shot.name}-${file}.png` });
