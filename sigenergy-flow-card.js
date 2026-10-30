@@ -131,19 +131,21 @@ const SIGENERGY2MQTT_ENTITIES = {
     dc_charger_limit: ['number.sigen_0_dc_charger_1_max_charging_power_limit'],
     dc_charger_lifetime_charged_energy: ['sensor.sigen_0_evdc_total_charge_energy', 'sensor.sigen_0_si_evdc_total_charge_energy', 'sensor.sigen_0_dc_charger_1_total_charging_capacity'],
     dc_charger_lifetime_discharged_energy: ['sensor.sigen_0_evdc_total_discharge_energy', 'sensor.sigen_0_si_evdc_total_discharge_energy', 'sensor.sigen_0_dc_charger_1_total_discharging_capacity'],
-    // plant_pv_power is the Sigenergy PV alone; total_pv_power and lifetime_pv_energy add the third-party inverter.
+    // plant_pv_power is the Sigenergy PV alone; total_pv_power, total_daily_pv_energy and lifetime_pv_energy add the
+    // third-party inverter.
     pv_strings_power: ['sensor.sigen_0_plant_pv_power', 'sensor.sigen_0_inverter_1_pv_power'],
     pv_strings_lifetime_energy: ['sensor.sigen_0_si_total_self_pv_generation', 'sensor.sigen_0_plant_lifetime_pv_energy', 'sensor.sigen_0_inverter_1_lifetime_pv_energy'],
     third_party_pv_power: ['sensor.sigen_0_third_party_pv_power'],
     third_party_pv_daily_energy: [],
     third_party_pv_lifetime_energy: ['sensor.sigen_0_third_party_pv_lifetime_production', 'sensor.sigen_0_si_total_third_party_pv_generation'],
-    daily_pv_energy: ['sensor.sigen_0_daily_pv_energy', 'sensor.sigen_0_inverter_1_daily_pv_energy'],
+    daily_pv_energy: ['sensor.sigen_0_total_daily_pv_energy', 'sensor.sigen_0_daily_pv_energy', 'sensor.sigen_0_inverter_1_daily_pv_energy'],
     daily_grid_import_energy: ['sensor.sigen_0_grid_sensor_daily_import_energy'],
     daily_grid_export_energy: ['sensor.sigen_0_grid_sensor_daily_export_energy'],
     daily_battery_charge_energy: ['sensor.sigen_0_daily_charge_energy', 'sensor.sigen_0_inverter_1_daily_charge_energy'],
     // The plant's lifetime counters come first; the Statistics Interface (si_) ones restart from 0 when the firmware
-    // gains that interface.
-    stat_pv: ['sensor.sigen_0_plant_lifetime_pv_energy', 'sensor.sigen_0_si_total_self_pv_generation'],
+    // gains that interface. lifetime_pv_energy, the plant's PV plus the third-party inverter's, is enabled by default;
+    // plant_lifetime_pv_energy and the si_ counters are not.
+    stat_pv: ['sensor.sigen_0_lifetime_pv_energy', 'sensor.sigen_0_plant_lifetime_pv_energy', 'sensor.sigen_0_si_total_self_pv_generation', 'sensor.sigen_0_inverter_1_lifetime_pv_energy'],
     stat_battery_charge: ['sensor.sigen_0_accumulated_charge_energy', 'sensor.sigen_0_si_total_charged_energy'],
     stat_battery_discharge: ['sensor.sigen_0_accumulated_discharge_energy', 'sensor.sigen_0_si_total_discharged_energy'],
     stat_grid_import: ['sensor.sigen_0_grid_sensor_lifetime_import_energy', 'sensor.sigen_0_si_total_imported_energy'],
@@ -160,7 +162,14 @@ const BACKENDS = {
     sigenergy_local_modbus: { entities: DEFAULT_ENTITIES, pvString: (n, key) => `sensor.sigen_inverter_pv${n}_${key}` },
     sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, homeBalance: true, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}` },
 };
-// Today's energy tiles: [value element id, entities key, label, entities key whose energy adds to it].
+// The solar keys (pv_power, daily_pv_energy, stat_pv) are all PV, the third-party inverter's included. These defaults
+// leave the third-party inverter out, so its energy is added to them (see _pvSources).
+const SIGEN_ONLY_PV = new Set([
+    'sensor.sigen_plant_daily_pv_energy', 'sensor.sigen_inverter_daily_pv_energy', 'sensor.sigen_plant_total_pv_generation',
+    'sensor.sigen_0_daily_pv_energy', 'sensor.sigen_0_inverter_1_daily_pv_energy', 'sensor.sigen_0_plant_lifetime_pv_energy',
+    'sensor.sigen_0_si_total_self_pv_generation', 'sensor.sigen_0_inverter_1_lifetime_pv_energy',
+]);
+// Today's energy tiles: [value element id, entities key, label, the third-party inverter's key for a solar total].
 const DAILY_TILES = [
     ['dayPv', 'daily_pv_energy', 'Solar produced', 'third_party_pv_daily_energy'],
     ['dayImport', 'daily_grid_import_energy', 'Grid imported'],
@@ -244,10 +253,10 @@ const STYLES = {
 const styleVars = style => Object.entries(STYLES[style]).map(([name, value]) => `--${name}:${value}`).join(';');
 const COMET_LAYERS = [1, .78, .56, .36, .18];
 
-// Energy statistics: sources feed consumers. A source's [extra] counter adds to its own (the third-party inverter's
-// energy to the Sigenergy solar).
+// Energy statistics: sources feed consumers. Solar is a total, with the third-party inverter's [third] counter (see
+// _pvSources).
 const STAT_SOURCES = [
-    { name: 'SOLAR', color: 'var(--c-solar)', key: 'stat_pv', extra: 'third_party_pv_lifetime_energy', caption: 'Solar' },
+    { name: 'SOLAR', color: 'var(--c-solar)', key: 'stat_pv', third: 'third_party_pv_lifetime_energy', caption: 'Solar' },
     { name: 'BATTERY', color: 'var(--c-battery)', key: 'stat_battery_discharge', caption: 'Battery' },
     { name: 'EVDC', color: 'var(--sk-evdc)', key: 'dc_charger_lifetime_discharged_energy', caption: 'EVDC' },
     { name: 'GRID', color: 'var(--c-grid)', key: 'stat_grid_import', caption: 'Imported' },
@@ -1011,18 +1020,23 @@ class SigenergyFlowCard extends HTMLElement {
                 if (key in sums && v !== null) sums[key] = (sums[key] ?? 0) + v;
             }
         });
-        // Total row: the system's own PV sensors when available, otherwise the sum of the strings above, plus the
-        // third-party PV row. The Sigenergy sensors leave out the third-party inverter; without them the Total is
-        // unknown rather than the third-party PV alone.
+        // Total row: the solar totals the main card shows, else the system's own PV sensors or the sum of the strings
+        // above, plus the third-party PV row. The Sigenergy sensors leave out the third-party inverter; without them the
+        // Total is unknown rather than the third-party PV alone.
         const kw = key => this._scaled(this._ent(key));
         const third = { power: kw('third_party_pv_power'), daily_energy: kw('third_party_pv_daily_energy'), accumulated_energy: kw('third_party_pv_lifetime_energy') };
+        const totals = {
+            power: kw('pv_power'),
+            daily_energy: this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'),
+            accumulated_energy: this._pvTotal('stat_pv', 'third_party_pv_lifetime_energy'),
+        };
         const own = {
             power: kw('pv_strings_power') ?? sums.power,
-            daily_energy: kw('daily_pv_energy') ?? sums.daily_energy,
+            daily_energy: sums.daily_energy,
             accumulated_energy: kw('pv_strings_lifetime_energy') ?? sums.accumulated_energy,
         };
         for (const [key, v] of Object.entries(own)) {
-            const total = v === null ? null : v + (third[key] ?? 0);
+            const total = totals[key] ?? (v === null ? null : v + (third[key] ?? 0));
             this._text(`pvTotal_${key}`, total === null ? '—' : total.toFixed(2));
             this._text(`pvThird_${key}`, third[key] === null ? '—' : third[key].toFixed(2));
         }
@@ -1034,6 +1048,20 @@ class SigenergyFlowCard extends HTMLElement {
     // of them, reading 0, on systems without one.
     _hasThirdPartyPv() {
         return ['third_party_pv_lifetime_energy', 'third_party_pv_daily_energy', 'third_party_pv_power'].some(key => (this._scaled(this._ent(key)) ?? 0) > .005);
+    }
+    // The entities whose sum is the solar total of [key]: its entity, plus the third-party inverter's [thirdKey] when
+    // [key] is left at a default that leaves that inverter out and one is fitted. An entity set in the config is the
+    // total as it is.
+    _pvSources(key, thirdKey) {
+        const id = this._ent(key);
+        if (!id) return [];
+        const third = this.config.entities?.[key] === undefined && SIGEN_ONLY_PV.has(id) && this._hasThirdPartyPv() ? this._ent(thirdKey) : null;
+        return third && this._has(third) ? [id, third] : [id];
+    }
+    // The solar total of [key], in kW or kWh; null without its own entity's value.
+    _pvTotal(key, thirdKey) {
+        const [own, ...rest] = this._pvSources(key, thirdKey).map(id => this._scaled(id));
+        return own === null || own === undefined ? null : rest.reduce((sum, v) => sum + (v ?? 0), own);
     }
     // The phases: grid_phases when set, else the last phase whose voltage or grid power isn't 0 (a single-phase system
     // can have phase B and C entities that read 0), else 1 when phase A has an entity; 0 is none.
@@ -1381,12 +1409,11 @@ class SigenergyFlowCard extends HTMLElement {
         const dcState = dc === null ? '' : dc > 0.025 ? 'Charging' : dc < -0.025 ? 'Discharging' : '';
         const dcSocText = dcsoc === null || (dcsoc === 0 && !dcState) ? '' : `Vehicle SOC ${dcsoc.toFixed(0)}%`;
         this._parts('dcSoc', [dcState, dcSocText]);
-        for (const [el, key, , extra] of DAILY_TILES) {
+        for (const [el, key, , third] of DAILY_TILES) {
             const id = e(key), tile = this._id(el).closest('.stat');
             tile.hidden = !id;
             if (!id) continue;
-            const v = this._scaled(id), more = extra ? this._scaled(e(extra)) : null;
-            this._text(el, this._energy(v === null ? null : v + (more ?? 0)));
+            this._text(el, this._energy(third ? this._pvTotal(key, third) : this._scaled(id)));
             tile.dataset.entity = id;
         }
         this._text('daySoc', soc === null ? '—' : `${soc.toFixed(1)}%`);
@@ -1512,8 +1539,9 @@ class SigenergyFlowCard extends HTMLElement {
         // The load has no sensor: it is what the sources supply beyond the other consumers.
         const pick = defs => defs.map(def => {
             if (!def.key) return 'residual';
-            const found = [...new Set([def.key, def.extra].filter(Boolean).map(key => this._ent(key)).filter(id => this._has(id)))];
-            return found.length ? found : null;
+            // Solar without its own counter would be the third-party inverter's alone, so it is left out instead.
+            const ids = def.third ? this._pvSources(def.key, def.third) : [this._ent(def.key)];
+            return this._has(ids[0]) ? [...new Set(ids.filter(id => this._has(id)))] : null;
         });
         const sourceIds = pick(STAT_SOURCES), sinkIds = pick(STAT_SINKS);
         const ids = [...new Set([...sourceIds, ...sinkIds].filter(found => Array.isArray(found)).flat())];

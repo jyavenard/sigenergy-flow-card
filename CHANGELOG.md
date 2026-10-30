@@ -2,6 +2,13 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v64
+
+- Solar on the main card is all PV, the third-party inverter's included: `pv_power`, `daily_pv_energy` and `stat_pv` are totals. The defaults that count only the Sigenergy PV (Sigenergy Local Modbus's daily and lifetime ones) have the third-party inverter's energy added when one is fitted, as before.
+- With `sigenergy_backend: sigenergy2mqtt`, the Energy statistics show solar by default: `stat_pv` reads `sensor.sigen_0_lifetime_pv_energy`, which is enabled by default, instead of `sensor.sigen_0_plant_lifetime_pv_energy` and `sensor.sigen_0_si_total_self_pv_generation`, which sigenergy2mqtt creates disabled (they remain fallbacks, then the first inverter's `sensor.sigen_0_inverter_1_lifetime_pv_energy`). The **Solar produced** tile reads `sensor.sigen_0_total_daily_pv_energy`. Both include the third-party inverter, which they left out. On installs from before July 2025, `lifetime_pv_energy`'s statistics can jump that month, which shows as extra solar in a Year or Lifetime range spanning it.
+- The PV Strings **Total** row shows the main card's solar.
+- **Breaking:** an entity set for `daily_pv_energy` or `stat_pv` is now taken as all PV; the third-party inverter's energy is no longer added to it. With a third-party inverter, point it at an entity that includes it.
+
 ## v63
 
 - Tapping GRID shows the grid details: each phase's voltage, current and apparent power (voltage × current, in kVA) from the inverter, its grid power from the grid sensor, and the inverter's power factor. Tapping a value charts its last 24 hours. The readings come from the new `grid_phase_{a,b,c}_voltage`, `grid_phase_{a,b,c}_current`, `grid_phase_{a,b,c}_active_power` and `grid_power_factor` keys (Sigenergy Local Modbus's `sensor.sigen_inverter_phase_a_voltage`, `…_current`, `sensor.sigen_plant_grid_phase_a_active_power` and `sensor.sigen_inverter_power_factor`, disabled by default; sigenergy2mqtt's `sensor.sigen_0_inverter_1_phase_a_voltage`, `sensor.sigen_0_plant_grid_phase_a_active_power`, …); any of them makes GRID tappable, and a column shows only when its entities exist. The phases shown are those whose voltage or grid power isn't 0; `grid_phases` sets them instead.

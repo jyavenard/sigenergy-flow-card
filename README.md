@@ -196,6 +196,8 @@ Each flow's highlight moves from its source to its destination at `60 + 35 × �
 
 ### Custom entities
 
+The solar keys `pv_power`, `daily_pv_energy` and `stat_pv` are all PV, the third-party inverter's included. An entity set for one of them is taken as that total. The defaults that count only the Sigenergy PV have the third-party inverter's energy (`third_party_pv_daily_energy`, `third_party_pv_lifetime_energy`) added when one is fitted.
+
 Every entity the card reads can be replaced under `entities:`. For each key:
 
 - **Not set:** the default for the `sigenergy_backend` is used (for the plant/inverter pairs, the plant sensor first, then the inverter fallback). The table below lists the Sigenergy Local Modbus defaults; [sigenergy2mqtt](#sigenergy2mqtt) lists that backend's.
@@ -206,7 +208,7 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 
 | Key | Default | Used for |
 | --- | --- | --- |
-| `pv_power` | `sensor.sigen_plant_pv_power` | SOLAR value, solar wire, chart |
+| `pv_power` | `sensor.sigen_plant_pv_power` | SOLAR value, solar wire, chart: all PV, the third-party inverter's included |
 | `home_power` | `sensor.sigen_plant_consumed_power` | HOME value, home wire, chart, home usage dialog |
 | `battery_power` | `sensor.sigen_plant_battery_power`, fallback `sensor.sigen_inverter_battery_power` | Battery value and status, wire, chart. Positive = charging (see `battery_power_invert`). |
 | `battery_soc` | `sensor.sigen_plant_battery_state_of_charge`, fallback `sensor.sigen_inverter_battery_state_of_charge` | SOC label, tile, bar and stored-energy history |
@@ -235,14 +237,14 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `pv_strings_power` | `sensor.sigen_plant_sigen_pv_power` | PV Strings **Total** power, for the Sigenergy PV inputs (the Total row adds `third_party_pv_power`) |
 | `pv_strings_lifetime_energy` | `sensor.sigen_plant_total_generation_of_self_pv`, fallback `sensor.sigen_plant_total_pv_generation`, then `sensor.sigen_inverter_total_pv_energy` | PV Strings **Total** lifetime energy, for the Sigenergy PV inputs (the Total row adds `third_party_pv_lifetime_energy`). Systems with only Sigenergy PV usually have just `sensor.sigen_plant_total_pv_generation` enabled. |
 | `third_party_pv_power` | `sensor.sigen_plant_third_party_pv_power` | PV Strings **Third-party PV** row and chart line |
-| `third_party_pv_daily_energy` | `sensor.sigen_plant_daily_third_party_inverter_energy` | PV Strings **Third-party PV** row (Today); added to the Solar produced tile |
-| `third_party_pv_lifetime_energy` | `sensor.sigen_plant_total_generation_of_third_party_inverter` | PV Strings **Third-party PV** row (Lifetime); added to the Energy statistics' solar |
-| `daily_pv_energy` | `sensor.sigen_plant_daily_pv_energy`, fallback `sensor.sigen_inverter_daily_pv_energy` | Solar produced tile, for the Sigenergy PV (the tile adds `third_party_pv_daily_energy`) |
+| `third_party_pv_daily_energy` | `sensor.sigen_plant_daily_third_party_inverter_energy` | PV Strings **Third-party PV** row (Today); added to a Sigenergy-only `daily_pv_energy` default |
+| `third_party_pv_lifetime_energy` | `sensor.sigen_plant_total_generation_of_third_party_inverter` | PV Strings **Third-party PV** row (Lifetime); added to a Sigenergy-only `stat_pv` default |
+| `daily_pv_energy` | `sensor.sigen_plant_daily_pv_energy`, fallback `sensor.sigen_inverter_daily_pv_energy` (the Sigenergy PV, plus `third_party_pv_daily_energy`) | Solar produced tile, PV Strings **Total** (Today): all PV, the third-party inverter's included |
 | `daily_grid_import_energy` | `sensor.sigen_plant_daily_grid_import_energy` | Grid imported tile |
 | `daily_grid_export_energy` | `sensor.sigen_plant_daily_grid_export_energy` | Grid exported tile |
 | `daily_battery_charge_energy` | `sensor.sigen_plant_daily_battery_charge_energy`, fallback `sensor.sigen_inverter_daily_charge_energy` | Battery charged tile |
 | `daily_battery_discharge_energy` | `sensor.sigen_plant_daily_battery_discharge_energy`, fallback `sensor.sigen_inverter_daily_discharge_energy` | Battery discharged tile |
-| `stat_pv` | `sensor.sigen_plant_total_pv_generation` | Energy statistics: solar, for the Sigenergy PV (`third_party_pv_lifetime_energy` is added to it) |
+| `stat_pv` | `sensor.sigen_plant_total_pv_generation` (the Sigenergy PV, plus `third_party_pv_lifetime_energy`) | Energy statistics' solar, PV Strings **Total** (Lifetime): all PV, the third-party inverter's included |
 | `stat_battery_discharge` | `sensor.sigen_plant_total_discharged_energy_of_the_ess` | Energy statistics: battery as a source |
 | `stat_battery_charge` | `sensor.sigen_plant_total_charged_energy_of_the_ess` | Energy statistics: battery as a consumer |
 | `stat_grid_import` | `sensor.sigen_plant_total_imported_energy` | Energy statistics: grid as a source |
@@ -328,11 +330,11 @@ sigenergy_backend: sigenergy2mqtt
 | `third_party_pv_power` | `sensor.sigen_0_third_party_pv_power` |
 | `third_party_pv_daily_energy` | none |
 | `third_party_pv_lifetime_energy` | `sensor.sigen_0_third_party_pv_lifetime_production`, fallback `sensor.sigen_0_si_total_third_party_pv_generation` |
-| `daily_pv_energy` | `sensor.sigen_0_daily_pv_energy`, fallback `sensor.sigen_0_inverter_1_daily_pv_energy` |
+| `daily_pv_energy` | `sensor.sigen_0_total_daily_pv_energy`, fallback `sensor.sigen_0_daily_pv_energy`, then `sensor.sigen_0_inverter_1_daily_pv_energy` |
 | `daily_grid_import_energy` | `sensor.sigen_0_grid_sensor_daily_import_energy` |
 | `daily_grid_export_energy` | `sensor.sigen_0_grid_sensor_daily_export_energy` |
 | `daily_battery_charge_energy` | `sensor.sigen_0_daily_charge_energy`, fallback `sensor.sigen_0_inverter_1_daily_charge_energy` |
-| `stat_pv` | `sensor.sigen_0_plant_lifetime_pv_energy`, fallback `sensor.sigen_0_si_total_self_pv_generation` |
+| `stat_pv` | `sensor.sigen_0_lifetime_pv_energy`, fallback `sensor.sigen_0_plant_lifetime_pv_energy`, then `sensor.sigen_0_si_total_self_pv_generation`, then `sensor.sigen_0_inverter_1_lifetime_pv_energy` (the first inverter alone) |
 | `stat_battery_charge` | `sensor.sigen_0_accumulated_charge_energy`, fallback `sensor.sigen_0_si_total_charged_energy` |
 | `stat_battery_discharge` | `sensor.sigen_0_accumulated_discharge_energy`, fallback `sensor.sigen_0_si_total_discharged_energy` |
 | `stat_grid_import` | `sensor.sigen_0_grid_sensor_lifetime_import_energy`, fallback `sensor.sigen_0_si_total_imported_energy` |
@@ -340,8 +342,9 @@ sigenergy_backend: sigenergy2mqtt
 | `stat_evac_charge` | `sensor.sigen_0_si_total_ev_ac_charged_energy`, fallback `sensor.sigen_0_ac_charger_1_total_energy_consumed`, then `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
 | `daily_battery_discharge_energy` | `sensor.sigen_0_daily_discharge_energy`, fallback `sensor.sigen_0_inverter_1_daily_discharge_energy` |
 
-- `plant_pv_power` is the Sigenergy PV alone; `total_pv_power` and `lifetime_pv_energy` add the third-party inverter. `stat_pv` must therefore not be `sensor.sigen_0_lifetime_pv_energy`: the card adds `third_party_pv_lifetime_energy` to it, which would count the third-party inverter twice.
-- sigenergy2mqtt has no daily energy for a third-party inverter, so `third_party_pv_daily_energy` has no default and the **Solar produced** tile counts only the Sigenergy PV.
+- `total_pv_power`, `total_daily_pv_energy` and `lifetime_pv_energy` include the third-party inverter and are enabled by default. The fallbacks (`plant_pv_power`, `daily_pv_energy`, `plant_lifetime_pv_energy`, the `si_` and inverter counters) are the Sigenergy PV alone, and `plant_lifetime_pv_energy` and the `si_` counters are disabled by default.
+- sigenergy2mqtt has no daily energy for a third-party inverter, so `third_party_pv_daily_energy` has no default: with a fallback, the **Solar produced** tile counts only the Sigenergy PV.
+- `lifetime_pv_energy` was sigenergy2mqtt's own accumulation of PV power before July 2025; on installs that old, its recorder statistics can jump that month, which shows as extra solar in a Year or Lifetime range spanning it. Developer Tools → Statistics can fix the jump.
 - The `si_` sensors come from the Statistics Interface, whose counters restart from 0 when the firmware gains it; the plant's lifetime counters are used first.
 - `ac_charger_power` falls back to `rated_charging_power`, the name sigenergy2mqtt used before February 2026: Home Assistant keeps the entity ID it first registered, so installs from before then still have it.
 - `home_power` is General Load Power, the home without the EV chargers. Total Load Power, and `sensor.sigen_0_consumed_power`, which copies it with sigenergy2mqtt's default `consumption` setting, include the DC charger, so the card doesn't use them. On a system without General Load Power (sigenergy2mqtt removes a sensor whose register the inverter doesn't provide), HOME is calculated as solar + grid import − grid export − battery charging − AC charger − DC charger, in the chart and forecast too, unless `home_power` is set.
@@ -379,9 +382,9 @@ A string written as an object sets its own entities instead, and uses only the k
 
 A string none of whose entities exist in Home Assistant is treated as not fitted: its row, legend entry and chart line are hidden. The default four names therefore suit inverters with 2, 3 or 4 strings without changes.
 
-When `third_party_pv_power`, `third_party_pv_daily_energy` or `third_party_pv_lifetime_energy` reports any energy or power (the integrations publish them as 0 on systems without a third-party inverter), a **Third-party PV** row is shown under the strings, and the chart draws the third-party inverter's power too. The Sigenergy integration disables the third-party power and lifetime energy sensors by default, and derives the daily one from the lifetime one; enable both in Home Assistant if a third-party inverter is connected. Its daily energy also counts towards the **Solar produced** tile, and its lifetime energy towards the Energy statistics' solar.
+When `third_party_pv_power`, `third_party_pv_daily_energy` or `third_party_pv_lifetime_energy` reports any energy or power (the integrations publish them as 0 on systems without a third-party inverter), a **Third-party PV** row is shown under the strings, and the chart draws the third-party inverter's power too. The Sigenergy integration disables the third-party power and lifetime energy sensors by default, and derives the daily one from the lifetime one; enable both in Home Assistant if a third-party inverter is connected. It counts towards the main card's solar (see [Custom entities](#custom-entities)).
 
-The **Total** row adds up the rows above it: the system's own PV sensors when they exist (`pv_strings_power`, `daily_pv_energy` and `pv_strings_lifetime_energy`), otherwise the sum of the strings shown, plus the Third-party PV row.
+The **Total** row is the main card's solar: `pv_power`, `daily_pv_energy` and `stat_pv`. Without them, it adds up the rows above it: the system's own PV sensors when they exist (`pv_strings_power` and `pv_strings_lifetime_energy`), otherwise the sum of the strings shown, plus the Third-party PV row.
 
 ```yaml
 pv_strings:
