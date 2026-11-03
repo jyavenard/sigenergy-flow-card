@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v66
+
+- New `battery_present` option. Set it to `false` on a system without a battery to hide everything battery-related: the SigenStor reading, the battery charged and discharged tiles, the battery level panel, and the battery in the Power metrics chart and the Energy statistics.
+- PV Strings: a note shows when the strings' lifetime energy doesn't add up to the **Total**. The integrations count each string's lifetime themselves from its power, and can miss production; the Total is the inverter's own counter.
+
 ## v65
 
 - Today's energy now has a **Solar forecast** tile beside **Solar produced**: today's solar forecast, from the new `solar_forecast_today` key (Forecast.Solar's `sensor.energy_production_today` by default; `false` hides the tile). Below it, **(Perf today: N%)** is the solar produced so far against Home Assistant's solar forecast up to now, and **(Perf 7 days: N%)** the previous 7 days' production against each day's last recorded forecast. Without the entity, the tile shows the total of Home Assistant's solar forecast, else the average daily production of the last 7 days.
