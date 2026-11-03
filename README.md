@@ -144,6 +144,7 @@ All options are optional.
 | --- | --- | --- |
 | `sigenergy_backend` | `sigenergy_local_modbus` | The integration the card's default entities come from: `sigenergy_local_modbus` ([Sigenergy Local Modbus](https://github.com/TypQxQ/Sigenergy-Local-Modbus)) or `sigenergy2mqtt` ([sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt)). See [sigenergy2mqtt](#sigenergy2mqtt). |
 | `entities` | Sigenergy entities | Replaces the entities the card reads, for other inverter brands or integrations. See [Custom entities](#custom-entities). |
+| `battery_present` | `true` | Set `false` on a system without a battery to hide everything battery-related: the SigenStor reading, the battery charged and discharged tiles, the battery level panel, and the battery in the Power metrics chart and the Energy statistics. |
 | `battery_power_invert` | `false` | Set `true` if your battery power sensor is positive while **discharging**. The card expects positive while charging. |
 | `pv_strings` | `[PV1, PV2, PV3, PV4]` | The PV strings, in order. Each is a display name, or an object with its own entities (see [PV strings](#pv-strings)). The number of entries sets how many strings are shown. |
 | `home_entities` | `[]` | Power entities listed when tapping **HOME**. Without it, HOME is a plain label. |

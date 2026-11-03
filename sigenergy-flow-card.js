@@ -160,6 +160,9 @@ const SIGENERGY2MQTT_ENTITIES = {
 const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'];
 // Browser storage of the battery's learnt overhead (see _learnOverhead).
 const OVERHEAD_KEY = 'sigenergy-flow-card-battery-overhead';
+// The battery's keys, none of which is read with battery_present: false.
+const BATTERY_KEYS = new Set(['battery_power', 'battery_soc', 'battery_capacity', 'battery_charge_cut_off_soc', 'battery_discharge_cut_off_soc',
+    'battery_backup_soc', 'daily_battery_charge_energy', 'daily_battery_discharge_energy', 'stat_battery_charge', 'stat_battery_discharge']);
 // Default entities and PV string entity for each `sigenergy_backend`; [homeBalance] computes HOME when its entity is missing.
 const BACKENDS = {
     sigenergy_local_modbus: { entities: DEFAULT_ENTITIES, pvString: (n, key) => `sensor.sigen_inverter_pv${n}_${key}` },
@@ -438,6 +441,7 @@ class SigenergyFlowCard extends HTMLElement {
         this.config = {
             pv_strings: ['PV1', 'PV2', 'PV3', 'PV4'],
             home_entities: [],
+            battery_present: true,
             show_lifetime: true,
             show_phase_mode: false,
             show_grid_voltage: false,
@@ -491,7 +495,8 @@ class SigenergyFlowCard extends HTMLElement {
             this.attachShadow({
                 mode: 'open'
             });
-        const legend = [...new Map(CHART_SERIES.map(s => [s.name, s])).values()]
+        const battery = this.config.battery_present;
+        const legend = [...new Map(CHART_SERIES.filter(s => battery || !BATTERY_KEYS.has(s.key)).map(s => [s.name, s])).values()]
             .map(s => `<span id="legend${s.name}"><i class="dot" style="background:${s.color}"></i>${s.name}</span>`).join('')
             + '<span id="legendForecast" hidden><i class="dash"></i>Forecast</span>';
         const head = (id, title) => `<div class="dlg-head"><h2 id="${id}Title">${title}</h2><button title="Close" aria-label="Close">✕</button></div>`;
@@ -603,7 +608,7 @@ class SigenergyFlowCard extends HTMLElement {
           <rect x="0" y="${-PHOTO.bleed}" width="${PHOTO.width}" height="${PHOTO.bleed + FADE.topEnd}" class="fadeRect" fill="url(#fadeTop)"/>
           <rect x="0" y="${FADE.bottomStart}" width="${PHOTO.width}" height="${SCENE.height - FADE.bottomStart + PHOTO.bleed}" class="fadeRect" fill="url(#fadeBottom)"/>
           <rect x="0" y="${-PHOTO.bleed}" width="520" height="${SCENE.height + 2 * PHOTO.bleed}" fill="url(#fadeLeft)"/>
-          ${LEADERS.map((d, i) => `<path class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>`).join('')}
+          ${LEADERS.map((d, i) => battery || i !== 2 ? `<path class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>` : '').join('')}
           ${flows}
         </svg>
         <div class="node weather" id="weather" hidden><button id="weatherButton" title="Show the weather forecast"><span id="weatherIcon"></span><strong id="weatherTemp"></strong></button></div>
@@ -612,18 +617,18 @@ class SigenergyFlowCard extends HTMLElement {
             ? `<button id="homeButton" title="Show home power usage"><strong id="home">—</strong><small>HOME ›</small></button>`
             : `<strong id="home">—</strong><small>HOME</small>`}</div>
         <div class="lower" style="${lowerStyle}">
-          <div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>
-          <div class="node"><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
+          ${battery ? '<div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>' : ''}
+          <div class="node"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
         </div>
         <div class="sidecol" id="chargers">
           <div class="node" id="acNode"><strong id="ac">—</strong><small>AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
           <div class="node" id="dcNode"><button id="dcButton" title="Adjust DC charging power limit"><strong id="dc">—</strong><small>DC CHARGER<span id="dcGear"> ⚙</span></small><em id="dcSoc"></em><em id="dcLifetime" class="lifetime stack"></em></button></div>
         </div>
       </div></section><aside class="sidebar fill">
-        <section class="panel"><h3>Today's energy</h3><div class="stats">
-          ${DAILY_TILES.map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}</small><b id="${id}">—</b></button>`
+        <section class="panel"><h3>Today's energy</h3><div class="stats"${battery ? '' : ' style="grid-template-rows:repeat(2,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px)"'}>
+          ${DAILY_TILES.filter(([, key]) => battery || !BATTERY_KEYS.has(key)).map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}</small><b id="${id}">—</b></button>`
               + (id === 'dayPv' ? '<button class="stat" id="forecastStat" style="grid-row-start:1" hidden><small>Solar forecast</small><b id="dayForecast">—</b><small id="forecastPerf"></small></button>' : '')).join('')}
-        </div></section><section class="panel"><h3>Battery level</h3><button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button></section>
+        </div></section>${battery ? `<section class="panel"><h3>Battery level</h3><button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button></section>` : ''}
       </aside></div></div>
       <section class="panel chartpanel"><div class="charthead"><h3>Power metrics · Today</h3><span class="muted" id="chartStatus">Loading history…</span></div>
       <div class="legend">${legend}</div>
@@ -871,8 +876,10 @@ class SigenergyFlowCard extends HTMLElement {
     _has(id) {
         return !!id && !!this._hass?.states[id];
     }
-    // Entity for an `entities:` key: the configured one, else the first available default; null when disabled.
+    // Entity for an `entities:` key: the configured one, else the first available default; null when disabled or for
+    // the battery's keys without a battery.
     _ent(key) {
+        if (!this.config.battery_present && BATTERY_KEYS.has(key)) return null;
         const set = this.config.entities?.[key];
         if (set === false || set === null) return null;
         if (set) return set;
@@ -968,7 +975,7 @@ class SigenergyFlowCard extends HTMLElement {
     _homePower() {
         if (!this._homeFromBalance()) return this._scaled(this._ent('home_power'));
         const kw = key => this._scaled(this._ent(key));
-        const pv = kw('pv_power'), bat = kw('battery_power'), imp = kw('grid_import_power'), exp = kw('grid_export_power');
+        const pv = kw('pv_power'), bat = this.config.battery_present ? kw('battery_power') : 0, imp = kw('grid_import_power'), exp = kw('grid_export_power');
         if (pv === null || bat === null || (imp === null && exp === null)) return null;
         return Math.max(0, pv + (imp ?? 0) - (exp ?? 0) - bat * this._batterySign() - (kw('ac_charger_power') ?? 0) - (kw('dc_charger_power') ?? 0));
     }
@@ -1438,7 +1445,8 @@ class SigenergyFlowCard extends HTMLElement {
           , kw = key => this._scaled(this._ent(key))   // kW or kWh, whatever unit the entity reports
           , pv = kw('pv_power')
           , home = this._homePower();
-        const batRaw = kw('battery_power'), bat = batRaw === null ? null : batRaw * this._batterySign();
+        // Without a battery, its power is 0.
+        const batRaw = this.config.battery_present ? kw('battery_power') : 0, bat = batRaw === null ? null : batRaw * this._batterySign();
         const socEntity = e('battery_soc');
         const soc = n(socEntity);
         const imp = kw('grid_import_power')
@@ -1455,12 +1463,14 @@ class SigenergyFlowCard extends HTMLElement {
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));
-        this._text('battery', this._power(bat));
-        this._text('soc', soc === null ? '—' : `${soc.toFixed(1)}%`);
-        const battStatus = bat === null ? '' : bat > 0.025 ? 'Charging' : bat < -.025 ? 'Discharging' : 'Idle', remaining = this._batteryRemaining(bat, soc, home);
-        this._learnOverhead(pv, imp, exp, bat, ac, dc, home);
-        // The bracket stays on one line: a narrow column wraps before it.
-        this._text('battStatus', remaining ? `${battStatus} (remaining\u00A0time:\u00A0${remaining})` : battStatus);
+        if (this.config.battery_present) {
+            this._text('battery', this._power(bat));
+            this._text('soc', soc === null ? '—' : `${soc.toFixed(1)}%`);
+            const battStatus = bat === null ? '' : bat > 0.025 ? 'Charging' : bat < -.025 ? 'Discharging' : 'Idle', remaining = this._batteryRemaining(bat, soc, home);
+            this._learnOverhead(pv, imp, exp, bat, ac, dc, home);
+            // The bracket stays on one line: a narrow column wraps before it.
+            this._text('battStatus', remaining ? `${battStatus} (remaining\u00A0time:\u00A0${remaining})` : battStatus);
+        }
         this._text('grid', this._power(grid));
         this._text('gridStatus', grid === null ? '' : grid > 0.025 ? 'Importing' : grid < -.025 ? 'Exporting' : 'Idle');
         const phases = this._gridPhases();
@@ -1489,21 +1499,24 @@ class SigenergyFlowCard extends HTMLElement {
         const dcSocText = dcsoc === null || (dcsoc === 0 && !dcState) ? '' : `Vehicle SOC ${dcsoc.toFixed(0)}%`;
         this._parts('dcSoc', [dcState, dcSocText]);
         for (const [el, key, , third] of DAILY_TILES) {
-            const id = e(key), tile = this._id(el).closest('.stat');
+            const id = e(key), tile = this._id(el)?.closest('.stat');
+            if (!tile) continue;
             tile.hidden = !id;
             if (!id) continue;
             this._text(el, this._energy(third ? this._pvTotal(key, third) : this._scaled(id)));
             tile.dataset.entity = id;
         }
         this._updateForecastTile();
-        this._id('socLevel').dataset.entity = socEntity ?? '';
-        this._socEntity = socEntity;
-        this._updateSoc();
-        this._updateEnergy();
-        this._text('socLarge', soc === null ? '—' : `${soc.toFixed(1)}%`);
-        this._id('socFill').style.width = `${Math.min(100, Math.max(0, soc ?? 0))}%`;
-        const cap = kw('battery_capacity');
-        this._text('capacityText', cap === null ? '' : `${((soc ?? 0) * cap / 100).toFixed(1)} of ${cap.toFixed(1)} kWh`);
+        if (this.config.battery_present) {
+            this._id('socLevel').dataset.entity = socEntity ?? '';
+            this._socEntity = socEntity;
+            this._updateSoc();
+            this._updateEnergy();
+            this._text('socLarge', soc === null ? '—' : `${soc.toFixed(1)}%`);
+            this._id('socFill').style.width = `${Math.min(100, Math.max(0, soc ?? 0))}%`;
+            const cap = kw('battery_capacity');
+            this._text('capacityText', cap === null ? '' : `${((soc ?? 0) * cap / 100).toFixed(1)} of ${cap.toFixed(1)} kWh`);
+        }
         // SigenStor's AC output: solar less battery charging (positive battery power) less DC charging.
         const inverter = pv !== null && bat !== null ? pv - bat - (dc ?? 0) : home !== null && grid !== null ? home - grid : null;
         this._flow('solarFlow', pv);
