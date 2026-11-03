@@ -7,7 +7,7 @@ A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySige
 - The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
 - The battery's remaining time under SigenStor, as in Sigenergy's app: the time to its charge or discharge cut-off SOC at the current power (e.g. "Discharging (remaining time: 17h50m)"), or, while idle, how long it would run the home in a power cut, down to its Backup SOC: the home's consumption plus the inverters' and system's own base load, which the card learns (and keeps in the browser) while the battery alone supplies the home, typically at night. Idle shows no time until it has been learnt. Enable the Sigenergy integration's cut-off and backup SOC entities for exact figures; without them it counts to 100% and 0%.
-- Today's energy statistics and a battery level panel. Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
+- Today's energy statistics (solar produced and forecast, grid imported and exported, battery charged and discharged) and a battery level panel. Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
 - Power metrics chart of the day, its time axis running from midnight to midnight as in Sigenergy's app and its lines up to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time. The rest of the day shows a dashed solar and home forecast (see [Forecast](#forecast)).
 - Tap **SOLAR** for per-string PV details (voltage, current, power, today's and lifetime production) and a chart of each string's power today.
 - Tap **HOME** for a live breakdown of power usage across the entities you list, sorted from highest to lowest.
@@ -244,6 +244,7 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `daily_grid_export_energy` | `sensor.sigen_plant_daily_grid_export_energy` | Grid exported tile |
 | `daily_battery_charge_energy` | `sensor.sigen_plant_daily_battery_charge_energy`, fallback `sensor.sigen_inverter_daily_charge_energy` | Battery charged tile |
 | `daily_battery_discharge_energy` | `sensor.sigen_plant_daily_battery_discharge_energy`, fallback `sensor.sigen_inverter_daily_discharge_energy` | Battery discharged tile |
+| `solar_forecast_today` | `sensor.energy_production_today` (Forecast.Solar) | Solar forecast tile: today's forecast for all PV, in energy (see [Forecast](#forecast)) |
 | `stat_pv` | `sensor.sigen_plant_total_pv_generation` (the Sigenergy PV, plus `third_party_pv_lifetime_energy`) | Energy statistics' solar, PV Strings **Total** (Lifetime): all PV, the third-party inverter's included |
 | `stat_battery_discharge` | `sensor.sigen_plant_total_discharged_energy_of_the_ess` | Energy statistics: battery as a source |
 | `stat_battery_charge` | `sensor.sigen_plant_total_charged_energy_of_the_ess` | Energy statistics: battery as a consumer |
@@ -341,6 +342,7 @@ sigenergy_backend: sigenergy2mqtt
 | `stat_grid_export` | `sensor.sigen_0_grid_sensor_lifetime_export_energy`, fallback `sensor.sigen_0_si_total_exported_energy` |
 | `stat_evac_charge` | `sensor.sigen_0_si_total_ev_ac_charged_energy`, fallback `sensor.sigen_0_ac_charger_1_total_energy_consumed`, then `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
 | `daily_battery_discharge_energy` | `sensor.sigen_0_daily_discharge_energy`, fallback `sensor.sigen_0_inverter_1_daily_discharge_energy` |
+| `solar_forecast_today` | `sensor.energy_production_today` (Forecast.Solar) |
 
 - `total_pv_power`, `total_daily_pv_energy` and `lifetime_pv_energy` include the third-party inverter and are enabled by default. The fallbacks (`plant_pv_power`, `daily_pv_energy`, `plant_lifetime_pv_energy`, the `si_` and inverter counters) are the Sigenergy PV alone, and `plant_lifetime_pv_energy` and the `si_` counters are disabled by default.
 - sigenergy2mqtt has no daily energy for a third-party inverter, so `third_party_pv_daily_energy` has no default: with a fallback, the **Solar produced** tile counts only the Sigenergy PV.
@@ -357,6 +359,13 @@ As in Sigenergy's app, the Power metrics chart continues past now with dashed li
 - **Home:** the average consumption at each time of day over the last 7 days.
 
 The averages come from the recorder's statistics of `pv_power` and `home_power` (5-minute statistics, kept 10 days by default, or hourly ones), so those sensors need `state_class: measurement`, which the Sigenergy integrations set. Without statistics, no forecast is drawn. Sigenergy's AI forecast of the battery and grid is not available to Home Assistant. Set `show_forecast: false` to hide the forecast.
+
+The **Solar forecast** tile shows today's solar forecast, as last revised, from `solar_forecast_today` (Forecast.Solar's `sensor.energy_production_today` by default; set another integration's entity, or `false` to hide the tile). Below it:
+
+- **(Perf today: N%)**: the solar produced so far against the forecast up to now, from Home Assistant's solar forecast hour by hour (the current hour counted in part). Shown once the forecast up to now reaches 0.1 kWh.
+- **(Perf 7 days: N%)**: the solar produced over the previous 7 days, today left out, against each day's last recorded forecast. It needs the forecast entity's history (the recorder keeps 10 days by default) and the statistics of `stat_pv`. Days missing either are left out.
+
+If the `solar_forecast_today` entity doesn't exist, the tile shows the total of Home Assistant's solar forecast instead, without the 7 days. Without that either, it shows the average daily production of the last 7 days, from the statistics of `stat_pv`, marked **(7-day average)** and without the performance figures. With neither, or with `solar_forecast_today: false`, **Solar produced** takes the whole row.
 
 ### Energy statistics
 

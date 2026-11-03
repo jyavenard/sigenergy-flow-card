@@ -2,6 +2,12 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v65
+
+- Today's energy now has a **Solar forecast** tile beside **Solar produced**: today's solar forecast, from the new `solar_forecast_today` key (Forecast.Solar's `sensor.energy_production_today` by default; `false` hides the tile). Below it, **(Perf today: N%)** is the solar produced so far against Home Assistant's solar forecast up to now, and **(Perf 7 days: N%)** the previous 7 days' production against each day's last recorded forecast. Without the entity, the tile shows the total of Home Assistant's solar forecast, else the average daily production of the last 7 days.
+- The panel beside the scene fills its height, with no empty space below Battery level.
+- The layout switches to one column when the card, not the screen, is narrower than 800 px. A card in a narrow column on a wide screen (a sections view, cards side by side, the sidebar open) no longer squeezes the scene beside the panel.
+
 ## v64
 
 - Solar on the main card is all PV, the third-party inverter's included: `pv_power`, `daily_pv_energy` and `stat_pv` are totals. The defaults that count only the Sigenergy PV (Sigenergy Local Modbus's daily and lifetime ones) have the third-party inverter's energy added when one is fitted, as before.

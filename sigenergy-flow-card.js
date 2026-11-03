@@ -96,6 +96,8 @@ const DEFAULT_ENTITIES = {
     stat_grid_export: ['sensor.sigen_plant_total_exported_energy'],
     stat_evac_charge: ['sensor.sigen_plant_total_charged_energy_of_the_evac', 'sensor.sigen_ac_charger_total_energy_consumed'],
     daily_battery_discharge_energy: ['sensor.sigen_plant_daily_battery_discharge_energy', 'sensor.sigen_inverter_daily_discharge_energy'],
+    // Today's solar forecast for all PV, in energy: Forecast.Solar's estimated energy production today.
+    solar_forecast_today: ['sensor.energy_production_today'],
     // The weather shown at the scene's top left: Home Assistant's default (Met.no) forecast entity.
     weather: ['weather.forecast_home', 'weather.home'],
 };
@@ -152,6 +154,7 @@ const SIGENERGY2MQTT_ENTITIES = {
     stat_grid_export: ['sensor.sigen_0_grid_sensor_lifetime_export_energy', 'sensor.sigen_0_si_total_exported_energy'],
     stat_evac_charge: ['sensor.sigen_0_si_total_ev_ac_charged_energy', 'sensor.sigen_0_ac_charger_1_total_energy_consumed', 'sensor.sigen_0_ac_charger_2_total_energy_consumed'],
     daily_battery_discharge_energy: ['sensor.sigen_0_daily_discharge_energy', 'sensor.sigen_0_inverter_1_daily_discharge_energy'],
+    solar_forecast_today: DEFAULT_ENTITIES.solar_forecast_today,
     weather: DEFAULT_ENTITIES.weather,
 };
 const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'];
@@ -475,6 +478,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._day = today;
             this._loadHistory();
             this._loadForecast();
+            this._loadForecastWeek();
             this._loadStatistics();
         }
     }
@@ -531,8 +535,14 @@ class SigenergyFlowCard extends HTMLElement {
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
       .node button{all:unset;cursor:pointer;display:block}.node button[disabled]{cursor:default}.nobreak{white-space:nowrap}.narrow #gridButton small{white-space:normal}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
       .sidebar{display:flex;flex-direction:column;gap:12px}.panel{background:var(--panel);border:1px solid var(--panel-line);border-radius:12px;padding:13px}
-      .panel h3{margin:0 0 11px;font-size:14px;font-weight:600;color:var(--heading)}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-      .stat{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:10px;cursor:pointer;transition:background .2s}.stat:hover{background:var(--tile-hover)}.stat:focus-visible{outline:2px solid #71d3d1}.stat small{font-size:11px;color:var(--tile-sub);display:block}.stat b{font-size:18px;display:block;margin-top:4px}
+      .panel h3{margin:0 0 11px;font-size:14px;font-weight:600;color:var(--heading)}
+      /* Each row of tiles is five tracks: space, label, value, notes, space, then the gap to the next row. The tiles share
+         them (subgrid), so labels and values line up across a row however they wrap. */
+      .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:9px;grid-template-rows:repeat(3,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px);margin-bottom:-9px}
+      .sidebar.fill>.panel:first-child{flex:1;display:flex;flex-direction:column}.sidebar.fill .stats{flex:1}.stat.wide{grid-column:1/-1}
+      .stat{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:10px;cursor:pointer;transition:background .2s}.stat:hover{background:var(--tile-hover)}.stat:focus-visible{outline:2px solid #71d3d1}.stat small{font-size:11px;color:var(--tile-sub);display:block}.stat b{font-size:18px;display:block;margin-top:4px}#forecastPerf{margin-top:4px}#forecastPerf span{display:block}
+      .stat{grid-row-end:span 5;display:grid;grid-template-rows:minmax(10px,1fr) auto auto auto minmax(10px,1fr);grid-template-rows:subgrid;padding-block:0}
+      .stat>small:first-child{grid-row:2}.stat>b{grid-row:3}#forecastPerf{grid-row:4}
       .link{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;border-radius:6px}.link:hover{filter:brightness(1.2)}.link:focus-visible{outline:2px solid #71d3d1}
       .socbar{height:10px;background:var(--bar);border-radius:8px;overflow:hidden;margin:9px 0}.socfill{height:100%;background:var(--bar-fill);width:0%;transition:width .5s}
       .statpanel{margin-top:14px}.statbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:10px 0}
@@ -577,10 +587,11 @@ class SigenergyFlowCard extends HTMLElement {
       .load .bar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--load-bar);overflow:hidden}.load .bar i{display:block;height:100%;background:var(--load-fill)}
       .load.other{cursor:default;background:transparent;border:1px dashed var(--other-line)}.load.other .bar i{background:var(--other-fill)}
       .home-total{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--icon)}.home-total b{font-size:22px;color:var(--fg)}
-      @media(max-width:800px){.layout{grid-template-columns:1fr}}
+      .frame{container-type:inline-size}
+      @container (max-width:800px){.layout{grid-template-columns:1fr}}
     </style>
     <ha-card><div class="header"><div><div class="heading" id="heading"></div><div class="sub">Live power flow</div></div><div class="sub" id="stamp"></div></div>
-      <div class="layout"><section class="scene" id="scene"><div class="plane" id="plane">
+      <div class="frame"><div class="layout"><section class="scene" id="scene"><div class="plane" id="plane">
         <svg viewBox="0 0 ${SCENE.width} ${SCENE.height}" preserveAspectRatio="none" aria-label="Energy flow between equipment">
           <defs>
             <linearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fade" stop-opacity=".6"/><stop offset=".5" class="fade" stop-opacity=".35"/><stop offset="1" class="fade" stop-opacity="0"/></linearGradient>
@@ -608,11 +619,12 @@ class SigenergyFlowCard extends HTMLElement {
           <div class="node" id="acNode"><strong id="ac">—</strong><small>AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
           <div class="node" id="dcNode"><button id="dcButton" title="Adjust DC charging power limit"><strong id="dc">—</strong><small>DC CHARGER<span id="dcGear"> ⚙</span></small><em id="dcSoc"></em><em id="dcLifetime" class="lifetime stack"></em></button></div>
         </div>
-      </div></section><aside class="sidebar">
+      </div></section><aside class="sidebar fill">
         <section class="panel"><h3>Today's energy</h3><div class="stats">
-          ${DAILY_TILES.map(([id, , label]) => `<button class="stat"><small>${label}</small><b id="${id}">—</b></button>`).join('')}<button class="stat" id="socStat"><small>Battery SOC</small><b id="daySoc">—</b></button>
+          ${DAILY_TILES.map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}</small><b id="${id}">—</b></button>`
+              + (id === 'dayPv' ? '<button class="stat" id="forecastStat" style="grid-row-start:1" hidden><small>Solar forecast</small><b id="dayForecast">—</b><small id="forecastPerf"></small></button>' : '')).join('')}
         </div></section><section class="panel"><h3>Battery level</h3><button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button></section>
-      </aside></div>
+      </aside></div></div>
       <section class="panel chartpanel"><div class="charthead"><h3>Power metrics · Today</h3><span class="muted" id="chartStatus">Loading history…</span></div>
       <div class="legend">${legend}</div>
       <div class="chart-wrap"><svg id="chart"></svg><div class="tip" id="chartTip" hidden></div></div><div class="sun-times"><span id="sunrise">Sunrise —</span><span id="sunset">Sunset —</span></div></section>
@@ -771,7 +783,10 @@ class SigenergyFlowCard extends HTMLElement {
         let scale = width / Math.min(SCENE.width, Math.max(keepWidth, width / SCENE.scale));
         let height = SCENE.height * scale;
         if (sidebar.offsetTop === scene.offsetTop && sidebar.lastElementChild) {
+            // The sidebar's own height: stretched to fill the row, it would keep the scene from ever shrinking.
+            sidebar.classList.remove('fill');
             const sidebarHeight = sidebar.lastElementChild.offsetTop + sidebar.lastElementChild.offsetHeight - sidebar.firstElementChild.offsetTop;
+            sidebar.classList.add('fill');
             if (sidebarHeight > height) {
                 scale = Math.max(scale, Math.min(sidebarHeight / SCENE.height, width / keepWidth));
                 height = sidebarHeight;
@@ -1171,6 +1186,65 @@ class SigenergyFlowCard extends HTMLElement {
         await this._dialogChart('energyChart', 'energyChartStatus', 'No recorded battery history today', [this._socEntity],
             ([points]) => [{ points: points.map(p => ({ t: p.t, v: p.v * cap / 100 })), color: 'var(--c-battery)', name: 'Stored', unit: 'kWh' }], Math.ceil(cap / 2) * 2);
     }
+    // Today's solar forecast, the latest; today's production so far against the forecast up to now, the current hour
+    // counted pro rata; and the last 7 days' production against their forecasts. Without the forecast entity, the total
+    // is Home Assistant's solar forecast's, else the average production of the last 7 days, without the ratios; with the
+    // entity disabled, there is no tile. Without any of them, Solar produced takes both columns.
+    _updateForecastTile() {
+        const id = this._ent('solar_forecast_today'), hours = this._solarHours, now = Date.now();
+        let total = this._scaled(id), expected = null;
+        if (id && hours) {
+            expected = 0;
+            for (const [t, kwh] of hours) expected += kwh * Math.min(1, Math.max(0, (now - t) / 3600e3));
+            total ??= [...hours.values()].reduce((a, b) => a + b, 0);
+        }
+        const average = id && total === null ? this._pvWeekAverage ?? null : null;
+        total ??= average;
+        const tile = this._id('forecastStat');
+        tile.hidden = total === null;
+        this._id('dayPv').closest('.stat').classList.toggle('wide', tile.hidden);
+        if (tile.hidden) return;
+        tile.dataset.entity = this._has(id) ? id : '';
+        this._text('dayForecast', this._energy(total));
+        // Before .1 kWh of forecast, today's ratio means little.
+        const actual = this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'), week = this._forecastWeek;
+        const ratio = (a, f) => `${Math.round(a / f * 100)}%`;
+        this._parts('forecastPerf', average !== null ? ['(7-day average)']
+            : [actual !== null && expected >= .1 ? `(Perf today: ${ratio(actual, expected)})` : '', week ? `(Perf 7 days: ${ratio(week.actual, week.forecast)})` : '']);
+    }
+    // The previous 7 days' solar production and forecasts, today left out. A day's forecast is the last state the
+    // forecast entity recorded that day, its latest; a day's production is the change of the solar lifetime counters.
+    // Days missing either are left out of the ratio; the average production counts every day with production data.
+    async _loadForecastWeek() {
+        const request = this._forecastWeekRequest = (this._forecastWeekRequest ?? 0) + 1;
+        this._forecastWeek = this._pvWeekAverage = null;
+        const id = this._ent('solar_forecast_today'), pv = this._pvSources('stat_pv', 'third_party_pv_lifetime_energy').filter(source => this._has(source));
+        if (!id || !pv.length || typeof this._hass.callWS !== 'function' || typeof this._hass.callApi !== 'function') return;
+        const zone = this._zone, today = zoneMidnight(Date.now(), zone), day = zoneParts(today, zone), from = zoneDate(zone, day.y, day.m, day.d - 7);
+        try {
+            const [{ data }, statistics] = await Promise.all([
+                this._has(id) ? this._history([id], from) : { data: [] },
+                this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: from.toISOString(), end_time: today.toISOString(), statistic_ids: pv, period: 'day', types: ['change'] }),
+            ]);
+            if (request !== this._forecastWeekRequest) return;
+            const forecasts = new Map(), actual = new Map(), factor = this._factor(id);
+            for (const p of this._series(data, [id])[0])
+                if (p.t >= from.getTime() && p.t < today.getTime()) forecasts.set(zoneMidnight(p.t, zone).getTime(), p.v * factor);
+            for (const source of pv)
+                for (const row of statistics?.[source] ?? []) {
+                    const t = zoneMidnight(typeof row.start === 'number' ? row.start : Date.parse(row.start), zone).getTime(), v = Number(row.change);
+                    if (Number.isFinite(v)) actual.set(t, (actual.get(t) ?? 0) + Math.max(0, v * this._factor(source)));
+                }
+            const week = { actual: 0, forecast: 0 };
+            for (const [t, forecast] of forecasts)
+                if (actual.has(t)) { week.actual += actual.get(t); week.forecast += forecast; }
+            this._forecastWeek = week.forecast > 0 ? week : null;
+            this._pvWeekAverage = actual.size ? [...actual.values()].reduce((a, b) => a + b, 0) / actual.size : null;
+        } catch (e) {
+            if (request !== this._forecastWeekRequest) return;
+        }
+        this._updateForecastTile();
+    }
     _updateSoc() {
         if (!this._hass || !this._id('socDialog').open) return;
         const soc = this._num(this._socEntity);
@@ -1416,8 +1490,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._text(el, this._energy(third ? this._pvTotal(key, third) : this._scaled(id)));
             tile.dataset.entity = id;
         }
-        this._text('daySoc', soc === null ? '—' : `${soc.toFixed(1)}%`);
-        this._id('socStat').dataset.entity = socEntity ?? '';
+        this._updateForecastTile();
         this._id('socLevel').dataset.entity = socEntity ?? '';
         this._socEntity = socEntity;
         this._updateSoc();
@@ -1748,12 +1821,31 @@ class SigenergyFlowCard extends HTMLElement {
     async _loadForecast() {
         this._forecastAt = Date.now();
         const request = this._forecastRequest = (this._forecastRequest ?? 0) + 1;
-        if (!this.config.show_forecast || typeof this._hass?.callWS !== 'function') {
-            this._chartForecast = null;
+        if (typeof this._hass?.callWS !== 'function') {
+            this._chartForecast = this._solarHours = null;
             return;
         }
         const zone = this._zone, now = Date.now(), today = zoneMidnight(now, zone), day = zoneParts(today, zone);
         const end = zoneDate(zone, day.y, day.m, day.d + 1).getTime();
+        // Today's solar forecast, in kWh for each hour from its start, which the Solar forecast tile also reads.
+        const hours = new Map();
+        try {
+            const forecasts = await this._hass.callWS({ type: 'energy/solar_forecast' });
+            for (const forecast of Object.values(forecasts ?? {}))
+                for (const [hour, wh] of Object.entries(forecast?.wh_hours ?? {})) {
+                    const t = Date.parse(hour);
+                    if (t >= today.getTime() && t < end && Number.isFinite(Number(wh))) hours.set(t, (hours.get(t) ?? 0) + Number(wh) / 1000);
+                }
+        } catch (e) {
+            // No solar forecast in Home Assistant: the history average stands in.
+        }
+        if (request !== this._forecastRequest) return;
+        this._solarHours = hours.size ? hours : null;
+        this._updateForecastTile();
+        if (!this.config.show_forecast) {
+            this._chartForecast = null;
+            return;
+        }
         const spec = key => ({ ...CHART_SERIES.find(s => s.key === key), id: this._ent(key) });
         const specs = ['pv_power', 'home_power'].map(spec).filter(spec => this._has(spec.id));
         // Without a home entity, the home's forecast is the balance of the other flows' averages.
@@ -1763,24 +1855,13 @@ class SigenergyFlowCard extends HTMLElement {
             const at = this._valueAt(points, now), rest = points.filter(p => p.t > now && p.t <= end);
             return at === null ? rest : [{ t: now, v: at }, ...rest];
         };
+        // Each hour's energy (Wh) is its average power, placed at the middle of the hour; an hour the forecast
+        // leaves out (at night) produces nothing.
         let solar = null;
-        try {
-            const forecasts = await this._hass.callWS({ type: 'energy/solar_forecast' });
-            const hours = new Map();
-            for (const forecast of Object.values(forecasts ?? {}))
-                for (const [hour, wh] of Object.entries(forecast?.wh_hours ?? {})) {
-                    const t = Date.parse(hour);
-                    if (t >= today.getTime() && t < end && Number.isFinite(Number(wh))) hours.set(t, (hours.get(t) ?? 0) + Number(wh) / 1000);
-                }
-            // Each hour's energy (Wh) is its average power, placed at the middle of the hour; an hour the forecast
-            // leaves out (at night) produces nothing.
-            if (hours.size) {
-                solar = [];
-                for (let h = 0, t = today.getTime(); t < end; t = zoneDate(zone, day.y, day.m, day.d, ++h).getTime())
-                    solar.push({ t: t + 1800e3, v: hours.get(t) ?? 0 });
-            }
-        } catch (e) {
-            // No solar forecast in Home Assistant: the history average stands in.
+        if (hours.size) {
+            solar = [];
+            for (let h = 0, t = today.getTime(); t < end; t = zoneDate(zone, day.y, day.m, day.d, ++h).getTime())
+                solar.push({ t: t + 1800e3, v: hours.get(t) ?? 0 });
         }
         let history = {}, slot = 300e3;
         const ids = [...new Set([...specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power')), ...parts.map(spec => spec.id)])];

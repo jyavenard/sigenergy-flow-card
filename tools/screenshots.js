@@ -118,6 +118,10 @@ const statistics = {
 // The 7 days before, for the forecast's averages: 5-minute means of the PV and home power, the solar varying with
 // each day's weather.
 const means = { 'sensor.sigen_plant_pv_power': [], 'sensor.sigen_plant_consumed_power': [] };
+// Each of those days' production, as daily statistics of the PV counter, and its solar forecast's states: the morning's,
+// then the latest, revised towards the day's weather.
+const FORECAST = 'sensor.energy_production_today', dailyPv = [], forecastStates = [];
+const pvDay = Array.from({ length: 24 / STEP }, (_, i) => at(i * STEP + STEP / 2).pv * STEP).reduce((a, b) => a + b, 0);
 [0.92, 1.04, 0.78, 1.08, 0.97, 0.88, 1.02].forEach((sun, i) => {
     const dayStart = MIDNIGHT - (7 - i) * 86400e3;
     for (let h = 0; h < 24; h += STEP) {
@@ -125,9 +129,19 @@ const means = { 'sensor.sigen_plant_pv_power': [], 'sensor.sigen_plant_consumed_
         means['sensor.sigen_plant_pv_power'].push({ start, end: start + 300e3, mean: +(p.pv * sun).toFixed(3) });
         means['sensor.sigen_plant_consumed_power'].push({ start, end: start + 300e3, mean: +(p.home * (0.95 + 0.1 * ((i * 7) % 5) / 4)).toFixed(3) });
     }
+    dailyPv.push({ start: dayStart, end: dayStart + 86400e3, change: +(pvDay * sun).toFixed(2) });
+    forecastStates.push({ t: dayStart + 1800e3, v: +(pvDay * 0.97).toFixed(2) }, { t: dayStart + 13 * 3600e3, v: +(pvDay * (sun + 0.04)).toFixed(2) });
 });
+// Today's forecast: a little above the day's production, hour by hour.
+const FORECAST_TODAY = 1.06, whHours = {};
+for (let h = 0; h < 24; h++) {
+    const wh = Array.from({ length: 12 }, (_, i) => at(h + (i + .5) * STEP).pv * STEP).reduce((a, b) => a + b, 0) * FORECAST_TODAY * 1000;
+    if (wh > 0) whHours[new Date(MIDNIGHT + h * 3600e3).toISOString()] = Math.round(wh);
+}
+states[FORECAST] = { state: (pvDay * FORECAST_TODAY).toFixed(2), attributes: { unit_of_measurement: 'kWh', device_class: 'energy' } };
+forecastStates.push({ t: MIDNIGHT + 1800e3, v: +states[FORECAST].state });
 const data = {
-    states, times: samples.map(s => s.t), means, times24, grid24,
+    states, times: samples.map(s => s.t), means, times24, grid24, dailyPv, forecastStates, whHours,
     history: Object.fromEntries(Object.entries(history).map(([id, v]) => [id, v.map(x => +x.toFixed(3))])),
     statistics: Object.fromEntries(Object.entries(statistics).map(([id, key]) => [id, intervals.map(r => ({ start: r.t, end: r.t + 300e3, change: +(r[key] * STEP).toFixed(4) }))])),
 };
@@ -145,13 +159,14 @@ async function mount(page, style) {
             config: { latitude: -33.87, longitude: 151.21, time_zone: 'Australia/Sydney', unit_system: { temperature: '°C' } },
             callApi: async (method, query) => {
                 const ids = decodeURIComponent(query.split('filter_entity_id=')[1].split('&')[0]).split(',');
-                const rows = id => data.grid24[id] ? [data.grid24[id], data.times24] : [data.history[id], data.times];
+                const rows = id => id === 'sensor.energy_production_today' ? [data.forecastStates.map(p => p.v), data.forecastStates.map(p => p.t)]
+                    : data.grid24[id] ? [data.grid24[id], data.times24] : [data.history[id], data.times];
                 return ids.filter(id => rows(id)[0]).map(id => rows(id)[0].map((v, i) => ({ ...(i ? {} : { entity_id: id }), state: String(v), last_changed: new Date(rows(id)[1][i]).toISOString() })));
             },
-            // No solar forecast integration: the forecast uses the 7-day averages.
+            // A solar forecast integration (Forecast.Solar) for today's solar; the home's forecast uses the 7-day averages.
             callWS: async msg => {
-                if (msg.type === 'energy/solar_forecast') return {};
-                const rows = msg.types.includes('mean') ? data.means : data.statistics;
+                if (msg.type === 'energy/solar_forecast') return { 1: { wh_hours: data.whHours } };
+                const rows = msg.types.includes('mean') ? data.means : msg.period === 'day' ? { 'sensor.sigen_plant_total_pv_generation': data.dailyPv } : data.statistics;
                 return Object.fromEntries(msg.statistic_ids.filter(id => rows[id]).map(id => [id, rows[id].filter(r => r.start >= Date.parse(msg.start_time) && r.start < Date.parse(msg.end_time))]));
             },
         };
