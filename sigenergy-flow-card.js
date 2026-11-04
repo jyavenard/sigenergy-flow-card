@@ -432,6 +432,7 @@ class SigenergyFlowCard extends HTMLElement {
     setConfig(config) {
         const backend = config.sigenergy_backend ?? 'sigenergy_local_modbus';
         if (!Object.hasOwn(BACKENDS, backend)) throw new Error(`Unknown sigenergy_backend "${backend}". Valid values: ${Object.keys(BACKENDS).join(', ')}`);
+        if (config.theme !== undefined && !['auto', 'light', 'dark'].includes(config.theme)) throw new Error(`Unknown theme "${config.theme}". Valid values: auto, light, dark`);
         const entities = config.entities ?? {};
         if (typeof entities !== 'object' || Array.isArray(entities)) throw new Error('entities must be a mapping of key: entity_id');
         for (const [key, value] of Object.entries(entities)) {
@@ -450,6 +451,7 @@ class SigenergyFlowCard extends HTMLElement {
             name: 'My Home',
             show_energy_statistics: true,
             show_forecast: true,
+            theme: 'auto',
             debug_energy_statistics: false,
             ...config,
             sigenergy_backend: backend,
@@ -504,7 +506,7 @@ class SigenergyFlowCard extends HTMLElement {
         const flows = Object.keys(FLOWS).map(id => `<g class="flow" id="${id}"><path class="wire" d="${FLOWS[id]}"/><path class="glow" d="${FLOWS[id]}"/>${comets(id)}</g>`).join('');
         this.shadowRoot.innerHTML = `<style>
       :host{display:block;color:var(--fg);font-family:Roboto,Arial,sans-serif;${styleVars('night')}}
-      :host([day]){${styleVars('day')}}
+      :host([light]){${styleVars('day')}}
       [hidden]{display:none !important}
       button *{pointer-events:none}
       ha-card{display:block;background:var(--card);border:1px solid var(--card-line);border-radius:16px;overflow:hidden;color:inherit;padding:16px;box-sizing:border-box}
@@ -856,9 +858,17 @@ class SigenergyFlowCard extends HTMLElement {
         const sun = this._hass?.states['sun.sun']?.state;
         return sun ? sun === 'above_horizon' : true;
     }
+    // The light or dark colours: [theme] forces one, else they follow Home Assistant's dark mode, or the artwork when
+    // Home Assistant doesn't report one.
+    _isLight() {
+        const { theme } = this.config, dark = this._hass?.themes?.darkMode;
+        if (theme === 'light' || theme === 'dark') return theme === 'light';
+        return typeof dark === 'boolean' ? !dark : this._isDay();
+    }
     _updateScene() {
         const day = this._isDay();
         this.toggleAttribute('day', day);
+        this.toggleAttribute('light', this._isLight());
         const file = day ? 'house_day.png' : 'house_night.png';
         if (this._sceneFile === file) return;
         this._sceneFile = file;

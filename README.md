@@ -3,7 +3,7 @@
 A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySigen power-flow dashboard for a Sigenergy installation (solar, SigenStor battery, Sigen Gateway, grid, and optional AC/DC EV chargers).
 
 - Animated power flow between the solar panels, SigenStor, gateway, home and grid, drawn over a photo of the house. Each highlight moves in the direction power is flowing, faster at higher power, and stops when idle.
-- Day and night looks: a light theme with the daytime photo between sunrise and sunset, a dark theme with the night photo otherwise. Force either with the `style` option.
+- Day and night photos: the daytime photo between sunrise and sunset, the night photo otherwise; force either with the `style` option. The colours follow Home Assistant's light or dark mode; force either with `theme`.
 - The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
 - The battery's remaining time under SigenStor, as in Sigenergy's app: the time to its charge or discharge cut-off SOC at the current power (e.g. "Discharging (remaining time: 17h50m)"), or, while idle, how long it would run the home in a power cut, down to its Backup SOC: the home's consumption plus the inverters' and system's own base load, which the card learns (and keeps in the browser) while the battery alone supplies the home, typically at night. Idle shows no time until it has been learnt. Enable the Sigenergy integration's cut-off and backup SOC entities for exact figures; without them it counts to 100% and 0%.
@@ -68,7 +68,7 @@ Tapping the stored energy under **Battery level**:
 
 ### Night
 
-Between sunset and sunrise (or with `style: night`) the card switches to the dark theme and the night photo:
+Between sunset and sunrise (or with `style: night`) the card switches to the night photo, shown here with Home Assistant in dark mode:
 
 <table>
   <tr>
@@ -159,7 +159,8 @@ All options are optional.
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
 | `show_forecast` | `true` | Draw the dashed solar and home forecast for the rest of the day on the Power metrics chart (see [Forecast](#forecast)). |
 | `debug_energy_statistics` | `false` | List, under the Energy statistics panel, the energy each statistics sensor recorded over the period (to check the sensors against another source). |
-| `style` | `auto` | Artwork and theme: `day`, `night` or `auto` (day between sunrise and sunset). |
+| `style` | `auto` | Artwork: `day`, `night` or `auto` (day between sunrise and sunset). |
+| `theme` | `auto` | Colours: `light`, `dark` or `auto` (Home Assistant's light or dark mode, as set in your profile; the artwork's when Home Assistant doesn't report one). |
 
 ### Example
 
@@ -180,15 +181,22 @@ home_entities:
 
 ### Style
 
-`style` selects the artwork and theme:
+`style` selects the photo:
 
 - `auto` (default): day between today's sunrise and sunset (as shown under the chart; `sun.sun` is used if no location is set), night otherwise.
-- `day`: always the light theme with the daytime photo.
-- `night`: always the dark theme with the night photo.
+- `day`: always the daytime photo.
+- `night`: always the night photo.
+
+`theme` selects the colours:
+
+- `auto` (default): Home Assistant's light or dark mode, as set in your profile (its Auto follows the device). On an older Home Assistant that doesn't report it, the colours follow the photo: light by day, dark by night.
+- `light`: always the light colours.
+- `dark`: always the dark colours.
 
 ```yaml
 type: custom:sigenergy-flow-card
 style: day
+theme: dark
 ```
 
 ### Flow animation
