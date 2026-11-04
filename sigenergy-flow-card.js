@@ -504,7 +504,7 @@ class SigenergyFlowCard extends HTMLElement {
         const flows = Object.keys(FLOWS).map(id => `<g class="flow" id="${id}"><path class="wire" d="${FLOWS[id]}"/><path class="glow" d="${FLOWS[id]}"/>${comets(id)}</g>`).join('');
         this.shadowRoot.innerHTML = `<style>
       :host{display:block;color:var(--fg);font-family:Roboto,Arial,sans-serif;${styleVars('night')}}
-      :host([day]){${styleVars('day')}}
+      :host([light]){${styleVars('day')}}
       [hidden]{display:none !important}
       button *{pointer-events:none}
       ha-card{display:block;background:var(--card);border:1px solid var(--card-line);border-radius:16px;overflow:hidden;color:inherit;padding:16px;box-sizing:border-box}
@@ -844,9 +844,14 @@ class SigenergyFlowCard extends HTMLElement {
         const sun = this._hass?.states['sun.sun']?.state;
         return sun ? sun === 'above_horizon' : true;
     }
+    // The light or dark theme: [theme] forces one, else it follows the artwork.
+    _isLight() {
+        const { theme } = this.config;
+        return theme === 'light' || theme === 'dark' ? theme === 'light' : this._isDay();
+    }
     _updateScene() {
         const day = this._isDay();
-        this.toggleAttribute('day', day);
+        this.toggleAttribute('light', this._isLight());
         const file = day ? 'house_day.png' : 'house_night.png';
         if (this._sceneFile === file) return;
         this._sceneFile = file;
