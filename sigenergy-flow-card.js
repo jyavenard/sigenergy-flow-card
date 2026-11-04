@@ -1202,14 +1202,29 @@ class SigenergyFlowCard extends HTMLElement {
     // counted pro rata; and the last 7 days' production against their forecasts. Without the forecast entity, the total
     // is Home Assistant's solar forecast's, else the average production of the last 7 days, without the ratios; with the
     // entity disabled, there is no tile. Without any of them, Solar produced takes both columns.
+    // The forecast up to now adds up each past hour's forecast as recorded during that hour by the forecast's sensor
+    // for the current hour, since Home Assistant's solar forecast drops an hour once it has passed; without that
+    // sensor, it is Home Assistant's solar forecast for the hours it still has.
     _updateForecastTile() {
-        const id = this._ent('solar_forecast_today'), hours = this._solarHours, now = Date.now();
+        const id = this._ent('solar_forecast_today'), hours = this._solarHours, recorded = this._forecastRecorded, now = Date.now();
         let total = this._scaled(id), expected = null;
-        if (id && hours) {
+        if (id && recorded) {
+            // While the card is open, the sensor's live state extends its recorded history.
+            const { points, factor } = recorded, live = this._num(recorded.id), last = points[points.length - 1];
+            if (live !== null && live !== last.v) points.push({ t: now, v: live });
+            const at = t => {
+                let v = null;
+                for (const p of points) if (p.t <= t) v = p.v; else break;
+                return v ?? 0;
+            };
+            expected = 0;
+            for (let t = zoneMidnight(now, this._zone).getTime(); t < now; t += 3600e3)
+                expected += at(Math.min(t + 3600e3, now) - 1) * factor * Math.min(1, (now - t) / 3600e3);
+        } else if (id && hours) {
             expected = 0;
             for (const [t, kwh] of hours) expected += kwh * Math.min(1, Math.max(0, (now - t) / 3600e3));
-            total ??= [...hours.values()].reduce((a, b) => a + b, 0);
         }
+        if (id && hours) total ??= [...hours.values()].reduce((a, b) => a + b, 0);
         const average = id && total === null ? this._pvWeekAverage ?? null : null;
         total ??= average;
         const tile = this._id('forecastStat');
@@ -1223,6 +1238,14 @@ class SigenergyFlowCard extends HTMLElement {
         const ratio = (a, f) => `${Math.round(a / f * 100)}%`;
         this._parts('forecastPerf', average !== null ? ['(7-day average)']
             : [actual !== null && expected >= .1 ? `(Perf today: ${ratio(actual, expected)})` : '', week ? `(Perf 7 days: ${ratio(week.actual, week.forecast)})` : '']);
+    }
+    // The forecast's sensor for the current hour: Forecast.Solar's, on the same device as solar_forecast_today.
+    _forecastHourEntity() {
+        const registry = this._hass?.entities, device = registry?.[this._ent('solar_forecast_today')]?.device_id;
+        if (!device) return null;
+        const entry = Object.values(registry).find(e => e.device_id === device
+            && (e.translation_key === 'energy_current_hour' || /energy_current_hour(_\d+)?$/.test(e.entity_id)));
+        return entry && this._has(entry.entity_id) ? entry.entity_id : null;
     }
     // The previous 7 days' solar production and forecasts, today left out. A day's forecast is the last state the
     // forecast entity recorded that day, its latest; a day's production is the change of the solar lifetime counters.
@@ -1857,8 +1880,20 @@ class SigenergyFlowCard extends HTMLElement {
         } catch (e) {
             // No solar forecast in Home Assistant: the history average stands in.
         }
+        // Today's history of the forecast for the current hour, for the Solar forecast tile's forecast up to now.
+        let recorded = null;
+        const hourId = this._forecastHourEntity();
+        if (hourId && typeof this._hass.callApi === 'function') {
+            try {
+                const [points] = this._series((await this._history([hourId], today)).data, [hourId]);
+                if (points.length) recorded = { id: hourId, points, factor: this._factor(hourId) };
+            } catch (e) {
+                // No recorder history: Home Assistant's solar forecast stands in.
+            }
+        }
         if (request !== this._forecastRequest) return;
         this._solarHours = hours.size ? hours : null;
+        this._forecastRecorded = recorded;
         this._updateForecastTile();
         if (!this.config.show_forecast) {
             this._chartForecast = null;

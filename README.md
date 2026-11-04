@@ -363,7 +363,7 @@ The averages come from the recorder's statistics of `pv_power` and `home_power` 
 
 The **Solar forecast** tile shows today's solar forecast, as last revised, from `solar_forecast_today` (Forecast.Solar's `sensor.energy_production_today` by default; set another integration's entity, or `false` to hide the tile). Below it:
 
-- **(Perf today: N%)**: the solar produced so far against the forecast up to now, from Home Assistant's solar forecast hour by hour (the current hour counted in part). Shown once the forecast up to now reaches 0.1 kWh.
+- **(Perf today: N%)**: the solar produced so far against the forecast up to now, hour by hour (the current hour counted in part). Each past hour's forecast comes from the history of the forecast's sensor for the current hour, found on the same device as `solar_forecast_today` (Forecast.Solar's **Estimated energy production - this hour**). Without it, it comes from Home Assistant's solar forecast, which can leave out the hours already past and then overstate the performance. Shown once the forecast up to now reaches 0.1 kWh.
 - **(Perf 7 days: N%)**: the solar produced over the previous 7 days, today left out, against each day's last recorded forecast. It needs the forecast entity's history (the recorder keeps 10 days by default) and the statistics of `stat_pv`. Days missing either are left out.
 
 If the `solar_forecast_today` entity doesn't exist, the tile shows the total of Home Assistant's solar forecast instead, without the 7 days. Without that either, it shows the average daily production of the last 7 days, from the statistics of `stat_pv`, marked **(7-day average)** and without the performance figures. With neither, or with `solar_forecast_today: false`, **Solar produced** takes the whole row.
