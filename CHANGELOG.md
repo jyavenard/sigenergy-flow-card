@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v67
+
+- **(Perf today: N%)** is correct again late in the day. Forecast.Solar drops each hour from Home Assistant's solar forecast once it has passed, so by the evening only the afternoon was counted and the performance was overstated. Each past hour's forecast now comes from the history of the forecast's sensor for the current hour (Forecast.Solar's **Estimated energy production - this hour**), found on the same device as `solar_forecast_today`.
+- Tapping the **Solar forecast** tile opens **Solar performance**: today's performance, the solar produced and the forecast up to now, and a chart of both, cumulative from midnight, with the forecast continuing dashed to the end of the day. Hovering shows the performance the tile showed at that time. The forecast entity's details, which the tile used to open, are linked from the dialog.
+
 ## v66
 
 - New `battery_present` option. Set it to `false` on a system without a battery to hide everything battery-related: the SigenStor reading, the battery charged and discharged tiles, the battery level panel, and the battery in the Power metrics chart and the Energy statistics.
