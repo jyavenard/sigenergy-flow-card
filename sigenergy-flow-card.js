@@ -673,6 +673,13 @@ class SigenergyFlowCard extends HTMLElement {
       ${head('home', 'Home power usage')}
       <section class="panel"><div class="home-total"><span>Home consumption</span><b id="homeTotal">—</b></div><div class="muted" id="homeMeasured"></div></section>
       <section class="panel"><div class="loads" id="homeLoads"></div></section>
+    </div></dialog>
+    <dialog id="forecastDialog" aria-labelledby="forecastTitle"><div class="dlg">
+      ${head('forecast', 'Solar performance')}
+      <section class="panel"><div class="home-total"><span>Performance today</span><b id="forecastPerfNow">—</b></div><div class="muted" id="forecastSummary"></div><button class="link muted" id="forecastEntity" hidden>Forecast details ›</button></section>
+      <section class="panel"><div class="charthead"><h3>Solar produced and forecast (kWh) · Today</h3><span class="muted" id="forecastChartStatus"></span></div>
+      <div class="legend"><span><i class="dot" style="background:var(--c-solar)"></i>Produced</span><span><i class="dot" style="background:var(--sub)"></i>Forecast</span></div>
+      <div class="chart-wrap"><svg id="forecastChart"></svg><div class="tip" id="forecastChartTip" hidden></div></div></section>
     </div></dialog>`;
         this.root = this.shadowRoot;
         this._id('heading').textContent = [this.config.title, this.config.name].filter(Boolean).join(' · ');
@@ -698,6 +705,7 @@ class SigenergyFlowCard extends HTMLElement {
             ['homeButton', 'homeDialog', () => this._updateHome()],
             ['capacity', 'energyDialog', () => { this._updateEnergy(); this._loadEnergyHistory(); }],
             ['socButton', 'socDialog', () => { this._updateSoc(); this._loadSocHistory(); }],
+            ['forecastStat', 'forecastDialog', () => { this._updateForecastDialog(); this._loadForecastChart(); }],
         ]) this._id(button)?.addEventListener('click', () => { this._id(id).showModal(); show(); });
         for (const d of this.root.querySelectorAll('dialog')) {
             d.querySelector('.dlg-head button').addEventListener('click', () => d.close());
@@ -710,6 +718,10 @@ class SigenergyFlowCard extends HTMLElement {
             this._id('homeDialog').close();
             this._moreInfo(entityId);
         });
+        this._id('forecastEntity').addEventListener('click', () => {
+            this._id('forecastDialog').close();
+            this._moreInfo(this._ent('solar_forecast_today'));
+        });
         // A grid reading or the power factor charts its history.
         this._gridPick ??= { phase: 'a', kind: 'voltage' };
         this._id('gridDialog').addEventListener('click', e => {
@@ -719,10 +731,10 @@ class SigenergyFlowCard extends HTMLElement {
             this._updateGrid();
             this._loadGridHistory();
         });
-        for (const stat of this.root.querySelectorAll('.stat, #socLevel'))
+        for (const stat of this.root.querySelectorAll('.stat:not(#forecastStat), #socLevel'))
             stat.addEventListener('click', () => this._moreInfo(stat.dataset.entity));
         this._observeCharts();
-        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip']]) {
+        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['forecastChart', 'forecastChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
             const show = e => this._hoverChart(svg, box, e);
             svg.addEventListener('pointermove', show);
@@ -740,7 +752,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartObserver = new ResizeObserver(entries => {
             for (const entry of entries) (entry.target._redraw ?? entry.target.fit)?.();
         });
-        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'statChart']) this._chartObserver.observe(this._id(id));
+        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'forecastChart', 'statChart']) this._chartObserver.observe(this._id(id));
         const scene = this._id('scene'), sidebar = this.root.querySelector('.sidebar');
         scene.fit = sidebar.fit = () => this._fitScene();
         this._chartObserver.observe(scene);
@@ -1207,23 +1219,13 @@ class SigenergyFlowCard extends HTMLElement {
     // sensor, it is Home Assistant's solar forecast for the hours it still has.
     _updateForecastTile() {
         const id = this._ent('solar_forecast_today'), hours = this._solarHours, recorded = this._forecastRecorded, now = Date.now();
-        let total = this._scaled(id), expected = null;
-        if (id && recorded) {
+        if (recorded) {
             // While the card is open, the sensor's live state extends its recorded history.
-            const { points, factor } = recorded, live = this._num(recorded.id), last = points[points.length - 1];
-            if (live !== null && live !== last.v) points.push({ t: now, v: live });
-            const at = t => {
-                let v = null;
-                for (const p of points) if (p.t <= t) v = p.v; else break;
-                return v ?? 0;
-            };
-            expected = 0;
-            for (let t = zoneMidnight(now, this._zone).getTime(); t < now; t += 3600e3)
-                expected += at(Math.min(t + 3600e3, now) - 1) * factor * Math.min(1, (now - t) / 3600e3);
-        } else if (id && hours) {
-            expected = 0;
-            for (const [t, kwh] of hours) expected += kwh * Math.min(1, Math.max(0, (now - t) / 3600e3));
+            const live = this._num(recorded.id), points = recorded.points;
+            if (live !== null && live !== points[points.length - 1].v) points.push({ t: now, v: live });
         }
+        let total = this._scaled(id);
+        const expected = id ? this._forecastUpTo(now) : null;
         if (id && hours) total ??= [...hours.values()].reduce((a, b) => a + b, 0);
         const average = id && total === null ? this._pvWeekAverage ?? null : null;
         total ??= average;
@@ -1231,13 +1233,87 @@ class SigenergyFlowCard extends HTMLElement {
         tile.hidden = total === null;
         this._id('dayPv').closest('.stat').classList.toggle('wide', tile.hidden);
         if (tile.hidden) return;
-        tile.dataset.entity = this._has(id) ? id : '';
         this._text('dayForecast', this._energy(total));
         // Before .1 kWh of forecast, today's ratio means little.
         const actual = this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'), week = this._forecastWeek;
         const ratio = (a, f) => `${Math.round(a / f * 100)}%`;
         this._parts('forecastPerf', average !== null ? ['(7-day average)']
             : [actual !== null && expected >= .1 ? `(Perf today: ${ratio(actual, expected)})` : '', week ? `(Perf 7 days: ${ratio(week.actual, week.forecast)})` : '']);
+        this._updateForecastDialog();
+    }
+    // The forecast's production from today's midnight up to [t] (now or earlier), in kWh, the hour at [t] counted pro
+    // rata: each hour's forecast as the forecast's sensor for the current hour recorded it up to [t], else Home
+    // Assistant's solar forecast for the hours it still has; null without either.
+    _forecastUpTo(t) {
+        const recorded = this._forecastRecorded, hours = this._solarHours;
+        let sum = 0;
+        if (recorded) {
+            const { points, factor } = recorded;
+            const at = time => {
+                let v = null;
+                for (const p of points) if (p.t <= time) v = p.v; else break;
+                return v ?? 0;
+            };
+            for (let hour = zoneMidnight(t, this._zone).getTime(); hour < t; hour += 3600e3)
+                sum += at(Math.min(hour + 3600e3, t) - 1) * factor * Math.min(1, (t - hour) / 3600e3);
+            return sum;
+        }
+        if (!hours) return null;
+        for (const [hour, kwh] of hours) sum += kwh * Math.min(1, Math.max(0, (t - hour) / 3600e3));
+        return sum;
+    }
+    // Solar performance dialog: today's performance, as the Solar forecast tile shows it, and its figures.
+    _updateForecastDialog() {
+        if (!this._hass || !this._id('forecastDialog').open) return;
+        const id = this._ent('solar_forecast_today'), now = Date.now();
+        const actual = this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'), expected = id ? this._forecastUpTo(now) : null;
+        const total = this._scaled(id) ?? (this._solarHours ? [...this._solarHours.values()].reduce((a, b) => a + b, 0) : null);
+        this._text('forecastPerfNow', actual !== null && expected >= .1 ? `${Math.round(actual / expected * 100)}%` : '—');
+        this._text('forecastSummary', [actual === null ? '' : `${this._kwh(actual)} produced`, expected === null ? '' : `${this._kwh(expected)} forecast up to now`,
+            total === null ? '' : `${this._kwh(total)} forecast today`].filter(Boolean).join(' · '));
+        this._id('forecastEntity').hidden = !this._has(id);
+    }
+    // Today's solar produced and the forecast up to each moment, both cumulative, the forecast continuing dashed to the
+    // end of the day from Home Assistant's solar forecast; the tip adds the performance the tile showed at that time.
+    async _loadForecastChart() {
+        if (!this._hass) return;
+        const ids = this._pvSources('daily_pv_energy', 'third_party_pv_daily_energy').filter(id => this._has(id));
+        if (!ids.length || !this._ent('solar_forecast_today')) {
+            this._text('forecastChartStatus', 'Solar forecast not configured');
+            return;
+        }
+        await this._dialogChart('forecastChart', 'forecastChartStatus', 'No recorded solar history today', ids, sources => {
+            const now = Date.now(), midnight = zoneMidnight(now, this._zone).getTime();
+            // A daily counter can reset some time after midnight: what it read before its last drop is yesterday's.
+            const counters = sources.map((points, i) => {
+                const factor = this._factor(ids[i]);
+                const reset = points.reduce((last, p, j) => j && p.v < points[j - 1].v ? j : last, 0);
+                return points.slice(reset).map(p => ({ t: p.t, v: p.v * factor }));
+            });
+            const times = [...new Set(counters.flat().map(p => p.t))].sort((a, b) => a - b);
+            const produced = times.map(t => ({ t, v: counters.reduce((sum, points) => sum + (this._valueAt(points, t) ?? 0), 0) }));
+            const hourly = [];
+            for (let t = midnight; t < now; t += 3600e3) hourly.push(t);
+            const forecast = [...hourly, now].map(t => ({ t, v: this._forecastUpTo(t) ?? 0 }));
+            // The rest of the day: what is left of the current hour, then Home Assistant's forecast hour by hour.
+            const ahead = [forecast[forecast.length - 1]], hours = this._solarHours ?? new Map();
+            const current = hourly[hourly.length - 1] ?? midnight, left = (this._forecastRecorded
+                ? this._scaled(this._forecastRecorded.id) ?? 0 : hours.get(current) ?? 0) * Math.max(0, (current + 3600e3 - now) / 3600e3);
+            let sum = ahead[0].v + left;
+            ahead.push({ t: current + 3600e3, v: sum });
+            for (const [t, kwh] of [...hours].filter(([t]) => t > current).sort((a, b) => a[0] - b[0])) {
+                if (t > ahead[ahead.length - 1].t) ahead.push({ t, v: sum });
+                sum += kwh;
+                ahead.push({ t: t + 3600e3, v: sum });
+            }
+            const perf = produced.map(p => ({ t: p.t, f: this._forecastUpTo(p.t) ?? 0, v: p.v })).filter(p => p.f >= .1).map(p => ({ t: p.t, v: p.v / p.f * 100 }));
+            return [
+                { points: produced, color: 'var(--c-solar)', name: 'Produced', unit: 'kWh', digits: 2 },
+                { points: forecast, color: 'var(--sub)', name: 'Forecast', unit: 'kWh', digits: 2 },
+                { points: ahead, color: 'var(--sub)', name: 'Forecast', unit: 'kWh', digits: 2, forecast: true },
+                { points: perf, color: 'var(--c-solar)', name: 'Performance', unit: '%', digits: 0, tipOnly: true },
+            ];
+        });
     }
     // The forecast's sensor for the current hour: Forecast.Solar's, on the same device as solar_forecast_today.
     _forecastHourEntity() {
@@ -1996,14 +2072,14 @@ class SigenergyFlowCard extends HTMLElement {
             svg.append(el);
             return el;
         };
-        const values = series.flatMap(s => s.points.map(p => Math.abs(p.v)));
+        const values = series.filter(s => !s.tipOnly).flatMap(s => s.points.map(p => Math.abs(p.v)));
         // A signed chart's limit is rounded up to a half, whole, 5, 10, 50… kW, as in Sigenergy's app, so the labels are exact.
         const peak = Math.max(1, ...values), step = 10 ** Math.floor(Math.log10(peak)) / 2;
         let max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.max(1, Math.ceil(Math.max(0, ...values))));
         let low = 0, places = null;
         if (window?.fit && values.length) {
             // Three labels a 1, 2, 2.5 or 5 × 10ⁿ step apart, spanning the data.
-            const all = series.flatMap(s => s.points.map(p => p.v)), least = Math.min(...all), most = Math.max(...all);
+            const all = series.filter(s => !s.tipOnly).flatMap(s => s.points.map(p => p.v)), least = Math.min(...all), most = Math.max(...all);
             const nice = v => { const e = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(m => m * e).find(m => m >= v * (1 - 1e-9)); };
             let gap = nice(Math.max(most - least, Math.abs(most) * .02, 1e-3) * .6);
             while (Math.floor(least / gap) * gap + 2 * gap < most) gap = nice(gap * 1.01);
@@ -2022,8 +2098,8 @@ class SigenergyFlowCard extends HTMLElement {
         // A window is labelled at every fourth hour of the clock within it.
         if (window) for (let h = 0; h < 72 && hour(h) <= end; h++) { if (hour(h) >= start && zoneParts(hour(h), this._zone).h % 4 === 0) time(h); }
         else for (let h = 0; h < 24; h += 4) time(h);
-        for (const { points, color, forecast } of series) {
-            if (points.length < 2)
+        for (const { points, color, forecast, tipOnly } of series) {
+            if (points.length < 2 || tipOnly)
                 continue;
             const d = points.map((p, j) => `${j ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
             add('path', { d, fill: 'none', stroke: color, 'stroke-width': forecast ? 1.4 : 1.7, 'stroke-linejoin': 'round', ...(forecast ? { 'stroke-dasharray': '5 4' } : {}) });
@@ -2080,7 +2156,7 @@ class SigenergyFlowCard extends HTMLElement {
         const rows = new Map(), ahead = t > chart.now;
         chart.series.forEach((s, i) => {
             const v = !!s.forecast === ahead ? this._valueAt(s.points, t) : null;
-            chart.dots[i].setAttribute('display', v === null ? 'none' : 'inline');
+            chart.dots[i].setAttribute('display', v === null || s.tipOnly ? 'none' : 'inline');
             if (v === null) return;
             chart.dots[i].setAttribute('cx', px);
             chart.dots[i].setAttribute('cy', chart.y(v));
@@ -2098,7 +2174,7 @@ class SigenergyFlowCard extends HTMLElement {
             dot.style.background = r.color;
             line.append(dot, String(r.name));
             if (note) line.append(' ', Object.assign(document.createElement('em'), { textContent: note }));
-            const value = r.digits !== undefined ? `${r.v.toFixed(r.digits)}${r.unit ? ` ${r.unit}` : ''}` : r.unit ? `${Math.abs(r.v).toFixed(2)} ${r.unit}` : formatPower(r.v);
+            const value = r.digits !== undefined ? `${r.v.toFixed(r.digits)}${r.unit ? `${r.unit === '%' ? '' : ' '}${r.unit}` : ''}` : r.unit ? `${Math.abs(r.v).toFixed(2)} ${r.unit}` : formatPower(r.v);
             line.append(Object.assign(document.createElement('span'), { textContent: value }));
             return line;
         });
