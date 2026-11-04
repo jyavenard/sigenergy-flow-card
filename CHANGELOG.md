@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v68
+
+- The card's colours follow Home Assistant's light or dark mode, as set in your profile, rather than the time of day. The photo still changes with `style`. The new `theme` option forces the colours: `light`, `dark` or `auto` (the default, Home Assistant's mode).
+
 ## v67
 
 - **(Perf today: N%)** is correct again late in the day. Forecast.Solar drops each hour from Home Assistant's solar forecast once it has passed, so by the evening only the afternoon was counted and the performance was overstated. Each past hour's forecast now comes from the history of the forecast's sensor for the current hour (Forecast.Solar's **Estimated energy production - this hour**), found on the same device as `solar_forecast_today`.
