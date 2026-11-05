@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v69
+
+- The panel beside the scene, now titled **Energy**, has a ‹ date › control, as Energy statistics has: the arrows step back to previous days. Each tile then shows that day's total, from the recorder's statistics of the same daily sensors. The **Solar forecast** tile shows that day's last recorded forecast and **(Perf: N%)**, the day's solar produced against it, as long as the recorder keeps the forecast entity's history (10 days by default); otherwise **Solar produced** takes the whole row.
+- On phones, the Energy statistics date and its range (Day, Week…) sit on one line instead of two.
+
 ## v68
 
 - The card's colours follow Home Assistant's light or dark mode, as set in your profile, rather than the time of day. The photo still changes with `style`. The new `theme` option forces the colours: `light`, `dark` or `auto` (the default, Home Assistant's mode).
