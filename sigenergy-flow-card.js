@@ -482,6 +482,7 @@ class SigenergyFlowCard extends HTMLElement {
         const today = new Date().toLocaleDateString('en-CA', { timeZone: this._zone });
         if (!previous || this._day !== today) {
             this._day = today;
+            this._dayControls();
             this._loadHistory();
             this._loadForecast();
             this._loadForecastWeek();
@@ -546,8 +547,9 @@ class SigenergyFlowCard extends HTMLElement {
       /* Each row of tiles is five tracks: space, label, value, notes, space, then the gap to the next row. The tiles share
          them (subgrid), so labels and values line up across a row however they wrap. */
       .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:9px;grid-template-rows:repeat(3,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px);margin-bottom:-9px}
+      .dayhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 8px;margin:-8px 0 6px}.dayhead h3{margin:0}.daynav{padding:2px}.statnav.daynav span{min-width:5.5em;padding:0 2px}.statnav.daynav button{width:28px;height:26px;line-height:26px;font-size:18px}
       .sidebar.fill>.panel:first-child{flex:1;display:flex;flex-direction:column}.sidebar.fill .stats{flex:1}.stat.wide{grid-column:1/-1}
-      .stat{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:10px;cursor:pointer;transition:background .2s}.stat:hover{background:var(--tile-hover)}.stat:focus-visible{outline:2px solid #71d3d1}.stat small{font-size:11px;color:var(--tile-sub);display:block}.stat b{font-size:18px;display:block;margin-top:4px}#forecastPerf{margin-top:4px}#forecastPerf span{display:block}
+      .stat{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:10px;cursor:pointer;transition:background .2s}.stat:hover{background:var(--tile-hover)}.stat[disabled]{cursor:default}.stat[disabled]:hover{background:var(--tile)}.stat:focus-visible{outline:2px solid #71d3d1}.stat small{font-size:11px;color:var(--tile-sub);display:block}.stat b{font-size:18px;display:block;margin-top:4px}#forecastPerf{margin-top:4px}#forecastPerf span{display:block}
       .stat{grid-row-end:span 5;display:grid;grid-template-rows:minmax(10px,1fr) auto auto auto minmax(10px,1fr);grid-template-rows:subgrid;padding-block:0}
       .stat>small:first-child{grid-row:2}.stat>b{grid-row:3}#forecastPerf{grid-row:4}
       .link{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;border-radius:6px}.link:hover{filter:brightness(1.2)}.link:focus-visible{outline:2px solid #71d3d1}
@@ -628,7 +630,7 @@ class SigenergyFlowCard extends HTMLElement {
           <div class="node" id="dcNode"><button id="dcButton" title="Adjust DC charging power limit"><strong id="dc">—</strong><small>DC CHARGER<span id="dcGear"> ⚙</span></small><em id="dcSoc"></em><em id="dcLifetime" class="lifetime stack"></em></button></div>
         </div>
       </div></section><aside class="sidebar fill">
-        <section class="panel"><h3>Today's energy</h3><div class="stats"${battery ? '' : ' style="grid-template-rows:repeat(2,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px)"'}>
+        <section class="panel"><div class="dayhead"><h3>Energy</h3><div class="statnav daynav"><button id="dayPrev" title="Previous day" aria-label="Previous day">‹</button><span id="dayDate">—</span><button id="dayNext" title="Next day" aria-label="Next day">›</button></div></div><div class="stats"${battery ? '' : ' style="grid-template-rows:repeat(2,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px)"'}>
           ${DAILY_TILES.filter(([, key]) => battery || !BATTERY_KEYS.has(key)).map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}</small><b id="${id}">—</b></button>`
               + (id === 'dayPv' ? '<button class="stat" id="forecastStat" style="grid-row-start:1" hidden><small>Solar forecast</small><b id="dayForecast">—</b><small id="forecastPerf"></small></button>' : '')).join('')}
         </div></section>${battery ? `<section class="panel"><h3>Battery level</h3><button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button></section>` : ''}
@@ -748,6 +750,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('weatherButton').addEventListener('click', () => this._moreInfo(this._ent('weather')));
         this._weatherKey = null;
         this._wireStatistics();
+        this._wireDays();
         if (this._flowStates) for (const id of Object.keys(this._flowStates)) this._applyFlowClass(id);
     }
     _observeCharts() {
@@ -1235,12 +1238,23 @@ class SigenergyFlowCard extends HTMLElement {
             const live = this._num(recorded.id), points = recorded.points;
             if (live !== null && live !== points[points.length - 1].v) points.push({ t: now, v: live });
         }
+        const tile = this._id('forecastStat'), past = this._past;
+        // A past day: its forecast and its production against it; the dialog charts today only.
+        tile.disabled = !!past;
+        if (past) {
+            const actual = past.values?.get('dayPv') ?? null, forecast = past.forecast ?? null;
+            tile.hidden = forecast === null;
+            this._id('dayPv').closest('.stat').classList.toggle('wide', tile.hidden);
+            if (tile.hidden) return;
+            this._text('dayForecast', this._energy(forecast));
+            this._parts('forecastPerf', [actual !== null && forecast >= .1 ? `(Perf: ${Math.round(actual / forecast * 100)}%)` : '']);
+            return;
+        }
         let total = this._scaled(id);
         const expected = id ? this._forecastUpTo(now) : null;
         if (id && hours) total ??= [...hours.values()].reduce((a, b) => a + b, 0);
         const average = id && total === null ? this._pvWeekAverage ?? null : null;
         total ??= average;
-        const tile = this._id('forecastStat');
         tile.hidden = total === null;
         this._id('dayPv').closest('.stat').classList.toggle('wide', tile.hidden);
         if (tile.hidden) return;
@@ -1397,8 +1411,8 @@ class SigenergyFlowCard extends HTMLElement {
         }));
     }
     // Recorded states of [ids] from [start] (today's midnight in Home Assistant's time zone) until now.
-    async _history(ids, start = zoneMidnight(Date.now(), this._zone)) {
-        const query = `history/period/${encodeURIComponent(start.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&end_time=${encodeURIComponent(new Date().toISOString())}&minimal_response&no_attributes`;
+    async _history(ids, start = zoneMidnight(Date.now(), this._zone), end = new Date()) {
+        const query = `history/period/${encodeURIComponent(start.toISOString())}?filter_entity_id=${encodeURIComponent(ids.join(','))}&end_time=${encodeURIComponent(end.toISOString())}&minimal_response&no_attributes`;
         return { start: start.getTime(), data: await this._hass.callApi('GET', query) };
     }
     // A dialog's chart of today's history and its status: [toSeries] turns each id's points into the chart's series.
@@ -1608,15 +1622,7 @@ class SigenergyFlowCard extends HTMLElement {
         const dcState = dc === null ? '' : dc > 0.025 ? 'Charging' : dc < -0.025 ? 'Discharging' : '';
         const dcSocText = dcsoc === null || (dcsoc === 0 && !dcState) ? '' : `Vehicle SOC ${dcsoc.toFixed(0)}%`;
         this._parts('dcSoc', [dcState, dcSocText]);
-        for (const [el, key, , third] of DAILY_TILES) {
-            const id = e(key), tile = this._id(el)?.closest('.stat');
-            if (!tile) continue;
-            tile.hidden = !id;
-            if (!id) continue;
-            this._text(el, this._energy(third ? this._pvTotal(key, third) : this._scaled(id)));
-            tile.dataset.entity = id;
-        }
-        this._updateForecastTile();
+        this._updateDaily();
         if (this.config.battery_present) {
             this._id('socLevel').dataset.entity = socEntity ?? '';
             this._socEntity = socEntity;
@@ -1717,6 +1723,63 @@ class SigenergyFlowCard extends HTMLElement {
         });
         this._statControls();
         this._drawStat();
+    }
+    // Today's energy shows today live, or a past day: [_past.date] is its midnight, null for today.
+    _wireDays() {
+        const step = direction => {
+            const today = zoneMidnight(Date.now(), this._zone), date = statStep('Day', this._past?.date ?? today, direction, this._zone);
+            this._past = date < today ? { date } : null;
+            this._dayControls();
+            this._updateDaily();
+            this._loadDay();
+        };
+        this._id('dayPrev').addEventListener('click', () => step(-1));
+        this._id('dayNext').addEventListener('click', () => step(1));
+        this._dayControls();
+    }
+    _dayControls() {
+        const past = this._past ??= null;
+        this._text('dayDate', past ? statLabel('Day', past.date, this._zone) : 'Today');
+        this._id('dayNext').disabled = !past;
+    }
+    _updateDaily() {
+        const past = this._past;
+        for (const [el, key, , third] of DAILY_TILES) {
+            const id = this._ent(key), tile = this._id(el)?.closest('.stat');
+            if (!tile) continue;
+            tile.hidden = !id;
+            if (!id) continue;
+            this._text(el, this._energy(past ? past.values?.get(el) ?? null : third ? this._pvTotal(key, third) : this._scaled(id)));
+            tile.dataset.entity = id;
+        }
+        this._updateForecastTile();
+    }
+    // A past day's totals: each tile's daily counter's recorder statistics over the day (the solar total adds the
+    // third-party inverter's, as today's does), and the day's solar forecast, the last state its entity recorded that day.
+    async _loadDay() {
+        const past = this._past;
+        if (!past || !this._hass) return;
+        const [start, end] = statWindow('Day', past.date, this._zone), forecastId = this._ent('solar_forecast_today');
+        const tiles = DAILY_TILES.map(([el, key, , third]) => [el, (third ? this._pvSources(key, third) : [this._ent(key)]).filter(id => id && this._has(id))]);
+        const ids = [...new Set(tiles.flatMap(([, list]) => list))];
+        try {
+            const [statistics, history] = await Promise.all([
+                ids.length ? this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids, period: 'hour', types: ['change'] }) : {},
+                forecastId && this._has(forecastId) ? this._history([forecastId], start, end) : null,
+            ]);
+            if (past !== this._past) return;
+            const change = id => statistics?.[id]?.length ? statistics[id].reduce((sum, row) => sum + Math.max(0, Number(row.change) || 0), 0) * this._factor(id) : null;
+            past.values = new Map(tiles.map(([el, list]) => {
+                const [own, ...rest] = list.map(change);
+                return [el, own === null || own === undefined ? null : rest.reduce((sum, v) => sum + (v ?? 0), own)];
+            }));
+            const points = history ? this._series(history.data, [forecastId])[0].filter(p => p.t < end.getTime()) : [];
+            past.forecast = points.length ? points[points.length - 1].v * this._factor(forecastId) : null;
+        } catch (e) {
+            if (past !== this._past) return;
+            Object.assign(past, { values: new Map(), forecast: null });
+        }
+        this._updateDaily();
     }
     _statCurrent() {
         return this._stat.range === 'Lifetime' || statWindow(this._stat.range, this._stat.date, this._zone)[1] > new Date();
