@@ -552,8 +552,8 @@ class SigenergyFlowCard extends HTMLElement {
       .stat>small:first-child{grid-row:2}.stat>b{grid-row:3}#forecastPerf{grid-row:4}
       .link{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;border-radius:6px}.link:hover{filter:brightness(1.2)}.link:focus-visible{outline:2px solid #71d3d1}
       .socbar{height:10px;background:var(--bar);border-radius:8px;overflow:hidden;margin:9px 0}.socfill{height:100%;background:var(--bar-fill);width:0%;transition:width .5s}
-      .statpanel{margin-top:14px}.statbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:10px 0}
-      .statnav{display:flex;align-items:center;gap:4px;background:var(--tile);border-radius:10px;padding:3px}.statnav span{min-width:170px;text-align:center;font-size:14px;font-variant-numeric:tabular-nums}
+      .statpanel{margin-top:14px;container-type:inline-size}.statbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:10px 0}
+      .statnav{display:flex;align-items:center;gap:4px;background:var(--tile);border-radius:10px;padding:3px}.statnav span{min-width:170px;white-space:nowrap;text-align:center;font-size:14px;font-variant-numeric:tabular-nums}
       .statnav button{all:unset;cursor:pointer;width:34px;height:30px;text-align:center;font-size:20px;line-height:30px;border-radius:8px;color:var(--icon)}.statnav button:hover{background:var(--tile-hover)}.statnav button[disabled]{opacity:.3;cursor:default}.statnav button:focus-visible,.statrange:focus-visible{outline:2px solid #71d3d1}
       .statrange{appearance:none;-webkit-appearance:none;background:var(--tile);color:var(--fg);border:1px solid var(--panel-line);border-radius:10px;padding:7px 28px 7px 12px;font:inherit;font-size:14px;cursor:pointer}
       #statChart{width:100%;display:block}.skn{cursor:pointer;transition:opacity .2s}.skn:focus-visible{outline:none}.skn:focus-visible rect.skbox{stroke:#71d3d1;stroke-width:2}.skr{opacity:.5;transition:opacity .2s}.skr.on{opacity:.8}.skr.dim{opacity:.1}.skn.dim{opacity:.3}
@@ -596,6 +596,7 @@ class SigenergyFlowCard extends HTMLElement {
       .home-total{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--icon)}.home-total b{font-size:22px;color:var(--fg)}
       .frame{container-type:inline-size}
       @container (max-width:800px){.layout{grid-template-columns:1fr}}
+      @container (max-width:360px){.statnav span{min-width:0}}
     </style>
     <ha-card><div class="header"><div><div class="heading" id="heading"></div><div class="sub">Live power flow</div></div><div class="sub" id="stamp"></div></div>
       <div class="frame"><div class="layout"><section class="scene" id="scene"><div class="plane" id="plane">
