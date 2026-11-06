@@ -2,6 +2,15 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v70
+
+- The date and range picker (Day, Week, Month, Year, Lifetime) moves to the top of the card, and everything except the scene and the battery level follows it: the energy tiles, the chart and the Energy statistics diagram. The energy tiles' panel is now titled **Energy statistics**, and **Battery level** sits above it. Changing the period blanks the charts with a busy mark while the data loads.
+- **Power metrics** for a past day shows that day's recorded history (its sunrise and sunset too), or, beyond the recorder's history, the hourly averages from the long-term statistics.
+- For a week, month, year or the lifetime, the chart becomes **Energy metrics**: a bar per day, month or year, with the energy supplied above zero and consumed below, as in Sigenergy's app. In the current week or month, dashed bars add the solar and home forecast for the rest of today and the days Home Assistant's solar forecast covers. The battery and grid forecast of Sigenergy's app isn't available to Home Assistant.
+- Totals for any period but today come from the lifetime counters, the same as the bars and the diagram, so all three agree, and energy produced while Home Assistant was down is no longer lost. Today's tiles still read the daily sensors.
+- Fixed totals that counted the following day: Home Assistant's statistics include the period starting where a request ends, so today (or the day after a past period) was added in.
+- A ⚠ marks periods for which Home Assistant recorded no statistics, on the totals, the bars, the diagram and as a shaded band on Power metrics. Hover or tap it for the dates.
+
 ## v69
 
 - The panel beside the scene, now titled **Energy**, has a ‹ date › control, as Energy statistics has: the arrows step back to previous days. Each tile then shows that day's total, from the recorder's statistics of the same daily sensors. The **Solar forecast** tile shows that day's last recorded forecast and **(Perf: N%)**, the day's solar produced against it, as long as the recorder keeps the forecast entity's history (10 days by default); otherwise **Solar produced** takes the whole row.
