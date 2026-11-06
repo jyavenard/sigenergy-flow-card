@@ -175,13 +175,14 @@ const SIGEN_ONLY_PV = new Set([
     'sensor.sigen_0_daily_pv_energy', 'sensor.sigen_0_inverter_1_daily_pv_energy', 'sensor.sigen_0_plant_lifetime_pv_energy',
     'sensor.sigen_0_si_total_self_pv_generation', 'sensor.sigen_0_inverter_1_lifetime_pv_energy',
 ]);
-// Today's energy tiles: [value element id, entities key, label, the third-party inverter's key for a solar total].
+// The energy tiles: [value element id, daily sensor's entities key, label, the third-party inverter's daily key for a
+// solar total, the lifetime counter's key, the third-party inverter's lifetime key].
 const DAILY_TILES = [
-    ['dayPv', 'daily_pv_energy', 'Solar produced', 'third_party_pv_daily_energy'],
-    ['dayImport', 'daily_grid_import_energy', 'Grid imported'],
-    ['dayExport', 'daily_grid_export_energy', 'Grid exported'],
-    ['dayCharge', 'daily_battery_charge_energy', 'Battery charged'],
-    ['dayDischarge', 'daily_battery_discharge_energy', 'Battery discharged'],
+    ['dayPv', 'daily_pv_energy', 'Solar produced', 'third_party_pv_daily_energy', 'stat_pv', 'third_party_pv_lifetime_energy'],
+    ['dayImport', 'daily_grid_import_energy', 'Grid imported', null, 'stat_grid_import'],
+    ['dayExport', 'daily_grid_export_energy', 'Grid exported', null, 'stat_grid_export'],
+    ['dayCharge', 'daily_battery_charge_energy', 'Battery charged', null, 'stat_battery_charge'],
+    ['dayDischarge', 'daily_battery_discharge_energy', 'Battery discharged', null, 'stat_battery_discharge'],
 ];
 
 // Lines end at each device's edge; SOLAR's and HOME's leaders join their flow lines on the house.
@@ -283,6 +284,19 @@ const STAT_AFFINITY = [
     [0.0247, 0.0192, 0.1678, 0.0631, 0],
 ];
 const STAT_RANGES = ['Day', 'Week', 'Month', 'Year', 'Lifetime'];
+// Energy metrics bars, with the names in Sigenergy's app: [at] is the index in STAT_SOURCES (for [source]) or
+// STAT_SINKS, stacked in this order from 0 outwards. Charging and export are darker than discharging and import.
+const BAR_SERIES = [
+    { name: 'Solar', color: 'var(--c-solar)', source: true, at: 0 },
+    { name: 'Discharged', color: 'var(--c-battery)', source: true, at: 1 },
+    { name: 'EVDC Discharged', color: 'var(--sk-evdc)', source: true, at: 2 },
+    { name: 'Imported', color: 'var(--c-grid)', source: true, at: 3 },
+    { name: 'Charged', color: 'color-mix(in srgb, var(--c-battery) 62%, #000)', at: 0 },
+    { name: 'EVDC Charged', color: 'color-mix(in srgb, var(--sk-evdc) 62%, #000)', at: 1 },
+    { name: 'Exported', color: 'color-mix(in srgb, var(--c-grid) 62%, #000)', at: 4 },
+    { name: 'Load', color: 'var(--sk-load)', at: 2 },
+    { name: 'EVAC Charged', color: 'var(--sk-evac)', at: 3 },
+];
 
 // Weather icons in the style of Sigenergy's app (a sun or moon behind a white cloud), drawn in a 64-unit square.
 // Clouds are circles over a rounded bar, filled with one gradient across the icon so the shapes merge.
@@ -482,11 +496,11 @@ class SigenergyFlowCard extends HTMLElement {
         const today = new Date().toLocaleDateString('en-CA', { timeZone: this._zone });
         if (!previous || this._day !== today) {
             this._day = today;
-            this._dayControls();
-            this._loadHistory();
+            // A view that showed the current day, week… moves on with the clock.
+            if (this._stat?.follow) this._stat.date = new Date();
             this._loadForecast();
             this._loadForecastWeek();
-            this._loadStatistics();
+            this._loadView();
         }
     }
     getCardSize() {
@@ -510,8 +524,8 @@ class SigenergyFlowCard extends HTMLElement {
       :host([light]){${styleVars('day')}}
       [hidden]{display:none !important}
       button *{pointer-events:none}
-      ha-card{display:block;background:var(--card);border:1px solid var(--card-line);border-radius:16px;overflow:hidden;color:inherit;padding:16px;box-sizing:border-box}
-      .header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
+      ha-card{container-type:inline-size;display:block;background:var(--card);border:1px solid var(--card-line);border-radius:16px;overflow:hidden;color:inherit;padding:16px;box-sizing:border-box}
+      .header{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'title bar' 'title stamp';align-items:center;gap:4px 12px;margin-bottom:14px}.header>.title{grid-area:title}.header>#stamp{grid-area:stamp;justify-self:end}
       .heading{font-size:20px;font-weight:650;letter-spacing:.2px}.sub{font-size:12px;color:var(--sub)}
       .layout{display:grid;grid-template-columns:minmax(0,2.4fr) minmax(240px,.75fr);gap:14px}
       .scene{position:relative;overflow:hidden;border-radius:12px;background:var(--scene);height:${SCENE.height}px}
@@ -547,15 +561,14 @@ class SigenergyFlowCard extends HTMLElement {
       /* Each row of tiles is five tracks: space, label, value, notes, space, then the gap to the next row. The tiles share
          them (subgrid), so labels and values line up across a row however they wrap. */
       .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:9px;grid-template-rows:repeat(3,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px);margin-bottom:-9px}
-      .dayhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 8px;margin:-8px 0 6px}.dayhead h3{margin:0}.daynav{padding:2px}.statnav.daynav span{min-width:5.5em;padding:0 2px}.statnav.daynav button{width:28px;height:26px;line-height:26px;font-size:18px}
-      .sidebar.fill>.panel:first-child{flex:1;display:flex;flex-direction:column}.sidebar.fill .stats{flex:1}.stat.wide{grid-column:1/-1}
+      .sidebar.fill>.daypanel{flex:1;display:flex;flex-direction:column}.sidebar.fill .stats{flex:1}.stat.wide{grid-column:1/-1}
       .stat{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:10px;cursor:pointer;transition:background .2s}.stat:hover{background:var(--tile-hover)}.stat[disabled]{cursor:default}.stat[disabled]:hover{background:var(--tile)}.stat:focus-visible{outline:2px solid #71d3d1}.stat small{font-size:11px;color:var(--tile-sub);display:block}.stat b{font-size:18px;display:block;margin-top:4px}#forecastPerf{margin-top:4px}#forecastPerf span{display:block}
       .stat{grid-row-end:span 5;display:grid;grid-template-rows:minmax(10px,1fr) auto auto auto minmax(10px,1fr);grid-template-rows:subgrid;padding-block:0}
       .stat>small:first-child{grid-row:2}.stat>b{grid-row:3}#forecastPerf{grid-row:4}
       .link{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;border-radius:6px}.link:hover{filter:brightness(1.2)}.link:focus-visible{outline:2px solid #71d3d1}
       .socbar{height:10px;background:var(--bar);border-radius:8px;overflow:hidden;margin:9px 0}.socfill{height:100%;background:var(--bar-fill);width:0%;transition:width .5s}
-      .statpanel{margin-top:14px;container-type:inline-size}.statbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:10px 0}
-      .statnav{display:flex;align-items:center;gap:4px;background:var(--tile);border-radius:10px;padding:3px}.statnav span{min-width:170px;white-space:nowrap;text-align:center;font-size:14px;font-variant-numeric:tabular-nums}
+      .statpanel{margin-top:14px}.statbar{grid-area:bar;display:flex;gap:10px;align-items:center;justify-content:flex-end}
+      .statnav{display:flex;align-items:center;gap:4px;min-width:0;background:var(--tile);border-radius:10px;padding:3px}.statnav>span{flex:0 1 auto;min-width:170px;text-align:center;font-size:14px;font-variant-numeric:tabular-nums}.statnav>span>span{white-space:nowrap}
       .statnav button{all:unset;cursor:pointer;width:34px;height:30px;text-align:center;font-size:20px;line-height:30px;border-radius:8px;color:var(--icon)}.statnav button:hover{background:var(--tile-hover)}.statnav button[disabled]{opacity:.3;cursor:default}.statnav button:focus-visible,.statrange:focus-visible{outline:2px solid #71d3d1}
       .statrange{appearance:none;-webkit-appearance:none;background:var(--tile);color:var(--fg);border:1px solid var(--panel-line);border-radius:10px;padding:7px 28px 7px 12px;font:inherit;font-size:14px;cursor:pointer}
       #statChart{width:100%;display:block}.skn{cursor:pointer;transition:opacity .2s}.skn:focus-visible{outline:none}.skn:focus-visible rect.skbox{stroke:#71d3d1;stroke-width:2}.skr{opacity:.5;transition:opacity .2s}.skr.on{opacity:.8}.skr.dim{opacity:.1}.skn.dim{opacity:.3}
@@ -568,7 +581,7 @@ class SigenergyFlowCard extends HTMLElement {
       .legend span{margin-right:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.dash{display:inline-block;width:14px;border-top:2px dashed var(--legend);vertical-align:middle;margin-right:4px}
       .sun-times{display:flex;justify-content:space-between;gap:12px;margin-top:10px;padding:10px 15px;border-radius:24px;background:var(--pill);color:var(--pill-fg);font-size:12px}
       #chart,#pvChart{width:100%;height:170px;display:block;touch-action:pan-y}.muted{color:var(--muted);font-size:12px}
-      .chart-wrap{position:relative}
+      .chart-wrap{position:relative}.gap{all:unset;cursor:pointer;color:#e0a030;margin-left:4px}.gap[hidden]{display:none}.note{position:fixed;z-index:20;max-width:270px;background:var(--tip);color:inherit;border:1px solid var(--tip-line);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.45;box-shadow:0 6px 18px var(--tip-shadow)}.note[hidden]{display:none}.tip .gaptip{color:#d08a16;white-space:normal;max-width:250px}.busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}.busy[hidden]{display:none}.busy::after{content:'';width:22px;height:22px;border:2.5px solid var(--grid);border-top-color:var(--axis);border-radius:50%;animation:busy .8s linear infinite}@keyframes busy{to{transform:rotate(360deg)}}
       .tip{position:absolute;top:4px;z-index:3;pointer-events:none;background:var(--tip);border:1px solid var(--tip-line);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.5;white-space:nowrap;box-shadow:0 6px 18px var(--tip-shadow);font-variant-numeric:tabular-nums}
       .tip b{display:block;font-size:12px;color:var(--heading);margin-bottom:2px}
       .tip div{display:flex;align-items:center;gap:6px}.tip span{margin-left:auto;padding-left:14px;color:var(--fg)}.tip em{font-style:normal;color:var(--muted)}
@@ -598,9 +611,10 @@ class SigenergyFlowCard extends HTMLElement {
       .home-total{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--icon)}.home-total b{font-size:22px;color:var(--fg)}
       .frame{container-type:inline-size}
       @container (max-width:800px){.layout{grid-template-columns:1fr}}
-      @container (max-width:360px){.statnav span{min-width:0}}
+      @container (max-width:680px){.header{grid-template-areas:'title stamp' 'bar bar'}.statbar{justify-content:space-between;margin-top:8px}}
+      @container (max-width:420px){.statnav>span{min-width:0}}
     </style>
-    <ha-card><div class="header"><div><div class="heading" id="heading"></div><div class="sub">Live power flow</div></div><div class="sub" id="stamp"></div></div>
+    <ha-card><div class="header"><div class="title"><div class="heading" id="heading"></div><div class="sub">Live power flow</div></div><div class="statbar"><div class="statnav"><button id="statPrev" title="Previous" aria-label="Previous">‹</button><span id="statDate">—</span><button id="statNext" title="Next" aria-label="Next">›</button></div><select class="statrange" id="statRange" aria-label="Range">${STAT_RANGES.map(range => `<option>${range}</option>`).join('')}</select></div><div class="sub" id="stamp"></div></div>
       <div class="frame"><div class="layout"><section class="scene" id="scene"><div class="plane" id="plane">
         <svg viewBox="0 0 ${SCENE.width} ${SCENE.height}" preserveAspectRatio="none" aria-label="Energy flow between equipment">
           <defs>
@@ -629,19 +643,18 @@ class SigenergyFlowCard extends HTMLElement {
           <div class="node" id="acNode"><strong id="ac">—</strong><small>AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
           <div class="node" id="dcNode"><button id="dcButton" title="Adjust DC charging power limit"><strong id="dc">—</strong><small>DC CHARGER<span id="dcGear"> ⚙</span></small><em id="dcSoc"></em><em id="dcLifetime" class="lifetime stack"></em></button></div>
         </div>
-      </div></section><aside class="sidebar fill">
-        <section class="panel"><div class="dayhead"><h3>Energy</h3><div class="statnav daynav"><button id="dayPrev" title="Previous day" aria-label="Previous day">‹</button><span id="dayDate">—</span><button id="dayNext" title="Next day" aria-label="Next day">›</button></div></div><div class="stats"${battery ? '' : ' style="grid-template-rows:repeat(2,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px)"'}>
-          ${DAILY_TILES.filter(([, key]) => battery || !BATTERY_KEYS.has(key)).map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}</small><b id="${id}">—</b></button>`
+      </div></section><aside class="sidebar fill">${battery ? `<section class="panel"><h3>Battery level</h3><button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button></section>` : ''}
+        <section class="panel daypanel"><h3>Energy statistics</h3><div class="stats"${battery ? '' : ' style="grid-template-rows:repeat(2,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px)"'}>
+          ${DAILY_TILES.filter(([, key]) => battery || !BATTERY_KEYS.has(key)).map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}<span class="gap" id="${id}Gap" title="Missing data" hidden>⚠</span></small><b id="${id}">—</b></button>`
               + (id === 'dayPv' ? '<button class="stat" id="forecastStat" style="grid-row-start:1" hidden><small>Solar forecast</small><b id="dayForecast">—</b><small id="forecastPerf"></small></button>' : '')).join('')}
-        </div></section>${battery ? `<section class="panel"><h3>Battery level</h3><button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button></section>` : ''}
+        </div></section>
       </aside></div></div>
-      <section class="panel chartpanel"><div class="charthead"><h3>Power metrics · Today</h3><span class="muted" id="chartStatus">Loading history…</span></div>
-      <div class="legend">${legend}</div>
-      <div class="chart-wrap"><svg id="chart"></svg><div class="tip" id="chartTip" hidden></div></div><div class="sun-times"><span id="sunrise">Sunrise —</span><span id="sunset">Sunset —</span></div></section>
-      <section class="panel statpanel" id="statPanel"${this.config.show_energy_statistics ? '' : ' hidden'}><div class="charthead"><h3>Energy statistics</h3><span class="muted" id="statStatus">Loading…</span></div>
-      <div class="statbar"><div class="statnav"><button id="statPrev" title="Previous" aria-label="Previous">‹</button><span id="statDate">—</span><button id="statNext" title="Next" aria-label="Next">›</button></div><select class="statrange" id="statRange" aria-label="Range">${STAT_RANGES.map(range => `<option>${range}</option>`).join('')}</select></div>
-      <svg id="statChart" role="group" aria-label="Energy flows, estimated"></svg><div class="statsum" id="statSummary" hidden></div><div class="statcards" id="statCards"></div><pre class="muted" id="statDebug" hidden></pre><div class="statdata" id="statData" hidden><button id="statCopy">Copy the recorded data</button><a id="statDownload" download="sigenergy-statistics.json">Download (JSON)</a><span class="muted" id="statCopied"></span></div></section>
-    </ha-card>
+      <section class="panel chartpanel"><div class="charthead"><h3 id="chartTitle">Power metrics · Today</h3><span class="muted" id="chartStatus">Loading history…</span></div>
+      <div class="legend" id="legendPower">${legend}</div><div class="legend" id="legendBars" hidden></div>
+      <div class="chart-wrap"><svg id="chart"></svg><div class="tip" id="chartTip" hidden></div><div class="busy" id="chartBusy" hidden></div></div><div class="sun-times" id="sunTimes"><span id="sunrise">Sunrise —</span><span id="sunset">Sunset —</span></div></section>
+      <section class="panel statpanel" id="statPanel"${this.config.show_energy_statistics ? '' : ' hidden'}><div class="charthead"><h3>Energy statistics<button class="gap" id="statGap" title="Missing data" hidden>⚠</button></h3><span class="muted" id="statStatus">Loading…</span></div>
+      <div class="chart-wrap"><svg id="statChart" role="group" aria-label="Energy flows, estimated"></svg><div class="busy" id="statBusy" hidden></div></div><div class="statsum" id="statSummary" hidden></div><div class="statcards" id="statCards"></div><pre class="muted" id="statDebug" hidden></pre><div class="statdata" id="statData" hidden><button id="statCopy">Copy the recorded data</button><a id="statDownload" download="sigenergy-statistics.json">Download (JSON)</a><span class="muted" id="statCopied"></span></div></section>
+    </ha-card><div class="note" id="gapNote" role="status" hidden></div>
     <dialog id="pvDialog" aria-labelledby="pvTitle"><div class="dlg">
       ${head('pv', 'PV Strings')}
       <section class="panel"><h3>PV real time info</h3><div class="pv-wrap"><table class="pv-table">
@@ -737,7 +750,18 @@ class SigenergyFlowCard extends HTMLElement {
             this._loadGridHistory();
         });
         for (const stat of this.root.querySelectorAll('.stat:not(#forecastStat), #socLevel'))
-            stat.addEventListener('click', () => this._moreInfo(stat.dataset.entity));
+            stat.addEventListener('click', e => {
+                const gap = e.target.closest('.gap');
+                if (gap) { e.stopPropagation(); this._showNote(gap); }
+                else this._moreInfo(stat.dataset.entity);
+            });
+        this._id('statGap').addEventListener('click', e => this._showNote(e.currentTarget));
+        // A missing-data mark explains itself on hover or tap; the note closes on the next tap elsewhere.
+        for (const gap of this.root.querySelectorAll('.gap')) {
+            gap.addEventListener('pointerenter', () => this._showNote(gap));
+            gap.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') this._id('gapNote').hidden = true; });
+        }
+        this.root.addEventListener('pointerdown', e => { if (!e.target.closest?.('.gap')) this._id('gapNote').hidden = true; });
         this._observeCharts();
         for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['forecastChart', 'forecastChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
@@ -750,7 +774,6 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('weatherButton').addEventListener('click', () => this._moreInfo(this._ent('weather')));
         this._weatherKey = null;
         this._wireStatistics();
-        this._wireDays();
         if (this._flowStates) for (const id of Object.keys(this._flowStates)) this._applyFlowClass(id);
     }
     _observeCharts() {
@@ -1238,11 +1261,12 @@ class SigenergyFlowCard extends HTMLElement {
             const live = this._num(recorded.id), points = recorded.points;
             if (live !== null && live !== points[points.length - 1].v) points.push({ t: now, v: live });
         }
-        const tile = this._id('forecastStat'), past = this._past;
-        // A past day: its forecast and its production against it; the dialog charts today only.
-        tile.disabled = !!past;
-        if (past) {
-            const actual = past.values?.get('dayPv') ?? null, forecast = past.forecast ?? null;
+        const tile = this._id('forecastStat'), view = this._view();
+        // A past day: its forecast and its production against it; the dialog charts today only. Longer ranges have none.
+        tile.disabled = !view.live;
+        if (!view.live) {
+            const tiles = this._tiles?.key === view.key ? this._tiles : null;
+            const actual = tiles?.values?.get('dayPv') ?? null, forecast = view.range === 'Day' ? tiles?.forecast ?? null : null;
             tile.hidden = forecast === null;
             this._id('dayPv').closest('.stat').classList.toggle('wide', tile.hidden);
             if (tile.hidden) return;
@@ -1360,7 +1384,7 @@ class SigenergyFlowCard extends HTMLElement {
         try {
             const [{ data }, statistics] = await Promise.all([
                 this._has(id) ? this._history([id], from) : { data: [] },
-                this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: from.toISOString(), end_time: today.toISOString(), statistic_ids: pv, period: 'day', types: ['change'] }),
+                this._statistics(pv, from, today, 'day', ['change']),
             ]);
             if (request !== this._forecastWeekRequest) return;
             const forecasts = new Map(), actual = new Map(), factor = this._factor(id);
@@ -1461,7 +1485,7 @@ class SigenergyFlowCard extends HTMLElement {
         if (!this.root) return;
         if (!this._chartObserver) this._observeCharts();
         if (!this._flowFrame) this._startFlowAnimation();
-        this._statTimer ??= setInterval(() => { if (this._statCurrent()) this._loadStatistics(); }, 300000);
+        this._statTimer ??= setInterval(() => { if (this._view().current) this._loadView(true); }, 300000);
         this._historyTimer ??= setInterval(() => {
             if (document.hidden) return;
             this._advanceChart();
@@ -1645,22 +1669,24 @@ class SigenergyFlowCard extends HTMLElement {
         this._updateHome();
         this._text('stamp', new Date().toLocaleTimeString([], { timeZone: this._zone }));
     }
+    // Today's sunrise and sunset, for the scene's day and night; the chart shows those of the day it shows.
     _updateSunTimes() {
-        // Calculate sunrise and sunset for *today* from Home Assistant's location.
-        // sun.sun next_rising / next_setting refer to tomorrow after today's event.
-        const unknown = () => {
-            this._text('sunrise', 'Sunrise —');
-            this._text('sunset', 'Sunset —');
-            this._sunTimes = null;
-        };
+        this._sunTimes = this._sunFor(new Date());
+        const view = this._view(), sun = view.live ? this._sunTimes : this._sunFor(view.start);
+        this._id('sunTimes').style.display = view.range === 'Day' ? '' : 'none';
+        const fmt = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: this._zone });
+        this._text('sunrise', `Sunrise ${sun ? fmt(sun.rise) : '—'}`);
+        this._text('sunset', `Sunset ${sun ? fmt(sun.set) : '—'}`);
+    }
+    // Sunrise and sunset on [date]'s day from Home Assistant's location, null without one or in polar day or night.
+    // (sun.sun's next_rising / next_setting move to tomorrow once today's have passed.)
+    _sunFor(date) {
         const lat = Number(this._hass?.config?.latitude);
         const lon = Number(this._hass?.config?.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-            return unknown();
-        }
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
         // SunCalc solar equations, evaluated at local noon for the selected day.
-        const today = zoneParts(Date.now(), this._zone);
-        const noon = zoneDate(this._zone, today.y, today.m, today.d, 12);
+        const day = zoneParts(date, this._zone);
+        const noon = zoneDate(this._zone, day.y, day.m, day.d, 12);
         const rad = Math.PI / 180, dayMs = 86400000, J1970 = 2440588, J2000 = 2451545;
         const toJulian = d => d.valueOf() / dayMs - .5 + J1970;
         const fromJulian = j => new Date((j + .5 - J1970) * dayMs);
@@ -1674,27 +1700,22 @@ class SigenergyFlowCard extends HTMLElement {
         const dec = Math.asin(Math.sin(L) * Math.sin(rad * 23.4397));
         const Jnoon = J2000 + ds + .0053 * Math.sin(M) - .0069 * Math.sin(2 * L);
         const cosH = (Math.sin(-.833 * rad) - Math.sin(phi) * Math.sin(dec)) / (Math.cos(phi) * Math.cos(dec));
-        if (cosH < -1 || cosH > 1) {
-            return unknown();
-        }
+        if (cosH < -1 || cosH > 1) return null;
         const h = Math.acos(cosH);
         const Jset = J2000 + (.0009 + (h + lw) / (2 * Math.PI) + n) + .0053 * Math.sin(M) - .0069 * Math.sin(2 * L);
         const Jrise = Jnoon - (Jset - Jnoon);
-        const fmt = t => t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: this._zone });
-        this._text('sunrise', `Sunrise ${fmt(fromJulian(Jrise))}`);
-        this._text('sunset', `Sunset ${fmt(fromJulian(Jset))}`);
-        this._sunTimes = { rise: fromJulian(Jrise).getTime(), set: fromJulian(Jset).getTime() };
+        return { rise: fromJulian(Jrise).getTime(), set: fromJulian(Jset).getTime() };
     }
     _wireStatistics() {
         const stat = this._stat ??= { range: 'Day', date: new Date(), selection: null, flows: null };
         this._id('statRange').value = stat.range;
         this._id('statRange').addEventListener('change', event => {
             Object.assign(stat, { range: event.target.value, date: new Date(), selection: null });
-            this._loadStatistics();
+            this._loadView();
         });
         const step = direction => {
             Object.assign(stat, { date: statStep(stat.range, stat.date, direction, this._zone), selection: null });
-            this._loadStatistics();
+            this._loadView();
         };
         this._id('statPrev').addEventListener('click', () => step(-1));
         this._id('statNext').addEventListener('click', () => step(1));
@@ -1724,71 +1745,380 @@ class SigenergyFlowCard extends HTMLElement {
         this._statControls();
         this._drawStat();
     }
-    // Today's energy shows today live, or a past day: [_past.date] is its midnight, null for today.
-    _wireDays() {
-        const step = direction => {
-            const today = zoneMidnight(Date.now(), this._zone), date = statStep('Day', this._past?.date ?? today, direction, this._zone);
-            this._past = date < today ? { date } : null;
-            this._dayControls();
-            this._updateDaily();
-            this._loadDay();
-        };
-        this._id('dayPrev').addEventListener('click', () => step(-1));
-        this._id('dayNext').addEventListener('click', () => step(1));
-        this._dayControls();
+    // The view chosen in the header, which everything but the scene and the battery level follows: [range] and the window
+    // [start, end) containing [date]; [current] when it holds now, [live] for today's Day, read from the sensors.
+    _view() {
+        const { range, date } = this._stat ?? { range: 'Day', date: new Date() }, [start, end] = statWindow(range, date, this._zone);
+        const now = Date.now(), current = start.getTime() <= now && now < end.getTime();
+        return { range, date, start, end, current, live: range === 'Day' && current, key: `${range} ${start.getTime()}` };
     }
-    _dayControls() {
-        const past = this._past ??= null;
-        this._text('dayDate', past ? statLabel('Day', past.date, this._zone) : 'Today');
-        this._id('dayNext').disabled = !past;
+    // Loads what the view shows; [refresh] is the periodic reload of a current view, which leaves live parts alone.
+    _loadView(refresh = false) {
+        const view = this._view();
+        if (this._stat) this._stat.follow = view.current;
+        if (!refresh) this._blankCharts();
+        this._statControls();
+        this._loadStatistics();
+        this._loadGaps();
+        if (refresh && view.live) return;
+        this._loadTiles(refresh);
+        if (view.range === 'Day') { if (!refresh || !view.live) this._loadHistory(); }
+        else this._loadBars();
+        this._updateSunTimes();
+    }
+    // A new view blanks the charts, keeping their size, with a busy mark until its data arrives.
+    _blankCharts() {
+        const chart = this._id('chart'), stat = this._id('statChart');
+        this._hideHover(chart, this._id('chartTip'));
+        this._chartLive = null;
+        chart.replaceChildren();
+        chart._redraw = chart._chart = null;
+        stat.replaceChildren();
+        if (this._stat) this._stat.flows = null;
+        this._id('statSummary').hidden = true;
+        this._id('statCards').replaceChildren();
+        this._text('chartStatus', 'Loading…');
+        this._id('chartBusy').hidden = this._id('statBusy').hidden = false;
+    }
+    // Gaps in the recording: the hours (Day, Week, Month) or days (Year, Lifetime) of the view in which a counter the
+    // card reads has no recorder statistics, up to the last complete one. The tiles' counters are checked from the day the
+    // card's first statistics start, so a counter added later shows the time it missed; the others (chargers, EVDC,
+    // third-party PV) from their own first day. [_gaps] holds the merged ranges, each with the ids it affects.
+    async _loadGaps() {
+        const view = this._view(), zone = this._zone;
+        if (!this._hass || typeof this._hass.callWS !== 'function') return;
+        const tiles = DAILY_TILES.map(([, key, , third, statKey, statThird]) => this._tileSources(key, third, statKey, statThird).ids);
+        const core = new Set(tiles.map(ids => ids[0]).filter(Boolean)), daily = DAILY_TILES.map(([, key]) => this._ent(key)).filter(id => id && this._has(id));
+        const checked = [...new Set([...tiles.flat(), ...this._statIds().ids])], all = [...new Set([...checked, ...daily])];
+        if (!checked.length) return;
+        try {
+            // Each id's first day with statistics, kept for the card's life.
+            const signature = all.join(',');
+            if (this._firsts?.signature !== signature) {
+                const months = await this._statistics(all, new Date(Date.UTC(2015, 0, 1)), new Date(), 'month', ['change']);
+                const firstMonth = Object.values(months).map(rows => rows[0]?.start).filter(t => t !== undefined).map(t => typeof t === 'number' ? t : Date.parse(t));
+                const firsts = new Map();
+                if (firstMonth.length) {
+                    const from = new Date(Math.min(...firstMonth)), last = zoneParts(Math.max(...firstMonth), zone);
+                    const days = await this._statistics(all, from, zoneDate(zone, last.y, last.m + 1, 1), 'day', ['change']);
+                    for (const id of all) { const t = days[id]?.[0]?.start; if (t !== undefined) firsts.set(id, typeof t === 'number' ? t : Date.parse(t)); }
+                }
+                this._firsts = { signature, firsts };
+            }
+            const { firsts } = this._firsts, origin = Math.min(...[...core, ...daily].map(id => firsts.get(id) ?? Infinity));
+            const hourly = !['Year', 'Lifetime'].includes(view.range), now = Date.now();
+            // An hour counts once Home Assistant has had time to compile it; a day once it is over.
+            const end = Math.min(view.end.getTime(), hourly ? now - 5400e3 : zoneMidnight(now, zone).getTime());
+            const ranges = [];
+            if (end > view.start.getTime() && Number.isFinite(origin)) {
+                const rows = await this._statistics(checked, view.start, new Date(end), hourly ? 'hour' : 'day', ['change']);
+                const startOf = row => typeof row.start === 'number' ? row.start : Date.parse(row.start);
+                for (const id of checked) {
+                    const from = Math.max(view.start.getTime(), core.has(id) ? origin : firsts.get(id) ?? Infinity), have = new Set((rows[id] ?? []).map(startOf));
+                    // Hours as Home Assistant aligns them, on the hour in UTC; days at midnight in its time zone.
+                    const next = hourly ? t => t + 3600e3 : t => { const p = zoneParts(t, zone); return zoneDate(zone, p.y, p.m, p.d + 1).getTime(); };
+                    let t = hourly ? Math.ceil(from / 3600e3) * 3600e3 : zoneMidnight(from, zone).getTime();
+                    if (!hourly && t < from) t = next(t);
+                    for (; t < end; t = next(t)) if (!have.has(t)) ranges.push({ start: t, end: next(t), ids: new Set([id]) });
+                }
+            }
+            // Merged across ids: one range per stretch, with every id missing in it.
+            ranges.sort((a, b) => a.start - b.start);
+            const merged = [];
+            for (const range of ranges) {
+                const last = merged[merged.length - 1];
+                if (last && range.start <= last.end) { last.end = Math.max(last.end, range.end); range.ids.forEach(id => last.ids.add(id)); }
+                else merged.push({ ...range, ids: new Set(range.ids) });
+            }
+            if (view.key !== this._view().key) return;
+            this._gaps = { key: view.key, ranges: merged, hourly };
+        } catch (e) {
+            if (view.key !== this._view().key) return;
+            this._gaps = { key: view.key, ranges: [], hourly: true };
+        }
+        this._updateDaily();
+        this._markStatGap();
+        this._id('chart')._redraw?.();
+    }
+    // The current view's gaps within [start, end), for [ids] when given.
+    _gapsIn(start, end, ids) {
+        const gaps = this._gaps?.key === this._view().key ? this._gaps : null;
+        return (gaps?.ranges ?? []).filter(r => r.start < end && r.end > start && (!ids || ids.some(id => r.ids.has(id))));
+    }
+    // "1 Feb – 9 Feb 2026 (9 days)", "6 Nov 03:00 – 05:00 (2 h)".
+    _gapText(ranges) {
+        const zone = this._zone, hourly = this._gaps?.hourly;
+        const day = t => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric', timeZone: zone });
+        const time = t => zoneMidnight(t, zone).getTime() === t ? 'midnight' : new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: zone });
+        const parts = ranges.slice(0, 4).map(r => {
+            const hours = Math.round((r.end - r.start) / 3600e3), length = hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} days`;
+            if (!hourly) return `${day(r.start)}${hours > 24 ? ` – ${day(r.end - 1)}` : ''} (${length})`;
+            return day(r.start) === day(r.end - 1) ? `${day(r.start)} ${time(r.start)} – ${time(r.end)} (${length})` : `${day(r.start)} ${time(r.start)} – ${day(r.end - 1)} ${time(r.end)} (${length})`;
+        });
+        return parts.join(', ') + (ranges.length > 4 ? ` and ${ranges.length - 4} more` : '');
+    }
+    _gapNote(what, ranges) {
+        return `${what}: Home Assistant has no data recorded for ${this._gapText(ranges)}. Energy from that time is missing here, or, if the inverter kept counting, counted when recording resumed.`;
+    }
+    _markStatGap() {
+        const view = this._view(), mark = this._id('statGap'), ranges = this._gapsIn(view.start.getTime(), view.end.getTime(), this._statIds().ids);
+        mark.hidden = !ranges.length;
+        mark.dataset.note = ranges.length ? this._gapNote('Energy statistics', ranges) : '';
+    }
+    _showNote(anchor) {
+        const note = this._id('gapNote'), rect = anchor.getBoundingClientRect();
+        note.textContent = anchor.dataset.note ?? '';
+        note.hidden = !note.textContent;
+        note.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - 280))}px`;
+        note.style.top = `${rect.bottom + 6}px`;
+    }
+    // The ids a tile reads for a view other than today's Day: its lifetime counter, else its daily sensor.
+    _tileSources(key, third, statKey, statThird) {
+        const sources = (k, t) => {
+            const own = this._ent(k);
+            return own && this._has(own) ? (t ? this._pvSources(k, t) : [own]).filter(id => this._has(id)) : [];
+        };
+        const lifetime = sources(statKey, statThird);
+        return lifetime.length ? { ids: lifetime } : { ids: sources(key, third), daily: true };
     }
     _updateDaily() {
-        const past = this._past;
+        const view = this._view(), tiles = this._tiles?.key === view.key ? this._tiles : null;
         for (const [el, key, , third] of DAILY_TILES) {
             const id = this._ent(key), tile = this._id(el)?.closest('.stat');
+            if (!this._id(`${el}Gap`)) continue;
             if (!tile) continue;
             tile.hidden = !id;
             if (!id) continue;
-            this._text(el, this._energy(past ? past.values?.get(el) ?? null : third ? this._pvTotal(key, third) : this._scaled(id)));
+            this._text(el, this._energy(view.live ? this._tileLive(key, third) : tiles?.values?.get(el) ?? null));
             tile.dataset.entity = id;
+            // Today's tiles read the sensors themselves, which a gap in the recording doesn't touch.
+            const [, , label, , statKey, statThird] = DAILY_TILES.find(([found]) => found === el), mark = this._id(`${el}Gap`);
+            const ranges = view.live ? [] : this._gapsIn(view.start.getTime(), view.end.getTime(), this._tileSources(key, third, statKey, statThird).ids);
+            mark.hidden = !ranges.length;
+            mark.dataset.note = ranges.length ? this._gapNote(label, ranges) : '';
         }
         this._updateForecastTile();
     }
-    // A past day's totals: each tile's daily counter's recorder statistics over the day (the solar total adds the
-    // third-party inverter's, as today's does), and the day's solar forecast, the last state its entity recorded that day.
-    async _loadDay() {
-        const past = this._past;
-        if (!past || !this._hass) return;
-        const [start, end] = statWindow('Day', past.date, this._zone), forecastId = this._ent('solar_forecast_today');
-        const tiles = DAILY_TILES.map(([el, key, , third]) => [el, (third ? this._pvSources(key, third) : [this._ent(key)]).filter(id => id && this._has(id))]);
-        const ids = [...new Set(tiles.flatMap(([, list]) => list))];
+    _tileLive(key, third) {
+        return third ? this._pvTotal(key, third) : this._scaled(this._ent(key));
+    }
+    // A view other than today's Day: each tile's lifetime counter's recorder statistics over the view, as the energy
+    // metrics and the energy statistics read them, so the three agree; a counter keeps counting through a gap in the
+    // recording, which a daily sensor loses. Without the counter, the daily sensor's statistics up to today, plus its
+    // reading when the view holds today. The solar total adds the third-party inverter's, as today's does. A past day
+    // also has its solar forecast, the last state its entity recorded that day.
+    async _loadTiles(refresh = false) {
+        const view = this._view(), zone = this._zone;
+        if (view.live || !this._hass) return this._updateDaily();
+        const tiles = this._tiles = refresh && this._tiles?.key === view.key ? this._tiles : { key: view.key };
+        this._updateDaily();
+        const end = view.current ? new Date() : view.end, midnight = new Date(Math.min(view.end.getTime(), zoneMidnight(Date.now(), zone).getTime()));
+        const period = { Day: 'hour', Week: 'day', Month: 'day' }[view.range] ?? 'month', forecastId = this._ent('solar_forecast_today');
+        const list = DAILY_TILES.map(([el, key, , third, statKey, statThird]) => ({ el, key, third, ...this._tileSources(key, third, statKey, statThird) }));
+        const ids = daily => [...new Set(list.filter(tile => !!tile.daily === daily).flatMap(tile => tile.ids))];
         try {
-            const [statistics, history] = await Promise.all([
-                ids.length ? this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids, period: 'hour', types: ['change'] }) : {},
-                forecastId && this._has(forecastId) ? this._history([forecastId], start, end) : null,
+            const [lifetime, daily, history] = await Promise.all([
+                ids(false).length ? this._statistics(ids(false), view.start, end, period, ['change']) : {},
+                ids(true).length && midnight > view.start ? this._statistics(ids(true), view.start, midnight, period, ['change']) : {},
+                view.range === 'Day' && forecastId && this._has(forecastId) ? this._history([forecastId], view.start, view.end) : null,
             ]);
-            if (past !== this._past) return;
-            const change = id => statistics?.[id]?.length ? statistics[id].reduce((sum, row) => sum + Math.max(0, Number(row.change) || 0), 0) * this._factor(id) : null;
-            past.values = new Map(tiles.map(([el, list]) => {
-                const [own, ...rest] = list.map(change);
-                return [el, own === null || own === undefined ? null : rest.reduce((sum, v) => sum + (v ?? 0), own)];
+            if (tiles !== this._tiles) return;
+            const change = (statistics, id) => statistics?.[id]?.length ? statistics[id].reduce((sum, row) => sum + Math.max(0, Number(row.change) || 0), 0) * this._factor(id) : null;
+            tiles.values = new Map(list.map(tile => {
+                const [own, ...rest] = tile.ids.map(id => change(tile.daily ? daily : lifetime, id));
+                const recorded = own === null || own === undefined ? null : rest.reduce((sum, v) => sum + (v ?? 0), own);
+                const today = tile.daily && view.current ? this._tileLive(tile.key, tile.third) : null;
+                return [tile.el, recorded === null && today === null ? null : (recorded ?? 0) + (today ?? 0)];
             }));
-            const points = history ? this._series(history.data, [forecastId])[0].filter(p => p.t < end.getTime()) : [];
-            past.forecast = points.length ? points[points.length - 1].v * this._factor(forecastId) : null;
+            const points = history ? this._series(history.data, [forecastId])[0].filter(p => p.t < view.end.getTime()) : [];
+            tiles.forecast = points.length ? points[points.length - 1].v * this._factor(forecastId) : null;
         } catch (e) {
-            if (past !== this._past) return;
-            Object.assign(past, { values: new Map(), forecast: null });
+            if (tiles !== this._tiles) return;
+            Object.assign(tiles, { values: new Map(), forecast: null });
         }
         this._updateDaily();
     }
-    _statCurrent() {
-        return this._stat.range === 'Lifetime' || statWindow(this._stat.range, this._stat.date, this._zone)[1] > new Date();
-    }
     _statControls() {
+        if (!this._stat) return;
         const { range, date } = this._stat, lifetime = range === 'Lifetime';
-        this._text('statDate', statLabel(range, date, this._zone));
+        // Each date stays whole; a week's range wraps between its dates.
+        const label = this._id('statDate'), text = statLabel(range, date, this._zone);
+        if (label.textContent !== text) label.replaceChildren(...text.split(' – ').flatMap((part, i) => [...(i ? [' – '] : []), Object.assign(document.createElement('span'), { textContent: part })]));
         this._id('statPrev').disabled = lifetime;
         this._id('statNext').disabled = lifetime || statWindow(range, statStep(range, date, 1, this._zone), this._zone)[0] > new Date();
+    }
+    // Recorder statistics of [ids] by [period], keeping the rows that start in [start, end): Home Assistant also returns
+    // the period that starts at [end] (a day's request ending at midnight gets today's row so far).
+    async _statistics(ids, start, end, period, types) {
+        const result = await this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids, period, types });
+        const at = row => typeof row.start === 'number' ? row.start : Date.parse(row.start), from = start.getTime(), to = end.getTime();
+        return Object.fromEntries(Object.entries(result ?? {}).map(([id, rows]) => [id, (rows ?? []).filter(row => at(row) >= from && at(row) < to)]));
+    }
+    // The lifetime counters of each source and consumer: a list of ids, null without a counter, or 'residual' for the
+    // load, which has no sensor: it is what the sources supply beyond the other consumers.
+    _statIds() {
+        const pick = defs => defs.map(def => {
+            if (!def.key) return 'residual';
+            // Solar without its own counter would be the third-party inverter's alone, so it is left out instead.
+            const ids = def.third ? this._pvSources(def.key, def.third) : [this._ent(def.key)];
+            return this._has(ids[0]) ? [...new Set(ids.filter(id => this._has(id)))] : null;
+        });
+        const sourceIds = pick(STAT_SOURCES), sinkIds = pick(STAT_SINKS);
+        return { sourceIds, sinkIds, ids: [...new Set([...sourceIds, ...sinkIds].filter(found => Array.isArray(found)).flat())] };
+    }
+    // Energy metrics for a range longer than a day: each day's (Week, Month), month's (Year) or year's (Lifetime) energy
+    // from the lifetime counters' statistics, supplied stacked above 0 and consumed below, as in Sigenergy's app.
+    async _loadBars() {
+        if (!this._hass) return;
+        const view = this._view(), zone = this._zone, request = this._barsRequest = (this._barsRequest ?? 0) + 1;
+        this._historyRequest = (this._historyRequest ?? 0) + 1;
+        this._chartLive = null;
+        this._text('chartTitle', `Energy metrics · ${statLabel(view.range, view.date, zone)}`);
+        this._id('legendPower').hidden = true;
+        const svg = this._id('chart'), legend = this._id('legendBars');
+        legend.hidden = false;
+        const { sourceIds, sinkIds, ids } = this._statIds();
+        const show = (status, slots = [], series = []) => {
+            this._text('chartStatus', status);
+            const items = series.filter(s => slots.some(slot => slot.values[s.index] > .005 || slot.forecast?.[s.index] > .005)).map(s => {
+                const item = document.createElement('span'), dot = Object.assign(document.createElement('i'), { className: 'dot' });
+                dot.style.background = s.color;
+                item.append(dot, s.name);
+                return item;
+            });
+            if (slots.some(slot => slot.forecast)) {
+                const item = document.createElement('span');
+                item.append(Object.assign(document.createElement('i'), { className: 'dash' }), 'Forecast');
+                items.push(item);
+            }
+            legend.replaceChildren(...items);
+            this._hideHover(svg, this._id('chartTip'));
+            this._id('chartBusy').hidden = true;
+            svg._redraw = () => this._plotBars(svg, slots, series);
+            svg._redraw();
+        };
+        if (!ids.length || typeof this._hass.callWS !== 'function') return show('No energy statistics sensors');
+        this._text('chartStatus', 'Loading…');
+        // Each slot's start, from its bucket's start: a day for Week and Month, a month for Year, a year for Lifetime.
+        const slotOf = { Week: t => zoneMidnight(t, zone), Month: t => zoneMidnight(t, zone),
+            Year: t => { const p = zoneParts(t, zone); return zoneDate(zone, p.y, p.m, 1); }, Lifetime: t => zoneDate(zone, zoneParts(t, zone).y, 0, 1) }[view.range];
+        try {
+            const end = view.current ? new Date() : view.end;
+            const result = await this._statistics(ids, view.start, end, view.range === 'Week' || view.range === 'Month' ? 'day' : 'month', ['change']);
+            if (request !== this._barsRequest) return;
+            const buckets = new Map();
+            for (const id of ids) {
+                const factor = this._factor(id);
+                for (const row of result[id] ?? []) {
+                    const t = slotOf(typeof row.start === 'number' ? row.start : Date.parse(row.start)).getTime();
+                    if (!buckets.has(t)) buckets.set(t, {});
+                    const values = buckets.get(t);
+                    values[id] = (values[id] ?? 0) + Math.max(0, Number(row.change) * factor || 0);
+                }
+            }
+            // Every day, month or year of the range, empty or not; Lifetime starts at its first year with data.
+            const starts = [], first = buckets.size ? Math.min(...buckets.keys()) : null, step = { Week: [0, 0, 1], Month: [0, 0, 1], Year: [0, 1, 0], Lifetime: [1, 0, 0] }[view.range];
+            for (let t = view.range === 'Lifetime' ? first : view.start.getTime(); t !== null && t < view.end.getTime() && starts.length < 400;) {
+                starts.push(t);
+                const p = zoneParts(t, zone);
+                t = zoneDate(zone, p.y + step[0], p.m + step[1], (view.range === 'Week' || view.range === 'Month' ? p.d : 1) + step[2]).getTime();
+            }
+            const load = STAT_SINKS.findIndex(def => !def.key);
+            const slots = starts.map(t => {
+                const values = buckets.get(t) ?? {}, read = found => Array.isArray(found) ? found.reduce((sum, id) => sum + (values[id] ?? 0), 0) : 0;
+                const sources = sourceIds.map(read), sinks = sinkIds.map(read);
+                sinks[load] = buckets.has(t) ? Math.max(0, sources.reduce((a, b) => a + b, 0) - sinks.reduce((a, b, j) => a + (j === load ? 0 : b), 0)) : 0;
+                const p = zoneParts(t, zone), day = new Date(t);
+                return {
+                    t, end: starts[starts.indexOf(t) + 1] ?? view.end.getTime(), values: BAR_SERIES.map(s => (s.source ? sources : sinks)[s.at]),
+                    label: view.range === 'Lifetime' ? String(p.y) : view.range === 'Year' ? day.toLocaleDateString([], { month: 'short', timeZone: zone }) : String(p.d).padStart(2, '0'),
+                    title: view.range === 'Lifetime' ? String(p.y) : view.range === 'Year' ? day.toLocaleDateString([], { month: 'long', year: 'numeric', timeZone: zone })
+                        : day.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone }),
+                };
+            });
+            // Today's bar adds the forecast for the rest of the day, and the days the solar forecast covers have their own.
+            const forecast = this._energyForecast, todayStart = zoneMidnight(Date.now(), zone).getTime(), solarAt = 0, loadAt = BAR_SERIES.findIndex(s => s.name === 'Load');
+            if (forecast && view.current && (view.range === 'Week' || view.range === 'Month'))
+                for (const slot of slots) {
+                    const pair = slot.t === todayStart ? forecast.today : slot.t > todayStart && forecast.days.has(slot.t) ? [forecast.days.get(slot.t), forecast.load] : null;
+                    if (pair) slot.forecast = { [solarAt]: pair[0] ?? 0, [loadAt]: pair[1] ?? 0 };
+                }
+            const series = BAR_SERIES.map((s, index) => ({ ...s, index })).filter(s => (s.source ? sourceIds : sinkIds)[s.at]);
+            show(buckets.size ? `${{ Week: 'Daily', Month: 'Daily', Year: 'Monthly', Lifetime: 'Yearly' }[view.range]} energy (kWh)` : 'No recorded energy in this range', slots, series);
+        } catch (error) {
+            if (request !== this._barsRequest) return;
+            show('Statistics unavailable');
+        }
+    }
+    // The energy bars: one stack per slot, supplied above 0 and consumed below, on an axis rounded as the power chart's.
+    _plotBars(svg, slots, series) {
+        const width = Math.max(240, svg.clientWidth || 900), height = 170, ns = 'http://www.w3.org/2000/svg';
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.replaceChildren();
+        const add = (tag, attrs, text, parent = svg) => {
+            const el = document.createElementNS(ns, tag);
+            for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+            if (text !== undefined) el.textContent = text;
+            parent.append(el);
+            return el;
+        };
+        const up = series.filter(s => s.source), down = series.filter(s => !s.source);
+        const total = (slot, list) => list.reduce((sum, s) => sum + slot.values[s.index] + (slot.forecast?.[s.index] ?? 0), 0);
+        const peak = Math.max(1, ...slots.flatMap(slot => [total(slot, up), total(slot, down)])), step = 10 ** Math.floor(Math.log10(peak)) / 2;
+        const max = Math.ceil(peak / step - 1e-9) * step, left = 38, right = width - 12, y = v => 78 - 65 * v / max;
+        const cursor = add('rect', { display: 'none', fill: 'var(--grid)', opacity: .35, rx: 3 });
+        for (const v of [-max, 0, max]) {
+            add('line', { x1: left, y1: y(v), x2: right, y2: y(v), stroke: 'var(--grid)', 'stroke-dasharray': '3 5' });
+            add('text', { x: 2, y: y(v) + 4, fill: 'var(--axis)', 'font-size': 10 }, v.toFixed(max < 10 && v % 1 ? 1 : 0));
+        }
+        const slotWidth = (right - left) / Math.max(1, slots.length), barWidth = Math.min(28, slotWidth * .62);
+        // Every slot is labelled while they fit, else every second, fifth… one.
+        const every = [1, 2, 5, 10, 20, 50].find(n => slotWidth * n >= 26) ?? 100;
+        slots.forEach((slot, i) => {
+            const cx = left + slotWidth * (i + .5);
+            // The recorded energy, then the forecast stacked beyond it, dashed.
+            for (const [list, sign] of [[up, 1], [down, -1]]) {
+                let base = 0;
+                for (const forecast of [false, true])
+                    for (const s of list) {
+                        const v = forecast ? slot.forecast?.[s.index] : slot.values[s.index];
+                        if (!(v > .005)) continue;
+                        const a = y(sign * base), b = y(sign * (base + v));
+                        add('rect', { x: (cx - barWidth / 2).toFixed(1), y: Math.min(a, b).toFixed(1), width: barWidth.toFixed(1), height: Math.max(.5, Math.abs(b - a)).toFixed(1), fill: s.color,
+                            ...(forecast ? { 'fill-opacity': .18, stroke: s.color, 'stroke-width': 1.2, 'stroke-dasharray': '3 2' } : {}) });
+                        base += v;
+                    }
+            }
+            if (i % every === 0) add('text', { x: cx, y: 162, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'middle' }, slot.label);
+            // Missing data: a mark above the bar; its tip says what is missing.
+            slot.gaps = this._gapsIn(slot.t, slot.end);
+            if (slot.gaps.length) add('text', { x: cx, y: Math.max(10, y(total(slot, up)) - 4), fill: '#e0a030', 'font-size': 11, 'text-anchor': 'middle' }, '⚠');
+        });
+        svg._chart = { bars: true, slots, series, width, left, right, slotWidth, cursor, top: y(max), bottom: y(-max) };
+        if (svg._lastHover !== undefined) this._hoverBar(svg, svg._tip, svg._lastHover);
+    }
+    _hoverBar(svg, tip, i) {
+        const chart = svg._chart, slot = chart.slots[i];
+        if (!slot) return this._hideHover(svg, tip);
+        const x = chart.left + chart.slotWidth * i;
+        for (const [k, v] of Object.entries({ x, width: chart.slotWidth, y: chart.top, height: chart.bottom - chart.top, display: 'inline' })) chart.cursor.setAttribute(k, v);
+        const row = (s, v, forecast) => {
+            const line = document.createElement('div'), dot = Object.assign(document.createElement('i'), { className: 'dot' });
+            dot.style.background = s.color;
+            line.append(dot, s.name, ...(forecast ? [' ', Object.assign(document.createElement('em'), { textContent: 'forecast' })] : []), Object.assign(document.createElement('span'), { textContent: `${v.toFixed(2)} kWh` }));
+            return line;
+        };
+        const lines = [...chart.series.filter(s => slot.values[s.index] > .005).map(s => row(s, slot.values[s.index], false)),
+            ...chart.series.filter(s => slot.forecast?.[s.index] > .005).map(s => row(s, slot.forecast[s.index], true))];
+        if (slot.gaps?.length) {
+            const line = Object.assign(document.createElement('div'), { className: 'gaptip', textContent: `⚠ No data recorded: ${this._gapText(slot.gaps)}` });
+            lines.push(line);
+        }
+        tip.replaceChildren(Object.assign(document.createElement('b'), { textContent: slot.title }), ...(lines.length ? lines : [Object.assign(document.createElement('em'), { textContent: 'No data' })]));
+        tip.hidden = false;
+        const scale = svg.getBoundingClientRect().width / chart.width, cssX = (x + chart.slotWidth) * scale;
+        const fitsRight = cssX + 8 + tip.offsetWidth <= svg.clientWidth;
+        tip.style.left = `${fitsRight ? cssX + 8 : Math.max(0, x * scale - 8 - tip.offsetWidth)}px`;
     }
     // Energy per interval comes from the lifetime counters' recorder statistics; each interval is split into
     // flows between sources and consumers and the splits are added up.
@@ -1800,15 +2130,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('statStatus', 'Statistics unavailable');
             return;
         }
-        // The load has no sensor: it is what the sources supply beyond the other consumers.
-        const pick = defs => defs.map(def => {
-            if (!def.key) return 'residual';
-            // Solar without its own counter would be the third-party inverter's alone, so it is left out instead.
-            const ids = def.third ? this._pvSources(def.key, def.third) : [this._ent(def.key)];
-            return this._has(ids[0]) ? [...new Set(ids.filter(id => this._has(id)))] : null;
-        });
-        const sourceIds = pick(STAT_SOURCES), sinkIds = pick(STAT_SINKS);
-        const ids = [...new Set([...sourceIds, ...sinkIds].filter(found => Array.isArray(found)).flat())];
+        const { sourceIds, sinkIds, ids } = this._statIds();
         if (!ids.length) {
             stat.flows = null;
             this._drawStat();
@@ -1818,7 +2140,7 @@ class SigenergyFlowCard extends HTMLElement {
         const request = this._statRequest = (this._statRequest ?? 0) + 1;
         this._text('statStatus', 'Loading…');
         const [start, end] = statWindow(stat.range, stat.date, this._zone);
-        const fetchStatistics = period => this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids, period, types: ['change'] });
+        const fetchStatistics = period => this._statistics(ids, start, end, period, ['change']);
         try {
             let period = STAT_PERIODS[stat.range], result = await fetchStatistics(period);
             if (period === '5minute' && !ids.some(id => result[id]?.length)) result = await fetchStatistics(period = 'hour');
@@ -1864,6 +2186,7 @@ class SigenergyFlowCard extends HTMLElement {
     _drawStat() {
         const stat = this._stat, svg = this._id('statChart');
         if (!svg || !stat) return;
+        this._id('statBusy').hidden = true;
         const summary = this._id('statSummary'), cards = this._id('statCards');
         const clear = () => {
             svg.replaceChildren();
@@ -1942,22 +2265,41 @@ class SigenergyFlowCard extends HTMLElement {
             return value > 0 ? `<div class="statcard"><b>${(value / chosen.total * 100).toFixed(2)}%</b><span>${other.caption}</span><span>${kWh(value)} kWh</span></div>` : '';
         }).join('');
     }
+    // Power metrics show the day Energy shows: today live, or a past day from the recorder's history, else, beyond it,
+    // from the hourly means of the long-term statistics, each placed at the middle of its hour.
     async _loadHistory() {
-        if (!this._hass || this._loading)
+        if (!this._hass)
             return;
-        this._loading = true;
+        const request = this._historyRequest = (this._historyRequest ?? 0) + 1, view = this._view(), past = view.live ? null : view;
+        this._barsRequest = (this._barsRequest ?? 0) + 1;
+        if (this._id('chart')._chart?.bars) this._hideHover(this._id('chart'), this._id('chartTip'));
+        this._id('legendPower').hidden = false;
+        this._id('legendBars').hidden = true;
         const balance = this._homeFromBalance();
         const specs = CHART_SERIES.map(s => ({ ...s, id: this._ent(s.key) }))
             .filter(s => s.id && (!s.optional || this._has(s.id)) && !(balance && s.key === 'home_power'));
+        const ids = specs.map(s => s.id);
+        this._text('chartTitle', past ? 'Power metrics' : 'Power metrics · Today');
         try {
-            const { start, data } = await this._history(specs.map(s => s.id));
-            this._renderChart(data, specs, start);
+            const [from, to] = past ? [past.start, past.end] : [];
+            let { start, data } = await this._history(ids, from, to);
+            let hourly = false;
+            if (past && !this._series(data, ids).some(points => points.length > 1)) {
+                const statistics = await this._statistics(ids, from, to, 'hour', ['mean']);
+                data = ids.map(id => (statistics?.[id] ?? []).map(row => ({ entity_id: id, state: String(row.mean),
+                    last_changed: new Date((typeof row.start === 'number' ? row.start : Date.parse(row.start)) + 1800e3).toISOString() })));
+                hourly = true;
+            }
+            if (request !== this._historyRequest) return;
+            this._renderChart(data, specs, start, past ? { hourly } : null);
         } catch (e) {
+            if (request !== this._historyRequest) return;
+            this._chartLive = null;
             this._text('chartStatus', 'Recorder history unavailable');
             this._id('chart').replaceChildren();
-        } finally {
-            this._loading = false;
         }
+        this._id('chartBusy').hidden = true;
+        this._updateSunTimes();
     }
     _series(data, ids) {
         const rows = new Map((data || []).filter(a => a?.length).map(a => [a[0].entity_id, a]));
@@ -1966,7 +2308,7 @@ class SigenergyFlowCard extends HTMLElement {
             v: Number(s.state)
         })).filter(p => Number.isFinite(p.t) && Number.isFinite(p.v)));
     }
-    _renderChart(data, specs, start) {
+    _renderChart(data, specs, start, past = null) {
         const notes = {
             Battery: v => v > .005 ? 'discharging' : v < -.005 ? 'charging' : '',
             Grid: v => v > .005 ? 'import' : v < -.005 ? 'export' : '',
@@ -1990,19 +2332,22 @@ class SigenergyFlowCard extends HTMLElement {
             home = { points: times.map(t => ({ t, v: Math.min(0, -series.reduce((sum, s) => sum + (this._valueAt(s.points, t) ?? 0), 0)) })), color: spec.color, name: spec.name };
             series.push(home);
         }
-        this._chartLive = { specs, series, start, home };
+        this._chartLive = { specs, series, start, home, past };
         if (this._showPowerChart()) this._chartStatus();
-        else this._text('chartStatus', 'No recorded power history today');
+        else this._text('chartStatus', `No recorded power history ${past ? 'that day' : 'today'}`);
     }
-    // The power metrics chart: today's recorded series, then the forecast for the rest of the day.
+    // The power metrics chart: the day's recorded series, then, today, the forecast for the rest of the day.
     _showPowerChart() {
         const live = this._chartLive;
         if (!live) return false;
-        this._showChart(this._id('chart'), [...live.series, ...(this._chartForecast?.series ?? [])], live.start, true);
-        this._id('legendForecast').hidden = !this._chartForecast;
+        const forecast = live.past ? null : this._chartForecast;
+        this._showChart(this._id('chart'), [...live.series, ...(forecast?.series ?? [])], live.start, true);
+        this._id('legendForecast').hidden = !forecast;
         return live.series.some(s => s.points.length > 1);
     }
     _chartStatus() {
+        const past = this._chartLive?.past;
+        if (past) return this._text('chartStatus', past.hourly ? 'Hourly averages' : 'Midnight → midnight');
         const source = this._chartForecast?.source;
         this._text('chartStatus', `Midnight → now${source ? ` · forecast from ${source}` : ''}`);
     }
@@ -2019,13 +2364,16 @@ class SigenergyFlowCard extends HTMLElement {
         const zone = this._zone, now = Date.now(), today = zoneMidnight(now, zone), day = zoneParts(today, zone);
         const end = zoneDate(zone, day.y, day.m, day.d + 1).getTime();
         // Today's solar forecast, in kWh for each hour from its start, which the Solar forecast tile also reads.
-        const hours = new Map();
+        // The days after it, in kWh for each day, for the energy metrics' forecast.
+        const hours = new Map(), days = new Map();
         try {
             const forecasts = await this._hass.callWS({ type: 'energy/solar_forecast' });
             for (const forecast of Object.values(forecasts ?? {}))
                 for (const [hour, wh] of Object.entries(forecast?.wh_hours ?? {})) {
                     const t = Date.parse(hour);
-                    if (t >= today.getTime() && t < end && Number.isFinite(Number(wh))) hours.set(t, (hours.get(t) ?? 0) + Number(wh) / 1000);
+                    if (!Number.isFinite(Number(wh)) || t < today.getTime()) continue;
+                    if (t < end) hours.set(t, (hours.get(t) ?? 0) + Number(wh) / 1000);
+                    else { const d = zoneMidnight(t, zone).getTime(); days.set(d, (days.get(d) ?? 0) + Number(wh) / 1000); }
                 }
         } catch (e) {
             // No solar forecast in Home Assistant: the history average stands in.
@@ -2046,7 +2394,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._forecastRecorded = recorded;
         this._updateForecastTile();
         if (!this.config.show_forecast) {
-            this._chartForecast = null;
+            this._chartForecast = this._energyForecast = null;
             return;
         }
         const spec = key => ({ ...CHART_SERIES.find(s => s.key === key), id: this._ent(key) });
@@ -2070,7 +2418,7 @@ class SigenergyFlowCard extends HTMLElement {
         const ids = [...new Set([...specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power')), ...parts.map(spec => spec.id)])];
         if (ids.length) {
             const from = zoneDate(zone, day.y, day.m, day.d - 7);
-            const fetch = period => this._hass.callWS({ type: 'recorder/statistics_during_period', start_time: from.toISOString(), end_time: today.toISOString(), statistic_ids: ids, period, types: ['mean'] }).catch(() => ({}));
+            const fetch = period => this._statistics(ids, from, today, period, ['mean']).catch(() => ({}));
             history = await fetch('5minute');
             // Five-minute statistics are kept 10 days by default; hourly ones are kept for good.
             if (!ids.some(id => history[id]?.length)) { history = await fetch('hour'); slot = 3600e3; }
@@ -2095,15 +2443,24 @@ class SigenergyFlowCard extends HTMLElement {
             const points = ahead(spec.key === 'pv_power' && solar ? solar.map(p => ({ t: p.t, v: p.v * (spec.negate ? -1 : 1) })) : profile(spec));
             return { points, color: spec.color, name: spec.name, forecast: true };
         });
+        let homeDay = specs.some(spec => spec.key === 'home_power') ? profile(spec('home_power')) : [];
         if (parts.length) {
             const slots = new Map();
             for (const part of parts) for (const p of profile(part)) slots.set(p.t, (slots.get(p.t) ?? 0) + p.v);
             const home = CHART_SERIES.find(s => s.key === 'home_power');
-            series.push({ points: ahead([...slots].sort((a, b) => a[0] - b[0]).map(([t, v]) => ({ t, v: Math.min(0, -v) }))), color: home.color, name: home.name, forecast: true });
+            homeDay = [...slots].sort((a, b) => a[0] - b[0]).map(([t, v]) => ({ t, v: Math.min(0, -v) }));
+            series.push({ points: ahead(homeDay), color: home.color, name: home.name, forecast: true });
         }
         series = series.filter(s => s.points.length > 1);
         this._chartForecast = series.length ? { series, source: solar ? 'the solar forecast and the last 7 days' : 'the last 7 days' } : null;
+        // The energy metrics' forecast, in kWh: the solar and home's for the rest of today, from the lines above, then
+        // the solar forecast's later days, each with the home's average day.
+        const energy = points => points.reduce((sum, p, i) => i ? sum + Math.abs(p.v + points[i - 1].v) / 2 * (p.t - points[i - 1].t) / 3600e3 : 0, 0);
+        const rest = name => { const found = series.find(s => s.name === name); return found ? energy(found.points) : null; };
+        this._energyForecast = { today: [rest('Solar'), rest('Home')], days, load: homeDay.length ? homeDay.reduce((sum, p) => sum + Math.abs(p.v), 0) * slot / 3600e3 : null };
         if (this._showPowerChart()) this._chartStatus();
+        const view = this._view();
+        if (view.range !== 'Day' && view.current) this._loadBars();
     }
     _chartFactor(spec) {
         return this._factor(spec.id) * (spec.negate ? -1 : 1) * (spec.key === 'battery_power' ? this._batterySign() : 1);
@@ -2111,7 +2468,7 @@ class SigenergyFlowCard extends HTMLElement {
     // Extends the drawn series with the current sensor values and redraws just the chart.
     _advanceChart() {
         const live = this._chartLive;
-        if (!live || !this._hass) return;
+        if (!live || live.past || !this._hass) return;
         const t = Date.now();
         live.specs.forEach((spec, i) => {
             const v = this._num(spec.id);
@@ -2172,10 +2529,17 @@ class SigenergyFlowCard extends HTMLElement {
         // A window is labelled at every fourth hour of the clock within it.
         if (window) for (let h = 0; h < 72 && hour(h) <= end; h++) { if (hour(h) >= start && zoneParts(hour(h), this._zone).h % 4 === 0) time(h); }
         else for (let h = 0; h < 24; h += 4) time(h);
+        // The power metrics' gaps in the recording: a shaded band with a mark, the lines broken across it.
+        const gaps = svg === this._id('chart') && this._chartLive ? this._gapsIn(start, end) : [];
+        for (const g of gaps) {
+            const a = x(Math.max(start, g.start)), b = x(Math.min(end, g.end));
+            add('rect', { x: a, y: y(max), width: Math.max(1, b - a), height: (signed ? y(-max) : y(low)) - y(max), fill: 'var(--grid)', opacity: .35 });
+            add('text', { x: (a + b) / 2, y: y(max) + 12, fill: '#e0a030', 'font-size': 11, 'text-anchor': 'middle' }, '⚠');
+        }
         for (const { points, color, forecast, tipOnly } of series) {
             if (points.length < 2 || tipOnly)
                 continue;
-            const d = points.map((p, j) => `${j ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+            const d = points.map((p, j) => `${j && !gaps.some(g => points[j - 1].t < g.end && p.t > g.start) ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
             add('path', { d, fill: 'none', stroke: color, 'stroke-width': forecast ? 1.4 : 1.7, 'stroke-linejoin': 'round', ...(forecast ? { 'stroke-dasharray': '5 4' } : {}) });
         }
         const cursor = add('g', { display: 'none' });
@@ -2192,7 +2556,7 @@ class SigenergyFlowCard extends HTMLElement {
             cursor.append(dot);
             return dot;
         });
-        svg._chart = { series, start, end, now, width, left, right, x, y, top: y(max), bottom: y(signed ? -max : low), cursor, line, dots };
+        svg._chart = { series, start, end, now, width, left, right, x, y, top: y(max), bottom: y(signed ? -max : low), cursor, line, dots, gaps };
         if (svg._lastHover !== undefined) this._hoverAt(svg, svg._tip, svg._lastHover);
     }
     // Linear interpolation between recorded states, matching the drawn line.
@@ -2214,6 +2578,10 @@ class SigenergyFlowCard extends HTMLElement {
         const ux = (e.clientX - rect.left) * chart.width / rect.width;
         if (ux < chart.left || ux > chart.right) return this._hideHover(svg, tip);
         svg._tip = tip;
+        if (chart.bars) {
+            svg._lastHover = Math.min(chart.slots.length - 1, Math.floor((ux - chart.left) / chart.slotWidth));
+            return this._hoverBar(svg, tip, svg._lastHover);
+        }
         // Past now the forecast is read; without one the readings stay at now.
         const t = chart.start + (ux - chart.left) / (chart.right - chart.left) * (chart.end - chart.start);
         svg._lastHover = chart.series.some(s => s.forecast) ? t : Math.min(chart.now, t);
@@ -2252,6 +2620,12 @@ class SigenergyFlowCard extends HTMLElement {
             line.append(Object.assign(document.createElement('span'), { textContent: value }));
             return line;
         });
+        // In a gap in the recording there are no readings to show.
+        const gap = chart.gaps?.filter(g => g.start <= t && t < g.end) ?? [];
+        if (gap.length) {
+            lines.splice(0, lines.length, Object.assign(document.createElement('div'), { className: 'gaptip', textContent: `⚠ No data recorded: ${this._gapText(gap)}` }));
+            chart.dots.forEach(dot => dot.setAttribute('display', 'none'));
+        }
         tip.replaceChildren(Object.assign(document.createElement('b'), { textContent: ahead ? `${time} · forecast` : time }), ...(lines.length ? lines : [Object.assign(document.createElement('em'), { textContent: 'No data' })]));
         tip.hidden = false;
         const scale = svg.getBoundingClientRect().width / chart.width;

@@ -122,7 +122,8 @@ const means = { 'sensor.sigen_plant_pv_power': [], 'sensor.sigen_plant_consumed_
 // then the latest, revised towards the day's weather.
 const FORECAST = 'sensor.energy_production_today', dailyPv = [], forecastStates = [];
 const pvDay = Array.from({ length: 24 / STEP }, (_, i) => at(i * STEP + STEP / 2).pv * STEP).reduce((a, b) => a + b, 0);
-[0.92, 1.04, 0.78, 1.08, 0.97, 0.88, 1.02].forEach((sun, i) => {
+const SUNS = [0.92, 1.04, 0.78, 1.08, 0.97, 0.88, 1.02];
+SUNS.forEach((sun, i) => {
     const dayStart = MIDNIGHT - (7 - i) * 86400e3;
     for (let h = 0; h < 24; h += STEP) {
         const p = at(h + STEP / 2), start = dayStart + h * 3600e3;
@@ -132,16 +133,52 @@ const pvDay = Array.from({ length: 24 / STEP }, (_, i) => at(i * STEP + STEP / 2
     dailyPv.push({ start: dayStart, end: dayStart + 86400e3, change: +(pvDay * sun).toFixed(2) });
     forecastStates.push({ t: dayStart + 1800e3, v: +(pvDay * 0.97).toFixed(2) }, { t: dayStart + 13 * 3600e3, v: +(pvDay * (sun + 0.04)).toFixed(2) });
 });
-// Today's forecast: a little above the day's production, hour by hour.
-const FORECAST_TODAY = 1.06, whHours = {};
-for (let h = 0; h < 24; h++) {
-    const wh = Array.from({ length: 12 }, (_, i) => at(h + (i + .5) * STEP).pv * STEP).reduce((a, b) => a + b, 0) * FORECAST_TODAY * 1000;
+// The same days' energy, for the Week view: each hour's power from the day's solar (scaled by its weather) and home,
+// the car charging after lunch on two days in three, the battery taking the surplus and supplying the evening and
+// night until it runs low. Hourly and daily statistics of the lifetime counters and of the daily sensors; the daily
+// ones include today.
+const pastDay = (sun, car) => {
+    let stored = 8;
+    return Array.from({ length: 24 }, (_, h) => {
+        const pv = STRINGS.reduce((a, _, i) => a + stringKw(i, h + .5), 0) * sun, ac = car && h >= 13 && h < 15 ? 7.2 : 0;
+        const surplus = pv - homeKw(h + .5) - ac;
+        let charge = 0, discharge = 0, imp = 0, exp = 0;
+        if (surplus >= 0) { charge = Math.min(surplus, 2.5, CAP - stored); exp = surplus - charge; }
+        else { discharge = h >= 17 || h < 6 ? Math.min(-surplus, stored - 4) : 0; imp = -surplus - discharge; }
+        stored += charge - discharge;
+        return { pv, ac, charge, discharge, imp, exp };
+    });
+};
+const DAILY = { 'sensor.sigen_plant_daily_pv_energy': 'pv', 'sensor.sigen_plant_daily_grid_import_energy': 'imp', 'sensor.sigen_plant_daily_grid_export_energy': 'exp',
+    'sensor.sigen_plant_daily_battery_charge_energy': 'charge', 'sensor.sigen_plant_daily_battery_discharge_energy': 'discharge' };
+const pastHourly = {}, pastDaily = {};
+for (const [id, key] of [...Object.entries(statistics), ...Object.entries(DAILY)]) {
+    pastHourly[id] = [];
+    pastDaily[id] = [];
+    SUNS.forEach((sun, i) => {
+        const dayStart = MIDNIGHT - (7 - i) * 86400e3, day = pastDay(sun, i % 3 !== 1);
+        let total = 0;
+        for (let h = 0; h < 24; h++) {
+            const change = +day[h][key].toFixed(4);
+            total += change;
+            pastHourly[id].push({ start: dayStart + h * 3600e3, end: dayStart + (h + 1) * 3600e3, change });
+        }
+        // The solar is the day's production the forecast's figures use.
+        pastDaily[id].push({ start: dayStart, end: dayStart + 86400e3, change: key === 'pv' ? dailyPv[i].change : +total.toFixed(3) });
+    });
+    pastDaily[id].push({ start: MIDNIGHT, end: MIDNIGHT + 86400e3, change: +sum(key).toFixed(3) });
+}
+// Today's forecast: a little above the day's production, hour by hour; tomorrow's, cloudier, as Forecast.Solar also
+// gives the next day.
+const FORECAST_TODAY = 1.06, FORECAST_TOMORROW = .81, whHours = {};
+for (let h = 0; h < 48; h++) {
+    const wh = Array.from({ length: 12 }, (_, i) => at(h % 24 + (i + .5) * STEP).pv * STEP).reduce((a, b) => a + b, 0) * (h < 24 ? FORECAST_TODAY : FORECAST_TOMORROW) * 1000;
     if (wh > 0) whHours[new Date(MIDNIGHT + h * 3600e3).toISOString()] = Math.round(wh);
 }
 states[FORECAST] = { state: (pvDay * FORECAST_TODAY).toFixed(2), attributes: { unit_of_measurement: 'kWh', device_class: 'energy' } };
 forecastStates.push({ t: MIDNIGHT + 1800e3, v: +states[FORECAST].state });
 const data = {
-    states, times: samples.map(s => s.t), means, times24, grid24, dailyPv, forecastStates, whHours,
+    states, times: samples.map(s => s.t), means, times24, grid24, dailyPv, forecastStates, whHours, pastHourly, pastDaily,
     history: Object.fromEntries(Object.entries(history).map(([id, v]) => [id, v.map(x => +x.toFixed(3))])),
     statistics: Object.fromEntries(Object.entries(statistics).map(([id, key]) => [id, intervals.map(r => ({ start: r.t, end: r.t + 300e3, change: +(r[key] * STEP).toFixed(4) }))])),
 };
@@ -166,8 +203,13 @@ async function mount(page, style) {
             // A solar forecast integration (Forecast.Solar) for today's solar; the home's forecast uses the 7-day averages.
             callWS: async msg => {
                 if (msg.type === 'energy/solar_forecast') return { 1: { wh_hours: data.whHours } };
-                const rows = msg.types.includes('mean') ? data.means : msg.period === 'day' ? { 'sensor.sigen_plant_total_pv_generation': data.dailyPv } : data.statistics;
-                return Object.fromEntries(msg.statistic_ids.filter(id => rows[id]).map(id => [id, rows[id].filter(r => r.start >= Date.parse(msg.start_time) && r.start < Date.parse(msg.end_time))]));
+                // Today's lifetime counters have 5-minute statistics; the days before, hourly and daily ones.
+                const hourly = Object.fromEntries(Object.keys(data.pastHourly).map(id => [id, [...data.pastHourly[id], ...(data.statistics[id] ?? [])]]));
+                // The month's statistics, from the days'; the card finds each counter's first day from them.
+                const monthly = Object.fromEntries(Object.entries(data.pastDaily).map(([id, days]) => [id, [{ start: Date.parse('2026-10-01T00:00:00+10:00'), change: days.reduce((sum, day) => sum + day.change, 0) }]]));
+                const rows = msg.types.includes('mean') ? data.means : msg.period === 'day' ? data.pastDaily : msg.period === 'hour' ? hourly : msg.period === '5minute' ? data.statistics : msg.period === 'month' ? monthly : {};
+                // As Home Assistant does, the period starting at the end is returned too.
+                return Object.fromEntries(msg.statistic_ids.filter(id => rows[id]).map(id => [id, rows[id].filter(r => r.start >= Date.parse(msg.start_time) && r.start <= Date.parse(msg.end_time))]));
             },
         };
         const el = document.createElement('sigenergy-flow-card');
@@ -182,6 +224,14 @@ async function hoverChart(page, time) {
         const svg = document.querySelector('sigenergy-flow-card').shadowRoot.getElementById('chart'), r = svg.getBoundingClientRect(), c = svg._chart;
         return { x: r.left + c.x(time) * r.width / c.width, y: r.top + r.height / 2 };
     }, { time });
+    await page.mouse.move(p.x, p.y);
+    await page.waitForTimeout(200);
+}
+async function hoverBar(page, index) {
+    const p = await page.evaluate(({ index }) => {
+        const svg = document.querySelector('sigenergy-flow-card').shadowRoot.getElementById('chart'), r = svg.getBoundingClientRect(), c = svg._chart;
+        return { x: r.left + (c.left + c.slotWidth * (index + .5)) * r.width / c.width, y: r.top + r.height / 2 };
+    }, { index });
     await page.mouse.move(p.x, p.y);
     await page.waitForTimeout(200);
 }
@@ -239,6 +289,18 @@ async function statClip(page, pad) {
                     await page.screenshot({ path: `${out}/${shot.name}-${file}.png` });
                     await page.evaluate(() => document.querySelector('sigenergy-flow-card').shadowRoot.querySelectorAll('dialog[open]').forEach(d => d.close()));
                 }
+                // The week before, its energy metrics bars, with the desktop's tip on its third day.
+                await page.evaluate(() => {
+                    const root = document.querySelector('sigenergy-flow-card').shadowRoot, range = root.getElementById('statRange');
+                    range.value = 'Week';
+                    range.dispatchEvent(new Event('change'));
+                    root.getElementById('statPrev').click();
+                });
+                await page.waitForTimeout(900);
+                await page.setViewportSize({ width: shot.viewport.width, height: await page.evaluate(() => document.documentElement.scrollHeight) });
+                await page.waitForTimeout(400);
+                if (shot.name === 'desktop') await hoverBar(page, 2);
+                await page.screenshot({ path: `${out}/${shot.name}-week.png`, fullPage: true });
             }
             await context.close();
         }

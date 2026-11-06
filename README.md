@@ -2,16 +2,10 @@
 
 A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySigen power-flow dashboard for a Sigenergy installation (solar, SigenStor battery, Sigen Gateway, grid, and optional AC/DC EV chargers).
 
-- Animated power flow between the solar panels, SigenStor, gateway, home and grid, drawn over a photo of the house. Each highlight moves in the direction power is flowing, faster at higher power, and stops when idle.
-- Day and night photos: the daytime photo between sunrise and sunset, the night photo otherwise; force either with the `style` option. The colours follow Home Assistant's light or dark mode; force either with `theme`.
-- The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
-- Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
-- The battery's remaining time under SigenStor, as in Sigenergy's app: the time to its charge or discharge cut-off SOC at the current power (e.g. "Discharging (remaining time: 17h50m)"), or, while idle, how long it would run the home in a power cut, down to its Backup SOC: the home's consumption plus the inverters' and system's own base load, which the card learns (and keeps in the browser) while the battery alone supplies the home, typically at night. Idle shows no time until it has been learnt. Enable the Sigenergy integration's cut-off and backup SOC entities for exact figures; without them it counts to 100% and 0%.
-- Today's energy statistics (solar produced and forecast, grid imported and exported, battery charged and discharged) and a battery level panel. The ‹ › arrows beside **Energy** step back to previous days, read from the recorder's statistics of the same daily sensors (they need `state_class: total_increasing`, which the Sigenergy integrations set); the Solar forecast tile then shows that day's last recorded forecast and **(Perf: N%)**, the day's production against it, while the forecast entity's history lasts (10 days by default). Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
-- Power metrics chart of the day, its time axis running from midnight to midnight as in Sigenergy's app and its lines up to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time. The rest of the day shows a dashed solar and home forecast (see [Forecast](#forecast)).
-- Tap **SOLAR** for per-string PV details (voltage, current, power, today's and lifetime production) and a chart of each string's power today. The strings' lifetime energy is counted by the integration from their power and can miss production; the **Total** is the inverter's own counter, and a note shows when the strings don't add up to it.
-- Tap **HOME** for a live breakdown of power usage across the entities you list, sorted from highest to lowest.
-- Tap **DC CHARGER** to adjust the DC charger's maximum charging power.
+- Live power flow over a photo of the house, with day and night versions, following Home Assistant's light or dark mode.
+- Readings for solar, home, SigenStor (with charge level and remaining time), grid and the AC and DC chargers, plus the current weather.
+- One date and range picker at the top (Day, Week, Month, Year, Lifetime) for the energy totals, the power or energy chart and the energy flow diagram.
+- Tap a reading for its details: PV strings, grid phases, home power usage, battery history, the solar forecast.
 
 No other custom cards (button-card, card-mod, Mushroom) are needed.
 
@@ -24,6 +18,10 @@ The screenshots show the day style; [Night](#night) shows the dark one.
 Main view, with the power metrics overlay shown by hovering over the chart:
 
 ![Desktop main view](docs/screenshots/desktop-main.png)
+
+The previous week, chosen at the top: the week's totals, and the energy of each day, hovered on the 14th:
+
+![Desktop week view](docs/screenshots/desktop-week.png)
 
 The Energy statistics panel on the main view, with SOLAR selected to show where its energy went:
 
@@ -50,6 +48,7 @@ Tapping the stored energy under **Battery level**:
 <table>
   <tr>
     <th>Main view</th>
+    <th>Week</th>
     <th>Energy statistics</th>
     <th>SOLAR</th>
     <th>GRID</th>
@@ -58,6 +57,7 @@ Tapping the stored energy under **Battery level**:
   </tr>
   <tr>
     <td><img src="docs/screenshots/iphone-main.png" alt="iPhone main view" width="200"></td>
+    <td valign="top"><img src="docs/screenshots/iphone-week.png" alt="iPhone week view" width="200"></td>
     <td valign="top"><img src="docs/screenshots/stat-phone-day.png" alt="iPhone energy statistics, GRID selected" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-solar.png" alt="iPhone PV strings" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-grid.png" alt="iPhone grid details" width="200"></td>
@@ -84,6 +84,23 @@ Between sunset and sunrise (or with `style: night`) the card switches to the nig
     <td valign="top"><img src="docs/screenshots/stat-phone-night.png" alt="iPhone energy statistics at night" width="200"></td>
   </tr>
 </table>
+
+## Features
+
+- Animated power flow between the solar panels, SigenStor, gateway, home and grid, drawn over a photo of the house. Each highlight moves in the direction power is flowing, faster at higher power, and stops when idle.
+- Day and night photos: the daytime photo between sunrise and sunset, the night photo otherwise; force either with the `style` option. The colours follow Home Assistant's light or dark mode; force either with `theme`.
+- The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
+- Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
+- The battery's remaining time under SigenStor, as in Sigenergy's app: the time to its charge or discharge cut-off SOC at the current power (e.g. "Discharging (remaining time: 17h50m)"), or, while idle, how long it would run the home in a power cut, down to its Backup SOC: the home's consumption plus the inverters' and system's own base load, which the card learns (and keeps in the browser) while the battery alone supplies the home, typically at night. Idle shows no time until it has been learnt. Enable the Sigenergy integration's cut-off and backup SOC entities for exact figures; without them it counts to 100% and 0%.
+- The date and range picker at the top of the card picks the day, week, month, year or lifetime the panels show; the arrows move between periods. The scene and the battery level always show now.
+- A battery level panel, and the **Energy statistics** totals for the chosen period: solar produced and forecast, grid imported and exported, battery charged and discharged. Today's come from the daily sensors. Other periods come from the recorder's statistics of the lifetime counters (`stat_*`), the same as the Energy metrics and the Energy statistics diagram, so the three agree; a lifetime counter also keeps counting while Home Assistant is down, which a daily sensor loses. A tile without its counter falls back to the daily sensor's statistics (they need `state_class: total_increasing`, which the Sigenergy integrations set). The Solar forecast tile shows for a day only: on a previous day, that day's last recorded forecast and **(Perf: N%)**, the day's production against it, while the forecast entity's history lasts (10 days by default). Tap any statistic or the battery level to open that sensor's details and history, or the stored energy (e.g. 4.4 of 40.3 kWh) for a chart of the energy held in the battery today.
+- Power metrics chart of the day, its time axis running from midnight to midnight as in Sigenergy's app and its lines up to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time. The rest of the day shows a dashed solar and home forecast (see [Forecast](#forecast)). A previous day shows its recorded history, midnight to midnight, without the forecast; beyond the recorder's history (10 days by default), the hourly averages from the long-term statistics, marked **Hourly averages**.
+- For a week, month, year or the lifetime, the chart becomes **Energy metrics**: a bar per day, month or year, with the energy supplied (solar, battery discharged, EVDC discharged, imported) stacked above zero and consumed (battery charged, EVDC charged, exported, load, EVAC charged) below, from the same lifetime counters as the Energy statistics diagram. Hover (or tap) a bar for its figures. In the current week or month, dashed bars add the solar and home forecast: the rest of today on today's bar, and the days ahead that Home Assistant's solar forecast covers (Forecast.Solar gives tomorrow), each with the home's average day over the last 7 days. Sigenergy's app also forecasts the battery and grid; Home Assistant has no such forecast, so the card doesn't show one. `show_forecast: false` hides them.
+- Tap **SOLAR** for per-string PV details (voltage, current, power, today's and lifetime production) and a chart of each string's power today. The strings' lifetime energy is counted by the integration from their power and can miss production; the **Total** is the inverter's own counter, and a note shows when the strings don't add up to it.
+- Tap **HOME** for a live breakdown of power usage across the entities you list, sorted from highest to lowest.
+- Tap **DC CHARGER** to adjust the DC charger's maximum charging power.
+- The **Energy statistics** diagram of where the period's energy came from and went (see [Energy statistics](#energy-statistics)).
+- A ⚠ marks missing data: on the totals, the bars, the diagram's title and as a shaded band on Power metrics, wherever Home Assistant recorded no statistics for a counter (it was down, or the counter didn't exist yet). Hover or tap it for the dates. The energy of that time is either missing, or, when the inverter kept counting, added to the hour recording resumed. The card shows the gap rather than guessing what happened in it.
 
 ## Requirements
 
@@ -157,7 +174,7 @@ All options are optional.
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
-| `show_forecast` | `true` | Draw the dashed solar and home forecast for the rest of the day on the Power metrics chart (see [Forecast](#forecast)). |
+| `show_forecast` | `true` | Draw the dashed solar and home forecast: for the rest of the day on the Power metrics chart, and as dashed bars in the current week or month (see [Forecast](#forecast)). |
 | `debug_energy_statistics` | `false` | List, under the Energy statistics panel, the energy each statistics sensor recorded over the period (to check the sensors against another source). |
 | `style` | `auto` | Artwork: `day`, `night` or `auto` (day between sunrise and sunset). |
 | `theme` | `auto` | Colours: `light`, `dark` or `auto` (Home Assistant's light or dark mode, as set in your profile; the artwork's when Home Assistant doesn't report one). |
@@ -376,11 +393,11 @@ The **Solar forecast** tile shows today's solar forecast, as last revised, from 
 
 If the `solar_forecast_today` entity doesn't exist, the tile shows the total of Home Assistant's solar forecast instead, without the 7 days. Without that either, it shows the average daily production of the last 7 days, from the statistics of `stat_pv`, marked **(7-day average)** and without the performance figures. With neither, or with `solar_forecast_today: false`, **Solar produced** takes the whole row.
 
-On a previous day (the ‹ arrow beside **Energy**), the tile shows that day's last recorded forecast and **(Perf: N%)**, the day's solar produced against it. It needs the forecast entity's history for that day; without it, **Solar produced** takes the whole row. The tile doesn't open the chart then.
+On a previous day (chosen at the top of the card), the tile shows that day's last recorded forecast and **(Perf: N%)**, the day's solar produced against it. It needs the forecast entity's history for that day; without it, **Solar produced** takes the whole row. The tile doesn't open the chart then.
 
 ### Energy statistics
 
-The **Energy statistics** panel under the scene shows where energy came from and where it went: a diagram from sources (solar, battery, EVDC, grid import) to consumers (battery, EVDC, load, EVAC, grid export), for a day, week, month, year or the whole lifetime. Use the arrows to move between periods and the selector to change the range. Select a source to see how its energy was shared among the consumers, or a consumer to see its sources, with the percentages and kWh also listed under the diagram. Select it again to go back.
+The **Energy statistics** panel under the scene shows where energy came from and where it went: a diagram from sources (solar, battery, EVDC, grid import) to consumers (battery, EVDC, load, EVAC, grid export), for the period chosen at the top of the card: a day, week, month, year or the whole lifetime. Select a source to see how its energy was shared among the consumers, or a consumer to see its sources, with the percentages and kWh also listed under the diagram. Select it again to go back.
 
 Home Assistant only records totals (solar, grid, battery, load, chargers), not which source charged which consumer, so the split is an **estimate**. Each interval of the period (5 minutes for a day, an hour for a week or month, a day for a year or lifetime) is split between sources and consumers, never feeding a device from itself, with each source favouring some consumers over others (for instance solar favours the batteries and EVDC over the house), and the intervals are added up. The preferences are fitted to the flows the Sigenergy app showed for one system, and reproduce them within a few hundredths of a kWh on that data; other systems may differ somewhat. The totals come from the lifetime energy counters' long-term statistics, so the panel needs the Home Assistant recorder and these sensors, which the card reads from `entities` (`stat_*`, plus `third_party_pv_lifetime_energy` for a third-party inverter's solar, `dc_charger_lifetime_charged_energy` and `dc_charger_lifetime_discharged_energy` for EVDC). **Load** has no sensor: like the Sigenergy portal, it is what the sources supplied beyond the other consumers. A source or consumer whose sensor does not exist is left out. The Sigenergy integration disables the plant's EVDC and EVAC totals by default, so the card falls back to the first inverter's DC charger totals and the AC charger's energy consumed, which are enabled; on a system with DC chargers on several inverters, enable the plant's EVDC totals to count them all. Set `show_energy_statistics: false` to hide the panel.
 
@@ -492,7 +509,7 @@ Small Python scripts in `tools/` that query the system directly over Modbus TCP 
 
 The card itself reads everything from Home Assistant entities (battery level, phase power mode and AC charger energy included), so it does not need these scripts; they are for use outside Home Assistant.
 
-`tools/screenshots.js` regenerates the screenshots in `docs/screenshots/` from one simulated day, so the tiles, charts and statistics agree; it renders with WebKit through [Playwright](https://playwright.dev) and needs Node.js (see the comment at its top).
+`tools/screenshots.js` regenerates the screenshots in `docs/screenshots/` from one simulated day and the week before it, so the tiles, charts and statistics agree; it renders with WebKit through [Playwright](https://playwright.dev) and needs Node.js (see the comment at its top).
 
 ## License
 
