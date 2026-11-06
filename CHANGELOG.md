@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v70.1
+
+- With a third-party inverter, the Energy statistics diagram shows its solar even when the integration's **Total Generation of Third Party Inverter** sensor isn't enabled (Sigenergy Local Modbus creates it disabled): the card falls back to the statistics of **Daily Third Party Inverter Energy**. On a system whose only PV is third-party, the diagram showed no solar, and so no battery charging. Enabling the lifetime sensor is still better, as the daily sensor misses any time Home Assistant wasn't recording; the README explains how.
+
 ## v70
 
 - The date and range picker (Day, Week, Month, Year, Lifetime) moves to the top of the card, and everything except the scene and the battery level follows it: the energy tiles, the chart and the Energy statistics diagram. The energy tiles' panel is now titled **Energy statistics**, and **Battery level** sits above it. Changing the period blanks the charts with a busy mark while the data loads.
