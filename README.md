@@ -224,6 +224,8 @@ Each flow's highlight moves from its source to its destination at `60 + 35 × �
 
 The solar keys `pv_power`, `daily_pv_energy` and `stat_pv` are all PV, the third-party inverter's included. An entity set for one of them is taken as that total. The defaults that count only the Sigenergy PV have the third-party inverter's energy (`third_party_pv_daily_energy`, `third_party_pv_lifetime_energy`) added when one is fitted.
 
+> **Third-party inverter, especially as the only PV (Sigenergy Local Modbus):** enable **Total Generation of Third Party Inverter** (`sensor.sigen_plant_total_generation_of_third_party_inverter`) on the plant device, under Settings → Devices & services → Sigenergy. The integration creates it disabled. The totals for past periods, the Energy metrics and the Energy statistics read the solar from the lifetime counters; without this one, the card falls back to the statistics of **Daily Third Party Inverter Energy**, which miss any time Home Assistant wasn't recording. Home Assistant keeps statistics only from when the sensor is enabled.
+
 Every entity the card reads can be replaced under `entities:`. For each key:
 
 - **Not set:** the default for the `sigenergy_backend` is used (for the plant/inverter pairs, the plant sensor first, then the inverter fallback). The table below lists the Sigenergy Local Modbus defaults; [sigenergy2mqtt](#sigenergy2mqtt) lists that backend's.

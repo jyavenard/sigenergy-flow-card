@@ -1127,11 +1127,15 @@ class SigenergyFlowCard extends HTMLElement {
     }
     // The entities whose sum is the solar total of [key]: its entity, plus the third-party inverter's [thirdKey] when
     // [key] is left at a default that leaves that inverter out and one is fitted. An entity set in the config is the
-    // total as it is.
-    _pvSources(key, thirdKey) {
+    // total as it is. For [statistics], a missing third-party lifetime counter (Sigenergy Local Modbus creates it
+    // disabled) gives way to the third-party daily sensor, whose statistics give the same energy per period.
+    _pvSources(key, thirdKey, statistics = false) {
         const id = this._ent(key);
         if (!id) return [];
-        const third = this.config.entities?.[key] === undefined && SIGEN_ONLY_PV.has(id) && this._hasThirdPartyPv() ? this._ent(thirdKey) : null;
+        if (this.config.entities?.[key] !== undefined || !SIGEN_ONLY_PV.has(id) || !this._hasThirdPartyPv()) return [id];
+        let third = this._ent(thirdKey);
+        if (statistics && !(third && this._has(third)) && thirdKey === 'third_party_pv_lifetime_energy' && this.config.entities?.[thirdKey] === undefined)
+            third = this._ent('third_party_pv_daily_energy');
         return third && this._has(third) ? [id, third] : [id];
     }
     // The solar total of [key], in kW or kWh; null without its own entity's value.
@@ -1378,7 +1382,7 @@ class SigenergyFlowCard extends HTMLElement {
     async _loadForecastWeek() {
         const request = this._forecastWeekRequest = (this._forecastWeekRequest ?? 0) + 1;
         this._forecastWeek = this._pvWeekAverage = null;
-        const id = this._ent('solar_forecast_today'), pv = this._pvSources('stat_pv', 'third_party_pv_lifetime_energy').filter(source => this._has(source));
+        const id = this._ent('solar_forecast_today'), pv = this._pvSources('stat_pv', 'third_party_pv_lifetime_energy', true).filter(source => this._has(source));
         if (!id || !pv.length || typeof this._hass.callWS !== 'function' || typeof this._hass.callApi !== 'function') return;
         const zone = this._zone, today = zoneMidnight(Date.now(), zone), day = zoneParts(today, zone), from = zoneDate(zone, day.y, day.m, day.d - 7);
         try {
@@ -1876,7 +1880,7 @@ class SigenergyFlowCard extends HTMLElement {
     _tileSources(key, third, statKey, statThird) {
         const sources = (k, t) => {
             const own = this._ent(k);
-            return own && this._has(own) ? (t ? this._pvSources(k, t) : [own]).filter(id => this._has(id)) : [];
+            return own && this._has(own) ? (t ? this._pvSources(k, t, true) : [own]).filter(id => this._has(id)) : [];
         };
         const lifetime = sources(statKey, statThird);
         return lifetime.length ? { ids: lifetime } : { ids: sources(key, third), daily: true };
@@ -1960,7 +1964,7 @@ class SigenergyFlowCard extends HTMLElement {
         const pick = defs => defs.map(def => {
             if (!def.key) return 'residual';
             // Solar without its own counter would be the third-party inverter's alone, so it is left out instead.
-            const ids = def.third ? this._pvSources(def.key, def.third) : [this._ent(def.key)];
+            const ids = def.third ? this._pvSources(def.key, def.third, true) : [this._ent(def.key)];
             return this._has(ids[0]) ? [...new Set(ids.filter(id => this._has(id)))] : null;
         });
         const sourceIds = pick(STAT_SOURCES), sinkIds = pick(STAT_SINKS);
