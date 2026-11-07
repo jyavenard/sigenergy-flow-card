@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v71.3
+
+- The Solar forecast tile follows the solar forecast set in the Energy dashboard (Forecast.Solar or Solcast), so switching provider needs no change to the card. A `solar_forecast_today` set in the card's configuration still takes precedence.
+- **(Perf today)** uses the forecast's "remaining today" sensor with Solcast too, and estimates the time since that sensor last changed, so it follows the forecast more closely through the day.
+
 ## v71.2
 
 - An hour missing from the solar forecast is shown as a gap instead of no production: the forecast line on Power metrics no longer drops to zero, and the one in Solar performance no longer goes flat. Forecast.Solar currently loses one hour a day away from Europe (see v71.1).
