@@ -92,7 +92,8 @@ def overlay(name):
             f"href: 'data:image/avif;base64,{data}' }},")
 
 
-def garage(name):
+def garage_mask(name):
+    """The garage's inside as an alpha mask in the first photo's frame, and the garage image it came from."""
     house, pillar, extra = GARAGES[name]
     image = Image.open(ROOT / 'images' / name).convert('RGB')
     if image.width != WIDTH:
@@ -109,6 +110,11 @@ def garage(name):
     mask[:, pillar - 2:pillar] = np.asarray(area)[:, pillar - 2:pillar]
     for x0, y0, x1, y1 in extra:
         mask[y0:y1, x0:x1] = 255
+    return mask, image
+
+
+def garage(name):
+    mask, image = garage_mask(name)
     image.putalpha(Image.fromarray(mask))
     left, top, right, bottom = image.getbbox()
     buffer = io.BytesIO()
