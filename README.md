@@ -107,6 +107,7 @@ Between sunset and sunrise (or with `style: night`) the card switches to the nig
 - Tap **HOME** for a live breakdown of power usage across the entities you list, sorted from highest to lowest.
 - Tap **DC CHARGER** to adjust the DC charger's maximum charging power.
 - The **Energy statistics** diagram of where the period's energy came from and went (see [Energy statistics](#energy-statistics)).
+- Each part also works as a card of its own, for your own dashboard layout (see [Standalone cards](#standalone-cards)).
 - A ⚠ marks missing data: on the totals, the bars, the diagram's title and as a shaded band on Power metrics, wherever Home Assistant recorded no statistics for a counter (it was down, or the counter didn't exist yet). Hover or tap it for the dates. The energy of that time is either missing, or, when the inverter kept counting, added to the hour recording resumed. The card shows the gap rather than guessing what happened in it.
 
 ## Requirements
@@ -201,6 +202,38 @@ home_entities:
     name: Pool
     icon: mdi:pool
   - sensor.hot_water_power
+```
+
+### Standalone cards
+
+Each part of the card is also a card of its own, so you can lay out a dashboard yourself. They take the same options as the main card (`entities`, `sigenergy_backend`, `battery_present`, `theme`…).
+
+| Card | Shows |
+| --- | --- |
+| `custom:sigenergy-flow-scene` | The house with its live power flows, and the SOLAR, HOME, GRID and SigenStor details. |
+| `custom:sigenergy-flow-battery` | The battery level and stored energy. |
+| `custom:sigenergy-flow-statistics` | The Energy statistics totals: solar produced and forecast, grid, battery. |
+| `custom:sigenergy-flow-metrics` | Power metrics for a day, Energy metrics bars for longer periods. |
+| `custom:sigenergy-flow-sankey` | The Energy statistics diagram. |
+
+The tiles, metrics and Sankey cards have two more options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `period` | `day` | The period the card opens on: `day`, `last_7_days` (today and the 6 days before), `week`, `month`, `year` or `lifetime`. A current period moves on with the clock. The main card takes it too, except `last_7_days`. |
+| `show_period_picker` | `true` | Show the date and range picker. With `false`, the card stays on `period` and only shows its dates. |
+
+`title` sets the card's heading (`Energy statistics`, `Battery level`; the metrics card's follows its period). Each card only fetches the data it shows. The cards don't share their period: each has its own picker.
+
+```yaml
+type: custom:sigenergy-flow-sankey
+period: last_7_days
+```
+
+```yaml
+type: custom:sigenergy-flow-statistics
+period: month
+show_period_picker: false
 ```
 
 ### Style

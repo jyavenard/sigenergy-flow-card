@@ -187,10 +187,11 @@ const config = {
     ac_charger_soc: 'sensor.car_soc', ac_charger_range: 'sensor.car_range', show_grid_voltage: true,
 };
 
-async function mount(page, style) {
+// [tag] is the card's element, [extra] its config beyond the shared one.
+async function mount(page, style, tag = 'sigenergy-flow-card', extra = {}) {
     await page.setContent('<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:var(--pad);background:#0b0f14"></body></html>');
     await page.addScriptTag({ path: card, type: 'module' });
-    await page.evaluate(({ data, config, style }) => {
+    await page.evaluate(({ data, config, style, tag }) => {
         const hass = {
             states: data.states, language: 'en', locale: { language: 'en', time_zone: 'server' }, themes: {},
             config: { latitude: -33.87, longitude: 151.21, time_zone: 'Australia/Sydney', unit_system: { temperature: '°C' } },
@@ -212,11 +213,11 @@ async function mount(page, style) {
                 return Object.fromEntries(msg.statistic_ids.filter(id => rows[id]).map(id => [id, rows[id].filter(r => r.start >= Date.parse(msg.start_time) && r.start <= Date.parse(msg.end_time))]));
             },
         };
-        const el = document.createElement('sigenergy-flow-card');
+        const el = document.createElement(tag);
         el.setConfig({ ...config, ...(style ? { style } : {}) });
         el.hass = hass;
         document.body.append(el);
-    }, { data, config, style });
+    }, { data, config: { ...config, ...extra }, style, tag });
     await page.waitForTimeout(1500);
 }
 async function hoverChart(page, time) {
@@ -302,6 +303,32 @@ async function statClip(page, pad) {
                 if (shot.name === 'desktop') await hoverBar(page, 2);
                 await page.screenshot({ path: `${out}/${shot.name}-week.png`, fullPage: true });
             }
+            await context.close();
+        }
+    }
+    // The standalone cards, as a dashboard column would show them, and on a phone.
+    const solo = [
+        ['scene', 'sigenergy-flow-scene', {}],
+        ['battery', 'sigenergy-flow-battery', {}],
+        ['statistics', 'sigenergy-flow-statistics', {}],
+        ['statistics-month', 'sigenergy-flow-statistics', { period: 'month', show_period_picker: false }],
+        ['metrics', 'sigenergy-flow-metrics', { period: 'week' }],
+        ['sankey', 'sigenergy-flow-sankey', { period: 'last_7_days' }],
+    ];
+    for (const shot of [{ name: 'column', ...device(520, 400, 11, 1.6) }, shots[1]]) {
+        for (const [file, tag, extra] of solo) {
+            const context = await browser.newContext({ viewport: shot.viewport, deviceScaleFactor: shot.deviceScaleFactor, locale: shot.locale, timezoneId: shot.timezoneId, isMobile: !!shot.mobile, hasTouch: !!shot.mobile });
+            await context.clock.setFixedTime(NOW);
+            const page = await context.newPage();
+            page.on('pageerror', e => console.log('PAGEERROR', file, e.message));
+            page.on('console', m => m.type() === 'error' && console.log('CONSOLE', file, m.text()));
+            await mount(page, null, tag, extra);
+            await page.evaluate(pad => document.body.style.setProperty('--pad', `${pad}px`), shot.pad);
+            await page.waitForTimeout(500);
+            const height = Math.ceil(await page.evaluate(({ tag, pad }) => document.querySelector(tag).getBoundingClientRect().bottom + pad, { tag, pad: shot.pad }));
+            await page.setViewportSize({ width: shot.viewport.width, height: Math.max(height, shot.viewport.height) });
+            await page.waitForTimeout(400);
+            await page.screenshot({ path: `${out}/${shot.name}-solo-${file}.png`, clip: { x: 0, y: 0, width: shot.viewport.width, height } });
             await context.close();
         }
     }

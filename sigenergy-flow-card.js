@@ -284,6 +284,13 @@ const STAT_AFFINITY = [
     [0.0247, 0.0192, 0.1678, 0.0631, 0],
 ];
 const STAT_RANGES = ['Day', 'Week', 'Month', 'Year', 'Lifetime'];
+// The standalone cards also have a rolling Last 7 days, today included.
+const SOLO_RANGES = ['Day', 'Last 7 days', 'Week', 'Month', 'Year', 'Lifetime'];
+const PERIODS = { day: 'Day', last_7_days: 'Last 7 days', week: 'Week', month: 'Month', year: 'Year', lifetime: 'Lifetime' };
+// The ranges whose energy metrics have a bar per day.
+const DAILY_BARS = new Set(['Week', 'Last 7 days', 'Month']);
+// The card's parts; the standalone cards each show one (SOLO_CARDS).
+const PARTS = ['scene', 'battery', 'tiles', 'metrics', 'sankey'];
 // Energy metrics bars, with the names in Sigenergy's app: [at] is the index in STAT_SOURCES (for [source]) or
 // STAT_SINKS, stacked in this order from 0 outwards. Charging and export are darker than discharging and import.
 const BAR_SERIES = [
@@ -353,7 +360,7 @@ const weatherIcon = (condition, day) => {
     if (!icon) return '';
     return `<svg viewBox="0 0 64 64" aria-hidden="true">${WX_DEFS}${(day ? icon.day : icon.night ?? icon.day).map(part => WX_PARTS[part]).join('')}</svg>`;
 };
-const STAT_PERIODS = { Day: '5minute', Week: 'hour', Month: 'hour', Year: 'day', Lifetime: 'day' };
+const STAT_PERIODS = { Day: '5minute', Week: 'hour', 'Last 7 days': 'hour', Month: 'hour', Year: 'day', Lifetime: 'day' };
 
 // Splits one interval's energy into a sources x consumers matrix with those totals (iterative proportional
 // fitting from STAT_AFFINITY), so that sums over many intervals keep when each flow happened.
@@ -405,6 +412,7 @@ const statWindow = (range, date, zone) => {
     const { y, m, d } = zoneParts(date, zone), at = (...fields) => zoneDate(zone, ...fields);
     if (range === 'Day') return [at(y, m, d), at(y, m, d + 1)];
     if (range === 'Week') { const start = d - (new Date(Date.UTC(y, m, d)).getUTCDay() + 6) % 7; return [at(y, m, start), at(y, m, start + 7)]; }
+    if (range === 'Last 7 days') return [at(y, m, d - 6), at(y, m, d + 1)];
     if (range === 'Month') return [at(y, m, 1), at(y, m + 1, 1)];
     if (range === 'Year') return [at(y, 0, 1), at(y + 1, 0, 1)];
     return [at(2015, 0, 1), new Date()];
@@ -412,14 +420,14 @@ const statWindow = (range, date, zone) => {
 const statStep = (range, date, direction, zone) => {
     const { y, m, d } = zoneParts(date, zone);
     if (range === 'Day') return zoneDate(zone, y, m, d + direction);
-    if (range === 'Week') return zoneDate(zone, y, m, d + 7 * direction);
+    if (range === 'Week' || range === 'Last 7 days') return zoneDate(zone, y, m, d + 7 * direction);
     if (range === 'Month') return zoneDate(zone, y, m + direction, 1);
     return zoneDate(zone, y + direction, 0, 1);
 };
 const statLabel = (range, date, zone) => {
     const [start, end] = statWindow(range, date, zone), day = d => d.toLocaleDateString('en-CA', { timeZone: zone });
     if (range === 'Day') return day(start);
-    if (range === 'Week') return `${day(start)} – ${day(new Date(end - 1))}`;
+    if (range === 'Week' || range === 'Last 7 days') return `${day(start)} – ${day(new Date(end - 1))}`;
     if (range === 'Month') return day(start).slice(0, 7);
     return range === 'Year' ? day(start).slice(0, 4) : 'Lifetime';
 };
@@ -438,15 +446,25 @@ const lowerStyle = (({ left, columns: [first, second], bottom }) =>
 const placeAt = ([x, y, edge]) => `left:${(x / SCENE.width * 100).toFixed(3)}%;${edge}:${((edge === 'top' ? y : SCENE.height - y) / SCENE.height * 100).toFixed(3)}%`;
 
 class SigenergyFlowCard extends HTMLElement {
+    // The parts this card shows, and its defaults over the main card's; the standalone cards change both.
+    static tag = 'sigenergy-flow-card';
+    static parts = PARTS;
+    static defaults = {};
+    static size = 12;
     static getStubConfig() {
         return {
-            type: 'custom:sigenergy-flow-card'
+            type: `custom:${this.tag}`
         };
+    }
+    get _solo() {
+        return this.constructor.parts.length === 1;
     }
     setConfig(config) {
         const backend = config.sigenergy_backend ?? 'sigenergy_local_modbus';
         if (!Object.hasOwn(BACKENDS, backend)) throw new Error(`Unknown sigenergy_backend "${backend}". Valid values: ${Object.keys(BACKENDS).join(', ')}`);
         if (config.theme !== undefined && !['auto', 'light', 'dark'].includes(config.theme)) throw new Error(`Unknown theme "${config.theme}". Valid values: auto, light, dark`);
+        const periods = Object.keys(PERIODS).filter(period => this._solo || PERIODS[period] !== 'Last 7 days');
+        if (config.period !== undefined && !periods.includes(config.period)) throw new Error(`Unknown period "${config.period}". Valid values: ${periods.join(', ')}`);
         const entities = config.entities ?? {};
         if (typeof entities !== 'object' || Array.isArray(entities)) throw new Error('entities must be a mapping of key: entity_id');
         for (const [key, value] of Object.entries(entities)) {
@@ -467,10 +485,14 @@ class SigenergyFlowCard extends HTMLElement {
             show_forecast: true,
             theme: 'auto',
             debug_energy_statistics: false,
+            period: 'day',
+            show_period_picker: true,
+            ...this.constructor.defaults,
             ...config,
             sigenergy_backend: backend,
         };
         this._backend = BACKENDS[backend];
+        this._shown = new Set(this.constructor.parts);
         // Each string is a name, which reads the backend's pattern (sensor.sigen_inverter_pv<n>_* for Sigenergy Local
         // Modbus, sensor.sigen_0_inverter_1_pv<n>_* for sigenergy2mqtt), or an object
         // { name, voltage, current, power, daily_energy, accumulated_energy } that uses only the keys it lists.
@@ -492,19 +514,19 @@ class SigenergyFlowCard extends HTMLElement {
         this._update();
         this._updateSunTimes();
         this._updateScene();
-        this._updateWeather();
+        if (this._shown.has('scene')) this._updateWeather();
         const today = new Date().toLocaleDateString('en-CA', { timeZone: this._zone });
         if (!previous || this._day !== today) {
             this._day = today;
             // A view that showed the current day, week… moves on with the clock.
             if (this._stat?.follow) this._stat.date = new Date();
-            this._loadForecast();
-            this._loadForecastWeek();
+            if (this._shown.has('tiles') || this._shown.has('metrics')) this._loadForecast();
+            if (this._shown.has('tiles')) this._loadForecastWeek();
             this._loadView();
         }
     }
     getCardSize() {
-        return 12;
+        return this.constructor.size;
     }
     _build() {
         if (this._flowFrame) { cancelAnimationFrame(this._flowFrame); this._flowFrame = null; }
@@ -519,6 +541,114 @@ class SigenergyFlowCard extends HTMLElement {
         const head = (id, title) => `<div class="dlg-head"><h2 id="${id}Title">${title}</h2><button title="Close" aria-label="Close">✕</button></div>`;
         const comets = id => COMET_LAYERS.map(() => `<path class="comet" d="${FLOWS[id]}"/>`).join('');
         const flows = Object.keys(FLOWS).map(id => `<g class="flow" id="${id}"><path class="wire" d="${FLOWS[id]}"/><path class="glow" d="${FLOWS[id]}"/>${comets(id)}</g>`).join('');
+        const fixed = this.config.show_period_picker ? '' : ' hidden', solo = this._solo, [part] = this.constructor.parts;
+        const picker = `<div class="statbar${fixed && ' fixed'}"><div class="statnav"><button id="statPrev" title="Previous" aria-label="Previous"${fixed}>‹</button><span id="statDate">—</span><button id="statNext" title="Next" aria-label="Next"${fixed}>›</button></div><select class="statrange" id="statRange" aria-label="Range"${fixed}>${(solo ? SOLO_RANGES : STAT_RANGES).map(range => `<option>${range}</option>`).join('')}</select></div>`;
+        const scene = `<section class="scene" id="scene"><div class="plane" id="plane">
+        <svg viewBox="0 0 ${SCENE.width} ${SCENE.height}" preserveAspectRatio="none" aria-label="Energy flow between equipment">
+          <defs>
+            <linearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fade" stop-opacity=".6"/><stop offset=".5" class="fade" stop-opacity=".35"/><stop offset="1" class="fade" stop-opacity="0"/></linearGradient>
+            <linearGradient id="fadeBottom" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fade" stop-opacity="0"/><stop offset=".45" class="fade" stop-opacity=".4"/><stop offset="1" class="fade" stop-opacity=".65"/></linearGradient>
+            <linearGradient id="fadeLeft" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="fade" style="stop-opacity:var(--fade-left)"/><stop offset="1" class="fade" stop-opacity="0"/></linearGradient>
+          </defs>
+          <image class="photo" href="${ARTWORK['house_day.png'].href}" x="0" y="${-PHOTO.bleed}" width="${SCENE.width}" height="${SCENE.height + 2 * PHOTO.bleed}" preserveAspectRatio="none"/>
+          <image id="chargerArt" display="none" href="${ARTWORK['charger_day.png'].href}" x="${ARTWORK['charger_day.png'].at[0]}" y="${PHOTO.top + ARTWORK['charger_day.png'].at[1]}" width="${ARTWORK['charger_day.png'].size[0]}" height="${ARTWORK['charger_day.png'].size[1]}" preserveAspectRatio="none"/>
+          <rect x="0" y="${-PHOTO.bleed}" width="${PHOTO.width}" height="${PHOTO.bleed + FADE.topEnd}" class="fadeRect" fill="url(#fadeTop)"/>
+          <rect x="0" y="${FADE.bottomStart}" width="${PHOTO.width}" height="${SCENE.height - FADE.bottomStart + PHOTO.bleed}" class="fadeRect" fill="url(#fadeBottom)"/>
+          <rect x="0" y="${-PHOTO.bleed}" width="520" height="${SCENE.height + 2 * PHOTO.bleed}" fill="url(#fadeLeft)"/>
+          ${LEADERS.map((d, i) => battery || i !== 2 ? `<path class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>` : '').join('')}
+          ${flows}
+        </svg>
+        <div class="node weather" id="weather" hidden><button id="weatherButton" title="Show the weather forecast"><span id="weatherIcon"></span><strong id="weatherTemp"></strong></button></div>
+        <div class="node lead" style="${placeAt(READINGS.pv)}"><button id="pvButton" title="Show PV string details"><strong id="pv">—</strong><small>SOLAR ›</small></button></div>
+        <div class="node lead" style="${placeAt(READINGS.home)}">${this.config.home_entities.length
+            ? `<button id="homeButton" title="Show home power usage"><strong id="home">—</strong><small>HOME ›</small></button>`
+            : `<strong id="home">—</strong><small>HOME</small>`}</div>
+        <div class="lower" style="${lowerStyle}">
+          ${battery ? '<div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>' : ''}
+          <div class="node"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
+        </div>
+        <div class="sidecol" id="chargers">
+          <div class="node" id="acNode"><strong id="ac">—</strong><small>AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
+          <div class="node" id="dcNode"><button id="dcButton" title="Adjust DC charging power limit"><strong id="dc">—</strong><small>DC CHARGER<span id="dcGear"> ⚙</span></small><em id="dcSoc"></em><em id="dcLifetime" class="lifetime stack"></em></button></div>
+        </div>
+      </div></section>`;
+        const batteryLevel = `<button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button>`;
+        const tiles = `<div class="stats"${battery ? '' : ' style="grid-template-rows:repeat(2,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px)"'}>
+          ${DAILY_TILES.filter(([, key]) => battery || !BATTERY_KEYS.has(key)).map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}<span class="gap" id="${id}Gap" title="Missing data" hidden>⚠</span></small><b id="${id}">—</b></button>`
+              + (id === 'dayPv' ? '<button class="stat" id="forecastStat" style="grid-row-start:1" hidden><small>Solar forecast</small><b id="dayForecast">—</b><small id="forecastPerf"></small></button>' : '')).join('')}
+        </div>`;
+        const metrics = `<div class="legend" id="legendPower">${legend}</div><div class="legend" id="legendBars" hidden></div>
+      <div class="chart-wrap"><svg id="chart"></svg><div class="tip" id="chartTip" hidden></div><div class="busy" id="chartBusy" hidden></div></div><div class="sun-times" id="sunTimes"><span id="sunrise">Sunrise —</span><span id="sunset">Sunset —</span></div>`;
+        const sankey = `<div class="chart-wrap"><svg id="statChart" role="group" aria-label="Energy flows, estimated"></svg><div class="busy" id="statBusy" hidden></div></div><div class="statsum" id="statSummary" hidden></div><div class="statcards" id="statCards"></div><pre class="muted" id="statDebug" hidden></pre><div class="statdata" id="statData" hidden><button id="statCopy">Copy the recorded data</button><a id="statDownload" download="sigenergy-statistics.json">Download (JSON)</a><span class="muted" id="statCopied"></span></div>`;
+        const dialogs = {
+            pvDialog: `
+    <dialog id="pvDialog" aria-labelledby="pvTitle"><div class="dlg">
+      ${head('pv', 'PV Strings')}
+      <section class="panel"><h3>PV real time info</h3><div class="pv-wrap"><table class="pv-table">
+        <thead><tr><th></th><th>Voltage<br>(V)</th><th>Current<br>(A)</th><th>Power<br>(kW)</th><th>Today<br>(kWh)</th><th>Lifetime<br>(kWh)</th></tr></thead>
+        <tbody>${this._pv.map(({ name }, i) => `<tr id="pvRow${i}"><th scope="row"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i></th>${['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'].map(k => `<td id="pv${i}_${k}">—</td>`).join('')}</tr>`).join('')}</tbody>
+        <tfoot><tr id="pvThirdRow" hidden><th scope="row"><i class="dot" style="background:var(--pv-third)"></i>Third-party PV</th><td></td><td></td><td id="pvThird_power">—</td><td id="pvThird_daily_energy">—</td><td id="pvThird_accumulated_energy">—</td></tr><tr><th scope="row">Total</th><td></td><td></td><td id="pvTotal_power">—</td><td id="pvTotal_daily_energy">—</td><td id="pvTotal_accumulated_energy">—</td></tr></tfoot>
+      </table></div><div class="muted" id="pvLifetimeNote" hidden>String lifetimes are counted by the integration and may miss past production. Total is the inverter's own counter.</div></section>
+      <section class="panel"><div class="charthead"><h3>PV power (kW) · Today</h3><span class="muted" id="pvChartStatus"></span></div>
+      <div class="legend">${this._pv.map(({ name }, i) => `<span id="pvLegend${i}"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i></span>`).join('')}<span id="pvLegendThird" hidden><i class="dot" style="background:var(--pv-third)"></i>Third-party PV</span></div>
+      <div class="chart-wrap"><svg id="pvChart"></svg><div class="tip" id="pvChartTip" hidden></div></div></section>
+    </div></dialog>`,
+            gridDialog: `
+    <dialog id="gridDialog" aria-labelledby="gridTitle"><div class="dlg">
+      ${head('grid', 'Grid')}
+      <section class="panel"><h3>Grid real time info</h3><div class="pv-wrap"><table class="pv-table">
+        <thead><tr><th></th>${GRID_KINDS.map(kind => `<th data-column="${kind}">${{ voltage: 'Voltage', current: 'Current', power: 'Power', active_power: 'Grid' }[kind]}<br>(${GRID_UNITS[kind]})</th>`).join('')}</tr></thead>
+        <tbody>${GRID_PHASES.map(phase => `<tr id="gridRow_${phase}"><th scope="row">Phase ${phase.toUpperCase()}</th>${GRID_KINDS.map(kind => `<td class="pick" data-column="${kind}"><button id="grid_${phase}_${kind}" data-phase="${phase}" data-kind="${kind}">—</button></td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div><div class="muted" id="gridNote">Grid: the grid sensor's active power, positive while importing.</div><button class="gridpf" id="gridPf" data-kind="power_factor">Power factor <span id="gridPfValue">—</span></button></section>
+      <section class="panel"><div class="charthead"><h3 id="gridChartTitle"></h3><span class="muted" id="gridChartStatus"></span></div>
+      <div class="chart-wrap"><svg id="gridChart"></svg><div class="tip" id="gridChartTip" hidden></div></div></section>
+    </div></dialog>`,
+            energyDialog: `
+    <dialog id="energyDialog" aria-labelledby="energyTitle"><div class="dlg">
+      ${head('energy', 'Battery energy')}
+      <section class="panel"><div class="home-total"><span>Stored now</span><b id="energyNow">—</b></div><div class="muted" id="energyOf"></div></section>
+      <section class="panel"><div class="charthead"><h3>Stored energy (kWh) · Today</h3><span class="muted" id="energyChartStatus"></span></div>
+      <div class="chart-wrap"><svg id="energyChart"></svg><div class="tip" id="energyChartTip" hidden></div></div></section>
+    </div></dialog>`,
+            socDialog: `
+    <dialog id="socDialog" aria-labelledby="socTitle"><div class="dlg">
+      ${head('soc', 'Battery level')}
+      <section class="panel"><div class="home-total"><span>State of charge</span><b id="socNow">—</b></div></section>
+      <section class="panel"><div class="charthead"><h3>State of charge (%) · Today</h3><span class="muted" id="socChartStatus"></span></div>
+      <div class="chart-wrap"><svg id="socChart"></svg><div class="tip" id="socChartTip" hidden></div></div></section>
+    </div></dialog>`,
+            homeDialog: `
+    <dialog id="homeDialog" aria-labelledby="homeTitle"><div class="dlg">
+      ${head('home', 'Home power usage')}
+      <section class="panel"><div class="home-total"><span>Home consumption</span><b id="homeTotal">—</b></div><div class="muted" id="homeMeasured"></div></section>
+      <section class="panel"><div class="loads" id="homeLoads"></div></section>
+    </div></dialog>`,
+            forecastDialog: `
+    <dialog id="forecastDialog" aria-labelledby="forecastTitle"><div class="dlg">
+      ${head('forecast', 'Solar performance')}
+      <section class="panel"><div class="home-total"><span>Performance today</span><b id="forecastPerfNow">—</b></div><div class="muted" id="forecastSummary"></div><button class="link muted" id="forecastEntity" hidden>Forecast details ›</button></section>
+      <section class="panel"><div class="charthead"><h3>Solar produced and forecast (kWh) · Today</h3><span class="muted" id="forecastChartStatus"></span></div>
+      <div class="legend"><span><i class="dot" style="background:var(--c-solar)"></i>Produced</span><span><i class="dot" style="background:var(--sub)"></i>Forecast</span></div>
+      <div class="chart-wrap"><svg id="forecastChart"></svg><div class="tip" id="forecastChartTip" hidden></div></div></section>
+    </div></dialog>`,
+        };
+        // A standalone card is its part under a header that holds what the panel's heading held.
+        const header = (heading, sub = '', bar = picker) => `<div class="header"><div class="title"><div class="heading">${heading}</div>${sub}</div>${bar}</div>`;
+        const body = !solo ? `<div class="header"><div class="title"><div class="heading" id="heading"></div><div class="sub">Live power flow</div></div>${picker}<div class="sub" id="stamp"></div></div>
+      <div class="frame"><div class="layout">${scene}<aside class="sidebar fill">${battery ? `<section class="panel"><h3>Battery level</h3>${batteryLevel}</section>` : ''}
+        <section class="panel daypanel"><h3>Energy statistics</h3>${tiles}</section>
+      </aside></div></div>
+      <section class="panel chartpanel"><div class="charthead"><h3 id="chartTitle">Power metrics · Today</h3><span class="muted" id="chartStatus">Loading history…</span></div>
+      ${metrics}</section>
+      <section class="panel statpanel" id="statPanel"${this.config.show_energy_statistics ? '' : ' hidden'}><div class="charthead"><h3>Energy statistics<button class="gap" id="statGap" title="Missing data" hidden>⚠</button></h3><span class="muted" id="statStatus">Loading…</span></div>
+      ${sankey}</section>` : {
+            scene: () => header('<span id="heading"></span>', '<div class="sub">Live power flow</div>', '<div class="sub" id="stamp"></div>') + scene,
+            battery: () => header('<span id="heading"></span>', '', '') + (battery ? batteryLevel : ''),
+            tiles: () => header('<span id="heading"></span>') + tiles,
+            metrics: () => header(`<span id="heading"></span><span id="chartTitle"${this.config.title ? ' hidden' : ''}>Power metrics · Today</span>`, '<div class="sub" id="chartStatus">Loading history…</div>') + metrics,
+            sankey: () => header('<span id="heading"></span><button class="gap" id="statGap" title="Missing data" hidden>⚠</button>', '<div class="sub" id="statStatus">Loading…</div>') + sankey,
+        }[part]();
+        const dialogIds = !solo ? Object.keys(dialogs) : { scene: ['pvDialog', 'gridDialog', 'socDialog', 'homeDialog'], battery: ['energyDialog'], tiles: ['forecastDialog'] }[part] ?? [];
         this.shadowRoot.innerHTML = `<style>
       :host{display:block;color:var(--fg);font-family:Roboto,Arial,sans-serif;${styleVars('night')}}
       :host([light]){${styleVars('day')}}
@@ -570,6 +700,7 @@ class SigenergyFlowCard extends HTMLElement {
       .statpanel{margin-top:14px}.statbar{grid-area:bar;display:flex;gap:10px;align-items:center;justify-content:flex-end}
       .statnav{display:flex;align-items:center;gap:4px;min-width:0;background:var(--tile);border-radius:10px;padding:3px}.statnav>span{flex:0 1 auto;min-width:170px;text-align:center;font-size:14px;font-variant-numeric:tabular-nums}.statnav>span>span{white-space:nowrap}
       .statnav button{all:unset;cursor:pointer;width:34px;height:30px;text-align:center;font-size:20px;line-height:30px;border-radius:8px;color:var(--icon)}.statnav button:hover{background:var(--tile-hover)}.statnav button[disabled]{opacity:.3;cursor:default}.statnav button:focus-visible,.statrange:focus-visible{outline:2px solid #71d3d1}
+      .statbar.fixed .statnav{background:none;padding:0}.statbar.fixed .statnav>span{min-width:0;color:var(--sub)}
       .statrange{appearance:none;-webkit-appearance:none;background:var(--tile);color:var(--fg);border:1px solid var(--panel-line);border-radius:10px;padding:7px 28px 7px 12px;font:inherit;font-size:14px;cursor:pointer}
       #statChart{width:100%;display:block}.skn{cursor:pointer;transition:opacity .2s}.skn:focus-visible{outline:none}.skn:focus-visible rect.skbox{stroke:#71d3d1;stroke-width:2}.skr{opacity:.5;transition:opacity .2s}.skr.on{opacity:.8}.skr.dim{opacity:.1}.skn.dim{opacity:.3}
       .sktext{font-family:inherit;fill:#142024;pointer-events:none}.skpct{font-family:inherit;font-size:11px;fill:var(--fg);pointer-events:none;paint-order:stroke;stroke:var(--panel);stroke-width:3px}
@@ -614,102 +745,19 @@ class SigenergyFlowCard extends HTMLElement {
       @container (max-width:680px){.header{grid-template-areas:'title stamp' 'bar bar'}.statbar{justify-content:space-between;margin-top:8px}}
       @container (max-width:420px){.statnav>span{min-width:0}}
     </style>
-    <ha-card><div class="header"><div class="title"><div class="heading" id="heading"></div><div class="sub">Live power flow</div></div><div class="statbar"><div class="statnav"><button id="statPrev" title="Previous" aria-label="Previous">‹</button><span id="statDate">—</span><button id="statNext" title="Next" aria-label="Next">›</button></div><select class="statrange" id="statRange" aria-label="Range">${STAT_RANGES.map(range => `<option>${range}</option>`).join('')}</select></div><div class="sub" id="stamp"></div></div>
-      <div class="frame"><div class="layout"><section class="scene" id="scene"><div class="plane" id="plane">
-        <svg viewBox="0 0 ${SCENE.width} ${SCENE.height}" preserveAspectRatio="none" aria-label="Energy flow between equipment">
-          <defs>
-            <linearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fade" stop-opacity=".6"/><stop offset=".5" class="fade" stop-opacity=".35"/><stop offset="1" class="fade" stop-opacity="0"/></linearGradient>
-            <linearGradient id="fadeBottom" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fade" stop-opacity="0"/><stop offset=".45" class="fade" stop-opacity=".4"/><stop offset="1" class="fade" stop-opacity=".65"/></linearGradient>
-            <linearGradient id="fadeLeft" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="fade" style="stop-opacity:var(--fade-left)"/><stop offset="1" class="fade" stop-opacity="0"/></linearGradient>
-          </defs>
-          <image class="photo" href="${ARTWORK['house_day.png'].href}" x="0" y="${-PHOTO.bleed}" width="${SCENE.width}" height="${SCENE.height + 2 * PHOTO.bleed}" preserveAspectRatio="none"/>
-          <image id="chargerArt" display="none" href="${ARTWORK['charger_day.png'].href}" x="${ARTWORK['charger_day.png'].at[0]}" y="${PHOTO.top + ARTWORK['charger_day.png'].at[1]}" width="${ARTWORK['charger_day.png'].size[0]}" height="${ARTWORK['charger_day.png'].size[1]}" preserveAspectRatio="none"/>
-          <rect x="0" y="${-PHOTO.bleed}" width="${PHOTO.width}" height="${PHOTO.bleed + FADE.topEnd}" class="fadeRect" fill="url(#fadeTop)"/>
-          <rect x="0" y="${FADE.bottomStart}" width="${PHOTO.width}" height="${SCENE.height - FADE.bottomStart + PHOTO.bleed}" class="fadeRect" fill="url(#fadeBottom)"/>
-          <rect x="0" y="${-PHOTO.bleed}" width="520" height="${SCENE.height + 2 * PHOTO.bleed}" fill="url(#fadeLeft)"/>
-          ${LEADERS.map((d, i) => battery || i !== 2 ? `<path class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>` : '').join('')}
-          ${flows}
-        </svg>
-        <div class="node weather" id="weather" hidden><button id="weatherButton" title="Show the weather forecast"><span id="weatherIcon"></span><strong id="weatherTemp"></strong></button></div>
-        <div class="node lead" style="${placeAt(READINGS.pv)}"><button id="pvButton" title="Show PV string details"><strong id="pv">—</strong><small>SOLAR ›</small></button></div>
-        <div class="node lead" style="${placeAt(READINGS.home)}">${this.config.home_entities.length
-            ? `<button id="homeButton" title="Show home power usage"><strong id="home">—</strong><small>HOME ›</small></button>`
-            : `<strong id="home">—</strong><small>HOME</small>`}</div>
-        <div class="lower" style="${lowerStyle}">
-          ${battery ? '<div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>' : ''}
-          <div class="node"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
-        </div>
-        <div class="sidecol" id="chargers">
-          <div class="node" id="acNode"><strong id="ac">—</strong><small>AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
-          <div class="node" id="dcNode"><button id="dcButton" title="Adjust DC charging power limit"><strong id="dc">—</strong><small>DC CHARGER<span id="dcGear"> ⚙</span></small><em id="dcSoc"></em><em id="dcLifetime" class="lifetime stack"></em></button></div>
-        </div>
-      </div></section><aside class="sidebar fill">${battery ? `<section class="panel"><h3>Battery level</h3><button class="link" id="socLevel"><strong id="socLarge">—</strong><div class="socbar"><div class="socfill" id="socFill"></div></div></button><button class="link muted" id="capacity" title="Show stored energy today"><span id="capacityText"></span></button></section>` : ''}
-        <section class="panel daypanel"><h3>Energy statistics</h3><div class="stats"${battery ? '' : ' style="grid-template-rows:repeat(2,minmax(10px,1fr) auto auto auto minmax(10px,1fr) 9px)"'}>
-          ${DAILY_TILES.filter(([, key]) => battery || !BATTERY_KEYS.has(key)).map(([id, , label], i) => `<button class="stat" style="grid-row-start:${6 * Math.floor((i && i + 1) / 2) + 1}"><small>${label}<span class="gap" id="${id}Gap" title="Missing data" hidden>⚠</span></small><b id="${id}">—</b></button>`
-              + (id === 'dayPv' ? '<button class="stat" id="forecastStat" style="grid-row-start:1" hidden><small>Solar forecast</small><b id="dayForecast">—</b><small id="forecastPerf"></small></button>' : '')).join('')}
-        </div></section>
-      </aside></div></div>
-      <section class="panel chartpanel"><div class="charthead"><h3 id="chartTitle">Power metrics · Today</h3><span class="muted" id="chartStatus">Loading history…</span></div>
-      <div class="legend" id="legendPower">${legend}</div><div class="legend" id="legendBars" hidden></div>
-      <div class="chart-wrap"><svg id="chart"></svg><div class="tip" id="chartTip" hidden></div><div class="busy" id="chartBusy" hidden></div></div><div class="sun-times" id="sunTimes"><span id="sunrise">Sunrise —</span><span id="sunset">Sunset —</span></div></section>
-      <section class="panel statpanel" id="statPanel"${this.config.show_energy_statistics ? '' : ' hidden'}><div class="charthead"><h3>Energy statistics<button class="gap" id="statGap" title="Missing data" hidden>⚠</button></h3><span class="muted" id="statStatus">Loading…</span></div>
-      <div class="chart-wrap"><svg id="statChart" role="group" aria-label="Energy flows, estimated"></svg><div class="busy" id="statBusy" hidden></div></div><div class="statsum" id="statSummary" hidden></div><div class="statcards" id="statCards"></div><pre class="muted" id="statDebug" hidden></pre><div class="statdata" id="statData" hidden><button id="statCopy">Copy the recorded data</button><a id="statDownload" download="sigenergy-statistics.json">Download (JSON)</a><span class="muted" id="statCopied"></span></div></section>
-    </ha-card><div class="note" id="gapNote" role="status" hidden></div>
-    <dialog id="pvDialog" aria-labelledby="pvTitle"><div class="dlg">
-      ${head('pv', 'PV Strings')}
-      <section class="panel"><h3>PV real time info</h3><div class="pv-wrap"><table class="pv-table">
-        <thead><tr><th></th><th>Voltage<br>(V)</th><th>Current<br>(A)</th><th>Power<br>(kW)</th><th>Today<br>(kWh)</th><th>Lifetime<br>(kWh)</th></tr></thead>
-        <tbody>${this._pv.map(({ name }, i) => `<tr id="pvRow${i}"><th scope="row"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i></th>${['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'].map(k => `<td id="pv${i}_${k}">—</td>`).join('')}</tr>`).join('')}</tbody>
-        <tfoot><tr id="pvThirdRow" hidden><th scope="row"><i class="dot" style="background:var(--pv-third)"></i>Third-party PV</th><td></td><td></td><td id="pvThird_power">—</td><td id="pvThird_daily_energy">—</td><td id="pvThird_accumulated_energy">—</td></tr><tr><th scope="row">Total</th><td></td><td></td><td id="pvTotal_power">—</td><td id="pvTotal_daily_energy">—</td><td id="pvTotal_accumulated_energy">—</td></tr></tfoot>
-      </table></div><div class="muted" id="pvLifetimeNote" hidden>String lifetimes are counted by the integration and may miss past production. Total is the inverter's own counter.</div></section>
-      <section class="panel"><div class="charthead"><h3>PV power (kW) · Today</h3><span class="muted" id="pvChartStatus"></span></div>
-      <div class="legend">${this._pv.map(({ name }, i) => `<span id="pvLegend${i}"><i class="dot" style="background:${PV_COLORS[i % PV_COLORS.length]}"></i></span>`).join('')}<span id="pvLegendThird" hidden><i class="dot" style="background:var(--pv-third)"></i>Third-party PV</span></div>
-      <div class="chart-wrap"><svg id="pvChart"></svg><div class="tip" id="pvChartTip" hidden></div></div></section>
-    </div></dialog>
-    <dialog id="gridDialog" aria-labelledby="gridTitle"><div class="dlg">
-      ${head('grid', 'Grid')}
-      <section class="panel"><h3>Grid real time info</h3><div class="pv-wrap"><table class="pv-table">
-        <thead><tr><th></th>${GRID_KINDS.map(kind => `<th data-column="${kind}">${{ voltage: 'Voltage', current: 'Current', power: 'Power', active_power: 'Grid' }[kind]}<br>(${GRID_UNITS[kind]})</th>`).join('')}</tr></thead>
-        <tbody>${GRID_PHASES.map(phase => `<tr id="gridRow_${phase}"><th scope="row">Phase ${phase.toUpperCase()}</th>${GRID_KINDS.map(kind => `<td class="pick" data-column="${kind}"><button id="grid_${phase}_${kind}" data-phase="${phase}" data-kind="${kind}">—</button></td>`).join('')}</tr>`).join('')}</tbody>
-      </table></div><div class="muted" id="gridNote">Grid: the grid sensor's active power, positive while importing.</div><button class="gridpf" id="gridPf" data-kind="power_factor">Power factor <span id="gridPfValue">—</span></button></section>
-      <section class="panel"><div class="charthead"><h3 id="gridChartTitle"></h3><span class="muted" id="gridChartStatus"></span></div>
-      <div class="chart-wrap"><svg id="gridChart"></svg><div class="tip" id="gridChartTip" hidden></div></div></section>
-    </div></dialog>
-    <dialog id="energyDialog" aria-labelledby="energyTitle"><div class="dlg">
-      ${head('energy', 'Battery energy')}
-      <section class="panel"><div class="home-total"><span>Stored now</span><b id="energyNow">—</b></div><div class="muted" id="energyOf"></div></section>
-      <section class="panel"><div class="charthead"><h3>Stored energy (kWh) · Today</h3><span class="muted" id="energyChartStatus"></span></div>
-      <div class="chart-wrap"><svg id="energyChart"></svg><div class="tip" id="energyChartTip" hidden></div></div></section>
-    </div></dialog>
-    <dialog id="socDialog" aria-labelledby="socTitle"><div class="dlg">
-      ${head('soc', 'Battery level')}
-      <section class="panel"><div class="home-total"><span>State of charge</span><b id="socNow">—</b></div></section>
-      <section class="panel"><div class="charthead"><h3>State of charge (%) · Today</h3><span class="muted" id="socChartStatus"></span></div>
-      <div class="chart-wrap"><svg id="socChart"></svg><div class="tip" id="socChartTip" hidden></div></div></section>
-    </div></dialog>
-    <dialog id="homeDialog" aria-labelledby="homeTitle"><div class="dlg">
-      ${head('home', 'Home power usage')}
-      <section class="panel"><div class="home-total"><span>Home consumption</span><b id="homeTotal">—</b></div><div class="muted" id="homeMeasured"></div></section>
-      <section class="panel"><div class="loads" id="homeLoads"></div></section>
-    </div></dialog>
-    <dialog id="forecastDialog" aria-labelledby="forecastTitle"><div class="dlg">
-      ${head('forecast', 'Solar performance')}
-      <section class="panel"><div class="home-total"><span>Performance today</span><b id="forecastPerfNow">—</b></div><div class="muted" id="forecastSummary"></div><button class="link muted" id="forecastEntity" hidden>Forecast details ›</button></section>
-      <section class="panel"><div class="charthead"><h3>Solar produced and forecast (kWh) · Today</h3><span class="muted" id="forecastChartStatus"></span></div>
-      <div class="legend"><span><i class="dot" style="background:var(--c-solar)"></i>Produced</span><span><i class="dot" style="background:var(--sub)"></i>Forecast</span></div>
-      <div class="chart-wrap"><svg id="forecastChart"></svg><div class="tip" id="forecastChartTip" hidden></div></div></section>
-    </div></dialog>`;
+    <ha-card>${body}
+    </ha-card><div class="note" id="gapNote" role="status" hidden></div>${dialogIds.map(id => dialogs[id]).join('')}`;
         this.root = this.shadowRoot;
         this._id('heading').textContent = [this.config.title, this.config.name].filter(Boolean).join(' · ');
         // The PV string names come from the card config, so they go in as text rather than through the template.
-        this._pv.forEach(({ name }, i) => {
+        if (this._id('pvDialog')) this._pv.forEach(({ name }, i) => {
             this._id(`pvRow${i}`).querySelector('th').append(String(name));
             this._id(`pvLegend${i}`).append(String(name));
         });
         this._sceneFile = 'house_day.png';
         this._loadRows = new Map();
         this._loadsEmpty = null;
-        this._flowItems = Object.keys(FLOWS).map(id => {
+        this._flowItems = !this._shown.has('scene') ? [] : Object.keys(FLOWS).map(id => {
             const group = this._id(id);
             return { id, group, wire: group.querySelector('.wire'), length: 0, glow: group.querySelector('.glow'), comets: [...group.querySelectorAll('.comet')] };
         });
@@ -724,25 +772,25 @@ class SigenergyFlowCard extends HTMLElement {
             ['capacity', 'energyDialog', () => { this._updateEnergy(); this._loadEnergyHistory(); }],
             ['socButton', 'socDialog', () => { this._updateSoc(); this._loadSocHistory(); }],
             ['forecastStat', 'forecastDialog', () => { this._updateForecastDialog(); this._loadForecastChart(); }],
-        ]) this._id(button)?.addEventListener('click', () => { this._id(id).showModal(); show(); });
+        ]) if (this._id(id)) this._id(button)?.addEventListener('click', () => { this._id(id).showModal(); show(); });
         for (const d of this.root.querySelectorAll('dialog')) {
             d.querySelector('.dlg-head button').addEventListener('click', () => d.close());
             d.addEventListener('click', e => { if (e.target === d) d.close(); });
         }
         // A modal dialog sits above HA's more-info dialog, so it closes first.
-        this._id('homeLoads').addEventListener('click', e => {
+        this._id('homeLoads')?.addEventListener('click', e => {
             const entityId = e.target.closest('[data-entity]')?.dataset.entity;
             if (!entityId) return;
             this._id('homeDialog').close();
             this._moreInfo(entityId);
         });
-        this._id('forecastEntity').addEventListener('click', () => {
+        this._id('forecastEntity')?.addEventListener('click', () => {
             this._id('forecastDialog').close();
             this._moreInfo(this._ent('solar_forecast_today'));
         });
         // A grid reading or the power factor charts its history.
         this._gridPick ??= { phase: 'a', kind: 'voltage' };
-        this._id('gridDialog').addEventListener('click', e => {
+        this._id('gridDialog')?.addEventListener('click', e => {
             const pick = e.target.closest('[data-kind]');
             if (!pick || pick.disabled) return;
             this._gridPick = { phase: pick.dataset.phase ?? null, kind: pick.dataset.kind };
@@ -755,7 +803,7 @@ class SigenergyFlowCard extends HTMLElement {
                 if (gap) { e.stopPropagation(); this._showNote(gap); }
                 else this._moreInfo(stat.dataset.entity);
             });
-        this._id('statGap').addEventListener('click', e => this._showNote(e.currentTarget));
+        this._id('statGap')?.addEventListener('click', e => this._showNote(e.currentTarget));
         // A missing-data mark explains itself on hover or tap; the note closes on the next tap elsewhere.
         for (const gap of this.root.querySelectorAll('.gap')) {
             gap.addEventListener('pointerenter', () => this._showNote(gap));
@@ -765,13 +813,14 @@ class SigenergyFlowCard extends HTMLElement {
         this._observeCharts();
         for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['forecastChart', 'forecastChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
+            if (!svg) continue;
             const show = e => this._hoverChart(svg, box, e);
             svg.addEventListener('pointermove', show);
             svg.addEventListener('pointerdown', show);
             svg.addEventListener('pointerleave', () => this._hideHover(svg, box));
         }
-        this._id('dcButton').addEventListener('click', () => this._moreInfo(this._ent('dc_charger_limit')));
-        this._id('weatherButton').addEventListener('click', () => this._moreInfo(this._ent('weather')));
+        this._id('dcButton')?.addEventListener('click', () => this._moreInfo(this._ent('dc_charger_limit')));
+        this._id('weatherButton')?.addEventListener('click', () => this._moreInfo(this._ent('weather')));
         this._weatherKey = null;
         this._wireStatistics();
         if (this._flowStates) for (const id of Object.keys(this._flowStates)) this._applyFlowClass(id);
@@ -781,15 +830,17 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartObserver = new ResizeObserver(entries => {
             for (const entry of entries) (entry.target._redraw ?? entry.target.fit)?.();
         });
-        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'forecastChart', 'statChart']) this._chartObserver.observe(this._id(id));
+        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'forecastChart', 'statChart']) if (this._id(id)) this._chartObserver.observe(this._id(id));
         const scene = this._id('scene'), sidebar = this.root.querySelector('.sidebar');
-        scene.fit = sidebar.fit = () => this._fitScene();
+        if (!scene) return;
+        scene.fit = () => this._fitScene();
+        if (sidebar) sidebar.fit = scene.fit;
         this._chartObserver.observe(scene);
         for (const el of [this.root.querySelector('.lower'), this._id('chargers')]) {
             el.fit = scene.fit;
             this._chartObserver.observe(el);
         }
-        this._chartObserver.observe(sidebar);
+        if (sidebar) this._chartObserver.observe(sidebar);
     }
     // The lifetime parts (charged, discharged) share a line when it fits beside the garage, else stack;
     // with a single charger the line must also stop short of the charger on the garage wall.
@@ -828,7 +879,7 @@ class SigenergyFlowCard extends HTMLElement {
         const [keepLeft, keepRight] = narrow ? SCENE.keepNarrow : SCENE.keep, keepWidth = keepRight - keepLeft;
         let scale = width / Math.min(SCENE.width, Math.max(keepWidth, width / SCENE.scale));
         let height = SCENE.height * scale;
-        if (sidebar.offsetTop === scene.offsetTop && sidebar.lastElementChild) {
+        if (sidebar && sidebar.offsetTop === scene.offsetTop && sidebar.lastElementChild) {
             // The sidebar's own height: stretched to fill the row, it would keep the scene from ever shrinking.
             sidebar.classList.remove('fill');
             const sidebarHeight = sidebar.lastElementChild.offsetTop + sidebar.lastElementChild.offsetHeight - sidebar.firstElementChild.offsetTop;
@@ -897,7 +948,7 @@ class SigenergyFlowCard extends HTMLElement {
         this.toggleAttribute('day', day);
         this.toggleAttribute('light', this._isLight());
         const file = day ? 'house_day.png' : 'house_night.png';
-        if (this._sceneFile === file) return;
+        if (this._sceneFile === file || !this._shown.has('scene')) return;
         this._sceneFile = file;
         this._id('chargerArt').setAttribute('href', ARTWORK[day ? 'charger_day.png' : 'charger_night.png'].href);
         for (const photo of this.root.querySelectorAll('.photo')) photo.setAttribute('href', ARTWORK[file].href);
@@ -1029,7 +1080,7 @@ class SigenergyFlowCard extends HTMLElement {
         return Math.max(0, pv + (imp ?? 0) - (exp ?? 0) - bat * this._batterySign() - (kw('ac_charger_power') ?? 0) - (kw('dc_charger_power') ?? 0));
     }
     _updateHome() {
-        if (!this._hass || !this._id('homeDialog').open) return;
+        if (!this._hass || !this._id('homeDialog')?.open) return;
         const home = this._homePower();
         const loads = this.config.home_entities.map(item => {
             const entity = typeof item === 'string' ? item : item.entity;
@@ -1076,7 +1127,7 @@ class SigenergyFlowCard extends HTMLElement {
         return PV_KEYS.some(key => this._has(this._pv[i][key]));
     }
     _updatePv() {
-        if (!this._hass || !this._id('pvDialog').open) return;
+        if (!this._hass || !this._id('pvDialog')?.open) return;
         const digits = { voltage: 1, current: 2, power: 2, daily_energy: 2, accumulated_energy: 2 };
         const sums = { power: null, daily_energy: null, accumulated_energy: null };
         this._pv.forEach((_, i) => {
@@ -1177,7 +1228,7 @@ class SigenergyFlowCard extends HTMLElement {
         return this._gridIds(phase, kind).every(id => this._has(id));
     }
     _updateGrid() {
-        if (!this._hass || !this._id('gridDialog').open) return;
+        if (!this._hass || !this._id('gridDialog')?.open) return;
         const phases = Math.max(1, this._gridPhases()), pick = this._gridPick;
         // A column shows when any phase has its entities.
         for (const kind of GRID_KINDS) {
@@ -1232,7 +1283,7 @@ class SigenergyFlowCard extends HTMLElement {
     }
     // Stored energy is SOC × rated capacity; no sensor reports it directly.
     _updateEnergy() {
-        if (!this._hass || !this._id('energyDialog').open) return;
+        if (!this._hass || !this._id('energyDialog')?.open) return;
         const soc = this._num(this._socEntity), cap = this._scaled(this._ent('battery_capacity'));
         this._text('energyNow', soc === null || cap === null ? '—' : `${(soc * cap / 100).toFixed(1)} kWh`);
         this._text('energyOf', cap === null ? '' : `of ${cap.toFixed(1)} kWh rated capacity${soc === null ? '' : ` · ${soc.toFixed(1)}%`}`);
@@ -1266,6 +1317,7 @@ class SigenergyFlowCard extends HTMLElement {
             if (live !== null && live !== points[points.length - 1].v) points.push({ t: now, v: live });
         }
         const tile = this._id('forecastStat'), view = this._view();
+        if (!tile) return;
         // A past day: its forecast and its production against it; the dialog charts today only. Longer ranges have none.
         tile.disabled = !view.live;
         if (!view.live) {
@@ -1317,7 +1369,7 @@ class SigenergyFlowCard extends HTMLElement {
     }
     // Solar performance dialog: today's performance, as the Solar forecast tile shows it, and its figures.
     _updateForecastDialog() {
-        if (!this._hass || !this._id('forecastDialog').open) return;
+        if (!this._hass || !this._id('forecastDialog')?.open) return;
         const id = this._ent('solar_forecast_today'), now = Date.now();
         const actual = this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'), expected = id ? this._forecastUpTo(now) : null;
         const total = this._scaled(id) ?? (this._solarHours ? [...this._solarHours.values()].reduce((a, b) => a + b, 0) : null);
@@ -1410,7 +1462,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._updateForecastTile();
     }
     _updateSoc() {
-        if (!this._hass || !this._id('socDialog').open) return;
+        if (!this._hass || !this._id('socDialog')?.open) return;
         const soc = this._num(this._socEntity);
         this._text('socNow', soc === null ? '—' : `${soc.toFixed(1)}%`);
     }
@@ -1493,11 +1545,12 @@ class SigenergyFlowCard extends HTMLElement {
         this._historyTimer ??= setInterval(() => {
             if (document.hidden) return;
             this._advanceChart();
-            if (Date.now() - (this._forecastAt ?? 0) > 3600e3) this._loadForecast();
+            if ((this._shown.has('tiles') || this._shown.has('metrics')) && Date.now() - (this._forecastAt ?? 0) > 3600e3) this._loadForecast();
         }, 30000);
     }
     _startFlowAnimation() {
         if (this._flowFrame) cancelAnimationFrame(this._flowFrame);
+        if (!this._shown.has('scene')) return;
         let previousFrame = null;
         const draw = (now) => {
             if (!this.isConnected) {
@@ -1592,6 +1645,19 @@ class SigenergyFlowCard extends HTMLElement {
     _update() {
         if (!this._hass)
             return;
+        this._socEntity = this._ent('battery_soc');
+        if (this._shown.has('scene')) this._updateReadings();
+        if (this._shown.has('metrics')) {
+            this._id('legendEVAC').hidden = !this._has(this._ent('ac_charger_power'));
+            this._id('legendEVDC').hidden = !this._has(this._ent('dc_charger_power'));
+        }
+        if (this._shown.has('tiles')) this._updateDaily();
+        if (this._shown.has('battery') && this.config.battery_present) this._updateBattery();
+        this._updateSoc();
+        this._updateEnergy();
+    }
+    // The scene's readings and flows.
+    _updateReadings() {
         const n = x => this._num(x)
           , e = key => this._ent(key)
           , kw = key => this._scaled(this._ent(key))   // kW or kWh, whatever unit the entity reports
@@ -1599,8 +1665,7 @@ class SigenergyFlowCard extends HTMLElement {
           , home = this._homePower();
         // Without a battery, its power is 0.
         const batRaw = this.config.battery_present ? kw('battery_power') : 0, bat = batRaw === null ? null : batRaw * this._batterySign();
-        const socEntity = e('battery_soc');
-        const soc = n(socEntity);
+        const soc = n(this._socEntity);
         const imp = kw('grid_import_power')
           , exp = kw('grid_export_power');
         const ac = kw('ac_charger_power')
@@ -1610,8 +1675,6 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('acNode').hidden = !hasAc;
         this._id('dcNode').hidden = !hasDc;
         this._id('chargerArt').setAttribute('display', hasAc || hasDc ? 'inline' : 'none');
-        this._id('legendEVAC').hidden = !hasAc;
-        this._id('legendEVDC').hidden = !hasDc;
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));
@@ -1650,17 +1713,6 @@ class SigenergyFlowCard extends HTMLElement {
         const dcState = dc === null ? '' : dc > 0.025 ? 'Charging' : dc < -0.025 ? 'Discharging' : '';
         const dcSocText = dcsoc === null || (dcsoc === 0 && !dcState) ? '' : `Vehicle SOC ${dcsoc.toFixed(0)}%`;
         this._parts('dcSoc', [dcState, dcSocText]);
-        this._updateDaily();
-        if (this.config.battery_present) {
-            this._id('socLevel').dataset.entity = socEntity ?? '';
-            this._socEntity = socEntity;
-            this._updateSoc();
-            this._updateEnergy();
-            this._text('socLarge', soc === null ? '—' : `${soc.toFixed(1)}%`);
-            this._id('socFill').style.width = `${Math.min(100, Math.max(0, soc ?? 0))}%`;
-            const cap = kw('battery_capacity');
-            this._text('capacityText', cap === null ? '' : `${((soc ?? 0) * cap / 100).toFixed(1)} of ${cap.toFixed(1)} kWh`);
-        }
         // SigenStor's AC output: solar less battery charging (positive battery power) less DC charging.
         const inverter = pv !== null && bat !== null ? pv - bat - (dc ?? 0) : home !== null && grid !== null ? home - grid : null;
         this._flow('solarFlow', pv);
@@ -1673,9 +1725,18 @@ class SigenergyFlowCard extends HTMLElement {
         this._updateHome();
         this._text('stamp', new Date().toLocaleTimeString([], { timeZone: this._zone }));
     }
+    // The Battery level panel.
+    _updateBattery() {
+        const soc = this._num(this._socEntity), cap = this._scaled(this._ent('battery_capacity'));
+        this._id('socLevel').dataset.entity = this._socEntity ?? '';
+        this._text('socLarge', soc === null ? '—' : `${soc.toFixed(1)}%`);
+        this._id('socFill').style.width = `${Math.min(100, Math.max(0, soc ?? 0))}%`;
+        this._text('capacityText', cap === null ? '' : `${((soc ?? 0) * cap / 100).toFixed(1)} of ${cap.toFixed(1)} kWh`);
+    }
     // Today's sunrise and sunset, for the scene's day and night; the chart shows those of the day it shows.
     _updateSunTimes() {
         this._sunTimes = this._sunFor(new Date());
+        if (!this._id('sunTimes')) return;
         const view = this._view(), sun = view.live ? this._sunTimes : this._sunFor(view.start);
         this._id('sunTimes').style.display = view.range === 'Day' ? '' : 'none';
         const fmt = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: this._zone });
@@ -1711,7 +1772,10 @@ class SigenergyFlowCard extends HTMLElement {
         return { rise: fromJulian(Jrise).getTime(), set: fromJulian(Jset).getTime() };
     }
     _wireStatistics() {
-        const stat = this._stat ??= { range: 'Day', date: new Date(), selection: null, flows: null };
+        // The view starts at the configured period, and keeps the one chosen in the header while the period is unchanged.
+        if (this._stat?.period !== this.config.period) this._stat = { range: PERIODS[this.config.period], date: new Date(), selection: null, flows: null, period: this.config.period };
+        const stat = this._stat;
+        if (!this._id('statRange')) return;
         this._id('statRange').value = stat.range;
         this._id('statRange').addEventListener('change', event => {
             Object.assign(stat, { range: event.target.value, date: new Date(), selection: null });
@@ -1724,6 +1788,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('statPrev').addEventListener('click', () => step(-1));
         this._id('statNext').addEventListener('click', () => step(1));
         const chart = this._id('statChart');
+        if (!chart) return this._statControls();
         const choose = target => {
             const node = target.closest?.('[data-side]');
             if (!node) return;
@@ -1760,12 +1825,15 @@ class SigenergyFlowCard extends HTMLElement {
     _loadView(refresh = false) {
         const view = this._view();
         if (this._stat) this._stat.follow = view.current;
+        const shown = part => this._shown.has(part);
         if (!refresh) this._blankCharts();
         this._statControls();
-        this._loadStatistics();
-        this._loadGaps();
+        if (shown('sankey')) this._loadStatistics();
+        // Today's tiles read the sensors, so they have no gaps to mark.
+        if (shown('metrics') || shown('sankey') || (shown('tiles') && !view.live)) this._loadGaps();
         if (refresh && view.live) return;
-        this._loadTiles(refresh);
+        if (shown('tiles')) this._loadTiles(refresh);
+        if (!shown('metrics')) return;
         if (view.range === 'Day') { if (!refresh || !view.live) this._loadHistory(); }
         else this._loadBars();
         this._updateSunTimes();
@@ -1773,16 +1841,21 @@ class SigenergyFlowCard extends HTMLElement {
     // A new view blanks the charts, keeping their size, with a busy mark until its data arrives.
     _blankCharts() {
         const chart = this._id('chart'), stat = this._id('statChart');
-        this._hideHover(chart, this._id('chartTip'));
         this._chartLive = null;
-        chart.replaceChildren();
-        chart._redraw = chart._chart = null;
-        stat.replaceChildren();
         if (this._stat) this._stat.flows = null;
-        this._id('statSummary').hidden = true;
-        this._id('statCards').replaceChildren();
-        this._text('chartStatus', 'Loading…');
-        this._id('chartBusy').hidden = this._id('statBusy').hidden = false;
+        if (chart) {
+            this._hideHover(chart, this._id('chartTip'));
+            chart.replaceChildren();
+            chart._redraw = chart._chart = null;
+            this._text('chartStatus', 'Loading…');
+            this._id('chartBusy').hidden = false;
+        }
+        if (stat) {
+            stat.replaceChildren();
+            this._id('statSummary').hidden = true;
+            this._id('statCards').replaceChildren();
+            this._id('statBusy').hidden = false;
+        }
     }
     // Gaps in the recording: the hours (Day, Week, Month) or days (Year, Lifetime) of the view in which a counter the
     // card reads has no recorder statistics, up to the last complete one. The tiles' counters are checked from the day the
@@ -1842,7 +1915,7 @@ class SigenergyFlowCard extends HTMLElement {
         }
         this._updateDaily();
         this._markStatGap();
-        this._id('chart')._redraw?.();
+        this._id('chart')?._redraw?.();
     }
     // The current view's gaps within [start, end), for [ids] when given.
     _gapsIn(start, end, ids) {
@@ -1865,7 +1938,9 @@ class SigenergyFlowCard extends HTMLElement {
         return `${what}: Home Assistant has no data recorded for ${this._gapText(ranges)}. Energy from that time is missing here, or, if the inverter kept counting, counted when recording resumed.`;
     }
     _markStatGap() {
-        const view = this._view(), mark = this._id('statGap'), ranges = this._gapsIn(view.start.getTime(), view.end.getTime(), this._statIds().ids);
+        const view = this._view(), mark = this._id('statGap');
+        if (!mark) return;
+        const ranges = this._gapsIn(view.start.getTime(), view.end.getTime(), this._statIds().ids);
         mark.hidden = !ranges.length;
         mark.dataset.note = ranges.length ? this._gapNote('Energy statistics', ranges) : '';
     }
@@ -1917,7 +1992,7 @@ class SigenergyFlowCard extends HTMLElement {
         const tiles = this._tiles = refresh && this._tiles?.key === view.key ? this._tiles : { key: view.key };
         this._updateDaily();
         const end = view.current ? new Date() : view.end, midnight = new Date(Math.min(view.end.getTime(), zoneMidnight(Date.now(), zone).getTime()));
-        const period = { Day: 'hour', Week: 'day', Month: 'day' }[view.range] ?? 'month', forecastId = this._ent('solar_forecast_today');
+        const period = view.range === 'Day' ? 'hour' : DAILY_BARS.has(view.range) ? 'day' : 'month', forecastId = this._ent('solar_forecast_today');
         const list = DAILY_TILES.map(([el, key, , third, statKey, statThird]) => ({ el, key, third, ...this._tileSources(key, third, statKey, statThird) }));
         const ids = daily => [...new Set(list.filter(tile => !!tile.daily === daily).flatMap(tile => tile.ids))];
         try {
@@ -1943,7 +2018,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._updateDaily();
     }
     _statControls() {
-        if (!this._stat) return;
+        if (!this._stat || !this._id('statDate')) return;
         const { range, date } = this._stat, lifetime = range === 'Lifetime';
         // Each date stays whole; a week's range wraps between its dates.
         const label = this._id('statDate'), text = statLabel(range, date, this._zone);
@@ -1977,7 +2052,8 @@ class SigenergyFlowCard extends HTMLElement {
         const view = this._view(), zone = this._zone, request = this._barsRequest = (this._barsRequest ?? 0) + 1;
         this._historyRequest = (this._historyRequest ?? 0) + 1;
         this._chartLive = null;
-        this._text('chartTitle', `Energy metrics · ${statLabel(view.range, view.date, zone)}`);
+        // A standalone card's picker, or its dates without one, sits under its title and already shows the range.
+        this._text('chartTitle', this._solo ? 'Energy metrics' : `Energy metrics · ${statLabel(view.range, view.date, zone)}`);
         this._id('legendPower').hidden = true;
         const svg = this._id('chart'), legend = this._id('legendBars');
         legend.hidden = false;
@@ -2003,12 +2079,12 @@ class SigenergyFlowCard extends HTMLElement {
         };
         if (!ids.length || typeof this._hass.callWS !== 'function') return show('No energy statistics sensors');
         this._text('chartStatus', 'Loading…');
-        // Each slot's start, from its bucket's start: a day for Week and Month, a month for Year, a year for Lifetime.
-        const slotOf = { Week: t => zoneMidnight(t, zone), Month: t => zoneMidnight(t, zone),
+        // Each slot's start, from its bucket's start: a day for Week, Last 7 days and Month, a month for Year, a year for Lifetime.
+        const daily = DAILY_BARS.has(view.range), slotOf = daily ? t => zoneMidnight(t, zone) : {
             Year: t => { const p = zoneParts(t, zone); return zoneDate(zone, p.y, p.m, 1); }, Lifetime: t => zoneDate(zone, zoneParts(t, zone).y, 0, 1) }[view.range];
         try {
             const end = view.current ? new Date() : view.end;
-            const result = await this._statistics(ids, view.start, end, view.range === 'Week' || view.range === 'Month' ? 'day' : 'month', ['change']);
+            const result = await this._statistics(ids, view.start, end, daily ? 'day' : 'month', ['change']);
             if (request !== this._barsRequest) return;
             const buckets = new Map();
             for (const id of ids) {
@@ -2021,11 +2097,11 @@ class SigenergyFlowCard extends HTMLElement {
                 }
             }
             // Every day, month or year of the range, empty or not; Lifetime starts at its first year with data.
-            const starts = [], first = buckets.size ? Math.min(...buckets.keys()) : null, step = { Week: [0, 0, 1], Month: [0, 0, 1], Year: [0, 1, 0], Lifetime: [1, 0, 0] }[view.range];
+            const starts = [], first = buckets.size ? Math.min(...buckets.keys()) : null, step = daily ? [0, 0, 1] : { Year: [0, 1, 0], Lifetime: [1, 0, 0] }[view.range];
             for (let t = view.range === 'Lifetime' ? first : view.start.getTime(); t !== null && t < view.end.getTime() && starts.length < 400;) {
                 starts.push(t);
                 const p = zoneParts(t, zone);
-                t = zoneDate(zone, p.y + step[0], p.m + step[1], (view.range === 'Week' || view.range === 'Month' ? p.d : 1) + step[2]).getTime();
+                t = zoneDate(zone, p.y + step[0], p.m + step[1], (daily ? p.d : 1) + step[2]).getTime();
             }
             const load = STAT_SINKS.findIndex(def => !def.key);
             const slots = starts.map(t => {
@@ -2042,13 +2118,13 @@ class SigenergyFlowCard extends HTMLElement {
             });
             // Today's bar adds the forecast for the rest of the day, and the days the solar forecast covers have their own.
             const forecast = this._energyForecast, todayStart = zoneMidnight(Date.now(), zone).getTime(), solarAt = 0, loadAt = BAR_SERIES.findIndex(s => s.name === 'Load');
-            if (forecast && view.current && (view.range === 'Week' || view.range === 'Month'))
+            if (forecast && view.current && daily)
                 for (const slot of slots) {
                     const pair = slot.t === todayStart ? forecast.today : slot.t > todayStart && forecast.days.has(slot.t) ? [forecast.days.get(slot.t), forecast.load] : null;
                     if (pair) slot.forecast = { [solarAt]: pair[0] ?? 0, [loadAt]: pair[1] ?? 0 };
                 }
             const series = BAR_SERIES.map((s, index) => ({ ...s, index })).filter(s => (s.source ? sourceIds : sinkIds)[s.at]);
-            show(buckets.size ? `${{ Week: 'Daily', Month: 'Daily', Year: 'Monthly', Lifetime: 'Yearly' }[view.range]} energy (kWh)` : 'No recorded energy in this range', slots, series);
+            show(buckets.size ? `${daily ? 'Daily' : { Year: 'Monthly', Lifetime: 'Yearly' }[view.range]} energy (kWh)` : 'No recorded energy in this range', slots, series);
         } catch (error) {
             if (request !== this._barsRequest) return;
             show('Statistics unavailable');
@@ -2123,6 +2199,7 @@ class SigenergyFlowCard extends HTMLElement {
         const scale = svg.getBoundingClientRect().width / chart.width, cssX = (x + chart.slotWidth) * scale;
         const fitsRight = cssX + 8 + tip.offsetWidth <= svg.clientWidth;
         tip.style.left = `${fitsRight ? cssX + 8 : Math.max(0, x * scale - 8 - tip.offsetWidth)}px`;
+        this._placeTip(tip);
     }
     // Energy per interval comes from the lifetime counters' recorder statistics; each interval is split into
     // flows between sources and consumers and the splits are added up.
@@ -2397,7 +2474,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._solarHours = hours.size ? hours : null;
         this._forecastRecorded = recorded;
         this._updateForecastTile();
-        if (!this.config.show_forecast) {
+        if (!this.config.show_forecast || !this._shown.has('metrics')) {
             this._chartForecast = this._energyForecast = null;
             return;
         }
@@ -2464,7 +2541,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._energyForecast = { today: [rest('Solar'), rest('Home')], days, load: homeDay.length ? homeDay.reduce((sum, p) => sum + Math.abs(p.v), 0) * slot / 3600e3 : null };
         if (this._showPowerChart()) this._chartStatus();
         const view = this._view();
-        if (view.range !== 'Day' && view.current) this._loadBars();
+        if (view.range !== 'Day' && view.current && this._shown.has('metrics')) this._loadBars();
     }
     _chartFactor(spec) {
         return this._factor(spec.id) * (spec.negate ? -1 : 1) * (spec.key === 'battery_power' ? this._batterySign() : 1);
@@ -2636,6 +2713,15 @@ class SigenergyFlowCard extends HTMLElement {
         const cssX = px * scale;
         const fitsRight = cssX + 14 + tip.offsetWidth <= svg.clientWidth;
         tip.style.left = `${fitsRight ? cssX + 14 : Math.max(0, cssX - 14 - tip.offsetWidth)}px`;
+        this._placeTip(tip);
+    }
+    // A tip taller than the room left below the chart moves up, so the card's edge doesn't cut it.
+    _placeTip(tip) {
+        tip.style.top = '';
+        const card = tip.closest('ha-card, .dlg')?.getBoundingClientRect(), box = tip.getBoundingClientRect();
+        if (!card) return;
+        const over = box.bottom - (card.bottom - 8);
+        if (over > 0) tip.style.top = `${box.top - tip.offsetParent.getBoundingClientRect().top - Math.min(over, box.top - card.top - 8)}px`;
     }
     _hideHover(svg, tip) {
         svg._lastHover = undefined;
@@ -2659,3 +2745,21 @@ window.customCards.push({
     name: 'Sigenergy Flow Card',
     description: 'Animated Sigenergy power-flow dashboard'
 });
+// Each part of the card as a card of its own: [tag, part, name, description, size, defaults].
+const SOLO_CARDS = [
+    ['sigenergy-flow-scene', 'scene', 'Sigenergy Flow: House', 'The house with its live power flows', 7, {}],
+    ['sigenergy-flow-battery', 'battery', 'Sigenergy Flow: Battery level', 'The battery level and stored energy', 2, { title: 'Battery level', name: '' }],
+    ['sigenergy-flow-statistics', 'tiles', 'Sigenergy Flow: Energy statistics', 'Energy totals for a day, the last 7 days, a week, month, year or lifetime', 4, { title: 'Energy statistics', name: '' }],
+    ['sigenergy-flow-metrics', 'metrics', 'Sigenergy Flow: Power metrics', 'Power over a day, or energy bars over a longer period', 5, { title: '', name: '' }],
+    ['sigenergy-flow-sankey', 'sankey', 'Sigenergy Flow: Energy flows', 'Where the energy came from and went over a period', 7, { title: 'Energy statistics', name: '' }],
+];
+for (const [tag, part, name, description, size, defaults] of SOLO_CARDS) {
+    if (!customElements.get(tag))
+        customElements.define(tag, class extends SigenergyFlowCard {
+            static tag = tag;
+            static parts = [part];
+            static defaults = defaults;
+            static size = size;
+        });
+    window.customCards.push({ type: tag, name, description });
+}
