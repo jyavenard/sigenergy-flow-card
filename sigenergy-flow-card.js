@@ -1368,21 +1368,47 @@ class SigenergyFlowCard extends HTMLElement {
             this._parts('forecastPerf', [actual !== null && forecast >= .1 ? `(Perf: ${Math.round(actual / forecast * 100)}%)` : '']);
             return;
         }
-        let total = this._scaled(id);
-        const expected = id ? this._forecastUpTo(now) : null;
+        // Until the forecast entity has updated since midnight, it is yesterday's: today's hours of Home Assistant's solar
+        // forecast stand in, else —.
+        const stale = this._stale(id);
+        let total = this._today(id);
+        const expected = id ? this._forecastSoFar(now) : null;
         if (id && hours) total ??= [...hours.values()].reduce((a, b) => a + b, 0);
-        const average = id && total === null ? this._pvWeekAverage ?? null : null;
+        const average = id && total === null && !stale ? this._pvWeekAverage ?? null : null;
         total ??= average;
-        tile.hidden = total === null;
+        tile.hidden = total === null && !stale;
         this._id('dayPv').closest('.stat').classList.toggle('wide', tile.hidden);
         if (tile.hidden) return;
-        this._text('dayForecast', this._energy(total));
+        this._text('dayForecast', total === null ? '—' : this._energy(total));
         // Before .1 kWh of forecast, today's ratio means little.
         const actual = this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'), week = this._forecastWeek;
         const ratio = (a, f) => `${Math.round(a / f * 100)}%`;
         this._parts('forecastPerf', average !== null ? ['(7-day average)']
             : [actual !== null && expected >= .1 ? `(Perf today: ${ratio(actual, expected)})` : '', week ? `(Perf 7 days: ${ratio(week.actual, week.forecast)})` : '']);
         this._updateForecastDialog();
+    }
+    // Today's forecast up to [now], in kWh, from the latest forecast, so that at the end of the day it is the day's
+    // forecast, as a past day shows it: the day's forecast less what Forecast.Solar's remaining sensor still expects, plus
+    // the part of the hours that sensor still counts (from the hour it was computed in) already past, from Home
+    // Assistant's solar forecast. Without that sensor, the forecast recorded hour by hour.
+    _forecastSoFar(now) {
+        const remainingId = this._forecastEntity('energy_production_today_remaining');
+        const total = this._today(this._ent('solar_forecast_today')), remaining = remainingId ? this._today(remainingId) : null;
+        if (total === null || remaining === null) return this._forecastUpTo(now);
+        const at = Date.parse(this._hass.states[remainingId].last_updated), p = zoneParts(Number.isFinite(at) ? at : now, this._zone);
+        const from = zoneDate(this._zone, p.y, p.m, p.d, p.h).getTime();
+        let sum = Math.max(0, total - remaining);
+        for (const [hour, kwh] of this._solarHours ?? []) if (hour >= from) sum += kwh * Math.min(1, Math.max(0, (now - hour) / 3600e3));
+        return sum;
+    }
+    // A forecast sensor not updated since midnight still holds yesterday's forecast (Forecast.Solar updates hourly from
+    // its last fetch, not at midnight).
+    _stale(id) {
+        return Date.parse(this._hass?.states[id]?.last_updated) < zoneMidnight(Date.now(), this._zone).getTime();
+    }
+    // A forecast sensor's reading for today, in kWh: null while it is yesterday's.
+    _today(id) {
+        return this._stale(id) ? null : this._scaled(id);
     }
     // The forecast's production from today's midnight up to [t] (now or earlier), in kWh, the hour at [t] counted pro
     // rata: each hour's forecast as the forecast's sensor for the current hour recorded it up to [t], else Home
@@ -1409,15 +1435,15 @@ class SigenergyFlowCard extends HTMLElement {
     _updateForecastDialog() {
         if (!this._hass || !this._id('forecastDialog')?.open) return;
         const id = this._ent('solar_forecast_today'), now = Date.now();
-        const actual = this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'), expected = id ? this._forecastUpTo(now) : null;
-        const total = this._scaled(id) ?? (this._solarHours ? [...this._solarHours.values()].reduce((a, b) => a + b, 0) : null);
+        const actual = this._pvTotal('daily_pv_energy', 'third_party_pv_daily_energy'), expected = id ? this._forecastSoFar(now) : null;
+        const total = this._today(id) ?? (this._solarHours ? [...this._solarHours.values()].reduce((a, b) => a + b, 0) : null);
         this._text('forecastPerfNow', actual !== null && expected >= .1 ? `${Math.round(actual / expected * 100)}%` : '—');
         this._text('forecastSummary', [actual === null ? '' : `${this._kwh(actual)} produced`, expected === null ? '' : `${this._kwh(expected)} forecast up to now`,
             total === null ? '' : `${this._kwh(total)} forecast today`].filter(Boolean).join(' · '));
         this._id('forecastEntity').hidden = !this._has(id);
     }
     // Today's solar produced and the forecast up to each moment, both cumulative, the forecast continuing dashed to the
-    // end of the day from Home Assistant's solar forecast; the tip adds the performance the tile showed at that time.
+    // end of the day from Home Assistant's solar forecast; the tip adds the performance against that forecast.
     async _loadForecastChart() {
         if (!this._hass) return;
         const ids = this._pvSources('daily_pv_energy', 'third_party_pv_daily_energy').filter(id => this._has(id));
@@ -1458,12 +1484,13 @@ class SigenergyFlowCard extends HTMLElement {
             ];
         });
     }
-    // The forecast's sensor for the current hour: Forecast.Solar's, on the same device as solar_forecast_today.
-    _forecastHourEntity() {
+    // A Forecast.Solar sensor ([key]: energy_current_hour, energy_production_today_remaining) on the same device as
+    // solar_forecast_today.
+    _forecastEntity(key) {
         const registry = this._hass?.entities, device = registry?.[this._ent('solar_forecast_today')]?.device_id;
         if (!device) return null;
-        const entry = Object.values(registry).find(e => e.device_id === device
-            && (e.translation_key === 'energy_current_hour' || /energy_current_hour(_\d+)?$/.test(e.entity_id)));
+        const pattern = new RegExp(`${key}(_\\d+)?$`);
+        const entry = Object.values(registry).find(e => e.device_id === device && (e.translation_key === key || pattern.test(e.entity_id)));
         return entry && this._has(entry.entity_id) ? entry.entity_id : null;
     }
     // The previous 7 days' solar production and forecasts, today left out. A day's forecast is the last state the
@@ -2504,7 +2531,7 @@ class SigenergyFlowCard extends HTMLElement {
         }
         // Today's history of the forecast for the current hour, for the Solar forecast tile's forecast up to now.
         let recorded = null;
-        const hourId = this._forecastHourEntity();
+        const hourId = this._forecastEntity('energy_current_hour');
         if (hourId && typeof this._hass.callApi === 'function') {
             try {
                 const [points] = this._series((await this._history([hourId], today)).data, [hourId]);
