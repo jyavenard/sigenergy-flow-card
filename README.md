@@ -181,6 +181,8 @@ All options are optional.
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
 | `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never (see [AC and DC chargers](#ac-and-dc-chargers)). |
+| `car_image` | none | URL of a different car for the garage (see [Changing the car](#changing-the-car)). |
+| `car_image_night` | `car_image` | The same car at night. |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
 | `show_forecast` | `true` | Draw the dashed solar and home forecast: for the rest of the day on the Power metrics chart, and as dashed bars in the current week or month (see [Forecast](#forecast)). |
@@ -538,6 +540,27 @@ Each line is hidden when its entities do not exist.
 The DC charger's vehicle state of charge is hidden while the charger is idle and reports 0%.
 
 By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it.
+
+## Changing the car
+
+`car_image` and `car_image_night` replace the car in the garage with another one. They are URLs of car overlays made by `tools/make-car.py`: small transparent images of the garage's inside, which the card draws at a fixed place over its own photo, so they cannot move the house, the battery or the flows. The card's repository has these in [`cars/`](cars):
+
+- `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
+- `byd-atto3-orange`: BYD Atto 3, orange
+- `volvo-ex90-black`: Volvo EX90, black
+
+```yaml
+car_image: https://cdn.jsdelivr.net/gh/jyavenard/sigenergy-flow-card@main/cars/byd-atto3-orange-day.avif
+car_image_night: https://cdn.jsdelivr.net/gh/jyavenard/sigenergy-flow-card@main/cars/byd-atto3-orange-night.avif
+```
+
+A file in `/config/www/` works too, as `/local/<name>.avif`.
+
+To make another car:
+
+1. `python3 tools/make-car.py --sources DIR` writes `car-source-day.png` and `car-source-night.png`, the card's photos without the charger.
+2. Ask an image generator (ChatGPT works) to edit each one: replace the car in the garage with your model and colour, parked in the same place, at the same size and angle, with nothing else changed and the image kept at 1676 × 469.
+3. `python3 tools/make-car.py car-day.png car-night.png cars/<name>` aligns each result to the card's photo, refuses it if the house was reframed or redrawn, and writes `cars/<name>-day.avif`, `cars/<name>-night.avif` and `cars/<name>-preview.png`. Check the preview: a car the generator scaled or moved inside the garage still looks wrong.
 
 ## Changing the artwork
 

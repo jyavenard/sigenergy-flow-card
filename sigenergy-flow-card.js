@@ -25,6 +25,8 @@
 // is protected instead; the SOLAR and HOME readings sit left of their leaders and the charger readings
 // move onto the garage, to stay inside it.
 const PHOTO = { width: 1676, height: 557, top: 56, bottom: 60, bleed: 100 };
+// Where a car_image goes, in ARTWORK's coordinates (tools/make-car.py's CAR_FRAME, 44 units lower).
+const CAR_FRAME = { at: [430, 242], size: [200, 192] };
 // Where the top and bottom fades (which keep the readings legible) end and start.
 const FADE = { topEnd: 140, bottomStart: 533 };
 const SCENE = { width: PHOTO.width, height: PHOTO.top + PHOTO.height + PHOTO.bottom, keep: [160, 1320], keepNarrow: [385, 1215], narrowBelow: 560, scale: 1 };
@@ -470,6 +472,8 @@ class SigenergyFlowCard extends HTMLElement {
         if (!Object.hasOwn(BACKENDS, backend)) throw new Error(`Unknown sigenergy_backend "${backend}". Valid values: ${Object.keys(BACKENDS).join(', ')}`);
         if (config.theme !== undefined && !['auto', 'light', 'dark'].includes(config.theme)) throw new Error(`Unknown theme "${config.theme}". Valid values: auto, light, dark`);
         if (config.car_shown !== undefined && !['auto', true, false].includes(config.car_shown)) throw new Error(`Unknown car_shown "${config.car_shown}". Valid values: auto, true, false`);
+        for (const key of ['car_image', 'car_image_night'])
+            if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') throw new Error(`${key} must be an image URL`);
         const periods = Object.keys(PERIODS).filter(period => this._solo || PERIODS[period] !== 'Last 7 days');
         if (config.period !== undefined && !periods.includes(config.period)) throw new Error(`Unknown period "${config.period}". Valid values: ${periods.join(', ')}`);
         const entities = config.entities ?? {};
@@ -487,6 +491,8 @@ class SigenergyFlowCard extends HTMLElement {
             show_phase_mode: false,
             show_grid_voltage: false,
             car_shown: 'auto',
+            car_image: null,
+            car_image_night: null,
             grid_phases: null,
             title: 'Sigenergy',
             name: 'My Home',
@@ -562,6 +568,7 @@ class SigenergyFlowCard extends HTMLElement {
           </defs>
           <image class="photo" href="${ARTWORK['house_day.png'].href}" x="0" y="${-PHOTO.bleed}" width="${SCENE.width}" height="${SCENE.height + 2 * PHOTO.bleed}" preserveAspectRatio="none"/>
           <image id="garageArt" display="none" href="${ARTWORK['garage_day.png'].href}" x="${ARTWORK['garage_day.png'].at[0]}" y="${PHOTO.top + ARTWORK['garage_day.png'].at[1]}" width="${ARTWORK['garage_day.png'].size[0]}" height="${ARTWORK['garage_day.png'].size[1]}" preserveAspectRatio="none"/>
+          <image id="carArt" display="none" x="${CAR_FRAME.at[0]}" y="${PHOTO.top + CAR_FRAME.at[1]}" width="${CAR_FRAME.size[0]}" height="${CAR_FRAME.size[1]}" preserveAspectRatio="none"/>
           <image id="chargerArt" display="none" href="${ARTWORK['charger_day.png'].href}" x="${ARTWORK['charger_day.png'].at[0]}" y="${PHOTO.top + ARTWORK['charger_day.png'].at[1]}" width="${ARTWORK['charger_day.png'].size[0]}" height="${ARTWORK['charger_day.png'].size[1]}" preserveAspectRatio="none"/>
           <rect x="0" y="${-PHOTO.bleed}" width="${PHOTO.width}" height="${PHOTO.bleed + FADE.topEnd}" class="fadeRect" fill="url(#fadeTop)"/>
           <rect x="0" y="${FADE.bottomStart}" width="${PHOTO.width}" height="${SCENE.height - FADE.bottomStart + PHOTO.bleed}" class="fadeRect" fill="url(#fadeBottom)"/>
@@ -764,7 +771,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._id(`pvRow${i}`).querySelector('th').append(String(name));
             this._id(`pvLegend${i}`).append(String(name));
         });
-        this._sceneFile = 'house_day.png';
+        this._sceneFile = null;
         this._loadRows = new Map();
         this._loadsEmpty = null;
         this._flowItems = !this._shown.has('scene') ? [] : Object.keys(FLOWS).map(id => {
@@ -964,6 +971,7 @@ class SigenergyFlowCard extends HTMLElement {
         const garage = ARTWORK[day ? 'garage_day.png' : 'garage_night.png'];
         for (const [name, value] of Object.entries({ href: garage.href, x: garage.at[0], y: PHOTO.top + garage.at[1], width: garage.size[0], height: garage.size[1] }))
             this._id('garageArt').setAttribute(name, value);
+        this._id('carArt').setAttribute('href', (day ? this.config.car_image : this.config.car_image_night ?? this.config.car_image) ?? '');
         for (const photo of this.root.querySelectorAll('.photo')) photo.setAttribute('href', ARTWORK[file].href);
     }
     // The weather entity's condition as an icon, and its current temperature.
@@ -1790,7 +1798,9 @@ class SigenergyFlowCard extends HTMLElement {
         const plugged = this._hass.states[e('car_charging')]?.state?.toLowerCase()
           , connected = AC_CONNECTED.has(this._hass.states[e('ac_charger_state')]?.state?.toLowerCase())
           , showCar = this.config.car_shown !== 'auto' ? this.config.car_shown : connected || ac > 0.025 || Math.abs(dc ?? 0) > 0.025 || ['on', 'charging', 'true'].includes(plugged) || Number(plugged) > 0;
-        this._id('garageArt').setAttribute('display', showCar ? 'none' : 'inline');
+        // A car_image is drawn over the empty garage.
+        this._id('garageArt').setAttribute('display', showCar && !this.config.car_image ? 'none' : 'inline');
+        this._id('carArt').setAttribute('display', showCar && this.config.car_image ? 'inline' : 'none');
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));
