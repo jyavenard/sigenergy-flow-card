@@ -309,7 +309,7 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `daily_grid_export_energy` | `sensor.sigen_plant_daily_grid_export_energy` | Grid exported tile |
 | `daily_battery_charge_energy` | `sensor.sigen_plant_daily_battery_charge_energy`, fallback `sensor.sigen_inverter_daily_charge_energy` | Battery charged tile |
 | `daily_battery_discharge_energy` | `sensor.sigen_plant_daily_battery_discharge_energy`, fallback `sensor.sigen_inverter_daily_discharge_energy` | Battery discharged tile |
-| `solar_forecast_today` | `sensor.energy_production_today` (Forecast.Solar) | Solar forecast tile: today's forecast for all PV, in energy (see [Forecast](#forecast)) |
+| `solar_forecast_today` | the Energy dashboard's solar forecast (Forecast.Solar or Solcast) | Solar forecast tile: today's forecast for all PV, in energy (see [Forecast](#forecast)) |
 | `stat_pv` | `sensor.sigen_plant_total_pv_generation` (the Sigenergy PV, plus `third_party_pv_lifetime_energy`) | Energy statistics' solar, PV Strings **Total** (Lifetime): all PV, the third-party inverter's included |
 | `stat_battery_discharge` | `sensor.sigen_plant_total_discharged_energy_of_the_ess` | Energy statistics: battery as a source |
 | `stat_battery_charge` | `sensor.sigen_plant_total_charged_energy_of_the_ess` | Energy statistics: battery as a consumer |
@@ -407,7 +407,7 @@ sigenergy_backend: sigenergy2mqtt
 | `stat_grid_export` | `sensor.sigen_0_grid_sensor_lifetime_export_energy`, fallback `sensor.sigen_0_si_total_exported_energy` |
 | `stat_evac_charge` | `sensor.sigen_0_si_total_ev_ac_charged_energy`, fallback `sensor.sigen_0_ac_charger_1_total_energy_consumed`, then `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
 | `daily_battery_discharge_energy` | `sensor.sigen_0_daily_discharge_energy`, fallback `sensor.sigen_0_inverter_1_daily_discharge_energy` |
-| `solar_forecast_today` | `sensor.energy_production_today` (Forecast.Solar) |
+| `solar_forecast_today` | the Energy dashboard's solar forecast: `sensor.energy_production_today` (Forecast.Solar) or `sensor.solcast_pv_forecast_forecast_today` (Solcast) |
 
 - `total_pv_power`, `total_daily_pv_energy` and `lifetime_pv_energy` include the third-party inverter and are enabled by default. The fallbacks (`plant_pv_power`, `daily_pv_energy`, `plant_lifetime_pv_energy`, the `si_` and inverter counters) are the Sigenergy PV alone, and `plant_lifetime_pv_energy` and the `si_` counters are disabled by default.
 - sigenergy2mqtt has no daily energy for a third-party inverter, so `third_party_pv_daily_energy` has no default: with a fallback, the **Solar produced** tile counts only the Sigenergy PV.
@@ -425,7 +425,7 @@ As in Sigenergy's app, the Power metrics chart continues past now with dashed li
 
 The averages come from the recorder's statistics of `pv_power` and `home_power` (5-minute statistics, kept 10 days by default, or hourly ones), so those sensors need `state_class: measurement`, which the Sigenergy integrations set. Without statistics, no forecast is drawn. Sigenergy's AI forecast of the battery and grid is not available to Home Assistant. Set `show_forecast: false` to hide the forecast.
 
-The **Solar forecast** tile shows today's solar forecast, as last revised, from `solar_forecast_today` (Forecast.Solar's `sensor.energy_production_today` by default; set another integration's entity, or `false` to hide the tile). Below it:
+The **Solar forecast** tile shows today's solar forecast, as last revised, from `solar_forecast_today`: by default, the today sensor of the solar forecast set in the Energy dashboard (Forecast.Solar or Solcast). Set another entity, or `false` to hide the tile. Below it:
 
 - **(Perf today: N%)**: the solar produced so far against the forecast up to now. Tap the tile for a chart of today's solar produced and the forecast, both cumulative, with the forecast continuing dashed to the end of the day.
 - **(Perf 7 days: N%)**: the solar produced over the previous 7 days, today left out, against each day's last recorded forecast. It needs the forecast entity's history (the recorder keeps 10 days by default) and the statistics of `stat_pv`. Days missing either are left out.

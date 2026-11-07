@@ -96,8 +96,9 @@ const DEFAULT_ENTITIES = {
     stat_grid_export: ['sensor.sigen_plant_total_exported_energy'],
     stat_evac_charge: ['sensor.sigen_plant_total_charged_energy_of_the_evac', 'sensor.sigen_ac_charger_total_energy_consumed'],
     daily_battery_discharge_energy: ['sensor.sigen_plant_daily_battery_discharge_energy', 'sensor.sigen_inverter_daily_discharge_energy'],
-    // Today's solar forecast for all PV, in energy: Forecast.Solar's estimated energy production today.
-    solar_forecast_today: ['sensor.energy_production_today'],
+    // Today's solar forecast for all PV, in energy: Forecast.Solar's estimated energy production today, or Solcast's
+    // forecast today. The one on the forecast the Energy dashboard uses comes first (_forecastToday).
+    solar_forecast_today: ['sensor.energy_production_today', 'sensor.solcast_pv_forecast_forecast_today'],
     // The weather shown at the scene's top left: Home Assistant's default (Met.no) forecast entity.
     weather: ['weather.forecast_home', 'weather.home'],
 };
@@ -984,6 +985,7 @@ class SigenergyFlowCard extends HTMLElement {
         const set = this.config.entities?.[key];
         if (set === false || set === null) return null;
         if (set) return set;
+        if (key === 'solar_forecast_today' && this._forecastToday()) return this._forecastToday();
         const ids = this._backend.entities[key];
         return ids.find(id => !['unknown', 'unavailable', undefined].includes(this._hass?.states[id]?.state)) ?? ids[0] ?? null;
     }
@@ -1125,17 +1127,42 @@ class SigenergyFlowCard extends HTMLElement {
     }
     // The Energy dashboard's individual devices, for HOME when home_entities is left out. HA before 2025.12 has no
     // device power sensor, and no saved energy preferences is an error: both leave HOME a plain label.
+    // The Energy dashboard's preferences: its individual devices, for HOME when home_entities is left out, and the solar
+    // forecast it uses, for the Solar forecast tile.
     async _loadEnergyDevices() {
-        if (!this._shown.has('scene') || this.config.home_entities?.length !== 0 || typeof this._hass?.callWS !== 'function') return;
+        const home = this._shown.has('scene') && this.config.home_entities?.length === 0;
+        if (!home && !this._shown.has('tiles') || typeof this._hass?.callWS !== 'function') return;
         this._energyDevicesAt = Date.now();
+        const forecast = this._ent('solar_forecast_today');
         try {
-            this._energyDevices = (await this._hass.callWS({ type: 'energy/get_prefs' }))?.device_consumption ?? [];
+            const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
+            this._energyDevices = prefs?.device_consumption ?? [];
+            this._forecastEntries = new Set((prefs?.energy_sources ?? []).flatMap(source => source.type === 'solar' ? source.config_entry_solar_forecast ?? [] : []));
         } catch {
             this._energyDevices ??= [];
         }
         if (!this._hass) return;
         this._update();
         this._updateHome();
+        // Another forecast entity: its history and the forecast are loaded again.
+        if (this._shown.has('tiles') && this._ent('solar_forecast_today') !== forecast) {
+            this._loadForecast();
+            this._loadForecastWeek();
+        }
+    }
+    // The today sensor of the solar forecast the Energy dashboard uses (Forecast.Solar's or Solcast's), if it has one.
+    _forecastToday() {
+        const entries = this._forecastEntries, registry = this._hass?.entities, devices = this._hass?.devices;
+        if (!entries?.size || !registry || !devices) return null;
+        // Found again only when the registry or the preferences change.
+        const cache = this._forecastTodayCache;
+        if (cache?.registry !== registry || cache.entries !== entries) {
+            const entry = Object.values(registry).find(e => ['energy_production_today', 'total_kwh_forecast_today'].includes(e.translation_key)
+                && devices[e.device_id]?.config_entries?.some(id => entries.has(id)));
+            this._forecastTodayCache = { registry, entries, id: entry?.entity_id ?? null };
+        }
+        const id = this._forecastTodayCache.id;
+        return id && this._has(id) ? id : null;
     }
     // Rows are kept per entity and updated in place, so a click is not lost to a refresh.
     _loadRow(load, entity, scale, home, depth = 0) {
@@ -1387,18 +1414,17 @@ class SigenergyFlowCard extends HTMLElement {
             : [actual !== null && expected >= .1 ? `(Perf today: ${ratio(actual, expected)})` : '', week ? `(Perf 7 days: ${ratio(week.actual, week.forecast)})` : '']);
         this._updateForecastDialog();
     }
-    // Today's forecast up to [now], in kWh, from the latest forecast, so that at the end of the day it is the day's
-    // forecast, as a past day shows it: the day's forecast less what Forecast.Solar's remaining sensor still expects, plus
-    // the part of the hours that sensor still counts (from the hour it was computed in) already past, from Home
-    // Assistant's solar forecast. Without that sensor, the forecast recorded hour by hour.
+    // Today's forecast up to [now], in kWh: the day's forecast less its remaining-today sensor, so that by the evening it
+    // is the day's forecast, as a past day shows it, plus the hourly forecast for the time since that sensor last changed,
+    // pro rata. Without that sensor, the forecast recorded hour by hour.
     _forecastSoFar(now) {
-        const remainingId = this._forecastEntity('energy_production_today_remaining');
+        const remainingId = this._forecastEntity('energy_production_today_remaining', 'forecast_remaining_today');
         const total = this._today(this._ent('solar_forecast_today')), remaining = remainingId ? this._today(remainingId) : null;
         if (total === null || remaining === null) return this._forecastUpTo(now);
-        const at = Date.parse(this._hass.states[remainingId].last_updated), p = zoneParts(Number.isFinite(at) ? at : now, this._zone);
-        const from = zoneDate(this._zone, p.y, p.m, p.d, p.h).getTime();
+        const since = Date.parse(this._hass.states[remainingId].last_updated);
         let sum = Math.max(0, total - remaining);
-        for (const [hour, kwh] of this._solarHours ?? []) if (hour >= from) sum += kwh * Math.min(1, Math.max(0, (now - hour) / 3600e3));
+        for (const [hour, kwh] of Number.isFinite(since) ? this._solarHours ?? [] : [])
+            sum += kwh * Math.max(0, Math.min(now, hour + 3600e3) - Math.max(since, hour)) / 3600e3;
         return sum;
     }
     // A forecast sensor not updated since midnight still holds yesterday's forecast (Forecast.Solar updates hourly from
@@ -1492,13 +1518,13 @@ class SigenergyFlowCard extends HTMLElement {
             ];
         });
     }
-    // A Forecast.Solar sensor ([key]: energy_current_hour, energy_production_today_remaining) on the same device as
-    // solar_forecast_today.
-    _forecastEntity(key) {
+    // A sensor of the forecast on the same device as solar_forecast_today, found by any of its [keys] (translation keys,
+    // e.g. Forecast.Solar's energy_production_today_remaining and Solcast's forecast_remaining_today).
+    _forecastEntity(...keys) {
         const registry = this._hass?.entities, device = registry?.[this._ent('solar_forecast_today')]?.device_id;
         if (!device) return null;
-        const pattern = new RegExp(`${key}(_\\d+)?$`);
-        const entry = Object.values(registry).find(e => e.device_id === device && (e.translation_key === key || pattern.test(e.entity_id)));
+        const patterns = keys.map(key => new RegExp(`${key}(_\\d+)?$`));
+        const entry = Object.values(registry).find(e => e.device_id === device && (keys.includes(e.translation_key) || patterns.some(p => p.test(e.entity_id))));
         return entry && this._has(entry.entity_id) ? entry.entity_id : null;
     }
     // The previous 7 days' solar production and forecasts, today left out. A day's forecast is the last state the
