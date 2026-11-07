@@ -1,0 +1,9 @@
+---
+blank_issues_enabled: false
+contact_links:
+  - name: Sigenergy Flow Card documentation
+    url: https://github.com/jyavenard/sigenergy-flow-card/blob/main/README.md
+    about: Setup and configuration for the Sigenergy Flow Card.
+  - name: Changelog
+    url: https://github.com/jyavenard/sigenergy-flow-card/blob/main/CHANGELOG.md
+    about: Check whether your problem has already been fixed in a newer version.
