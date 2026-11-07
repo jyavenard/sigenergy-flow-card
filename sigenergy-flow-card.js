@@ -2445,16 +2445,18 @@ class SigenergyFlowCard extends HTMLElement {
         const zone = this._zone, now = Date.now(), today = zoneMidnight(now, zone), day = zoneParts(today, zone);
         const end = zoneDate(zone, day.y, day.m, day.d + 1).getTime();
         // Today's solar forecast, in kWh for each hour from its start, which the Solar forecast tile also reads.
-        // The days after it, in kWh for each day, for the energy metrics' forecast.
+        // The days after it, in kWh for each day, for the energy metrics' forecast. Each entry of the forecast is
+        // counted in the hour it starts in: Solcast gives half hours, Forecast.Solar hours plus the part from sunrise.
         const hours = new Map(), days = new Map();
         try {
             const forecasts = await this._hass.callWS({ type: 'energy/solar_forecast' });
             for (const forecast of Object.values(forecasts ?? {}))
-                for (const [hour, wh] of Object.entries(forecast?.wh_hours ?? {})) {
-                    const t = Date.parse(hour);
+                for (const [key, wh] of Object.entries(forecast?.wh_hours ?? {})) {
+                    const t = Date.parse(key);
                     if (!Number.isFinite(Number(wh)) || t < today.getTime()) continue;
-                    if (t < end) hours.set(t, (hours.get(t) ?? 0) + Number(wh) / 1000);
-                    else { const d = zoneMidnight(t, zone).getTime(); days.set(d, (days.get(d) ?? 0) + Number(wh) / 1000); }
+                    if (t >= end) { const d = zoneMidnight(t, zone).getTime(); days.set(d, (days.get(d) ?? 0) + Number(wh) / 1000); continue; }
+                    const p = zoneParts(t, zone), hour = zoneDate(zone, p.y, p.m, p.d, p.h).getTime();
+                    hours.set(hour, (hours.get(hour) ?? 0) + Number(wh) / 1000);
                 }
         } catch (e) {
             // No solar forecast in Home Assistant: the history average stands in.
