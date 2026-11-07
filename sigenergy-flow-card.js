@@ -1476,10 +1476,18 @@ class SigenergyFlowCard extends HTMLElement {
                 ahead.push({ t: t + 3600e3, v: sum });
             }
             const perf = produced.map(p => ({ t: p.t, f: this._forecastUpTo(p.t) ?? 0, v: p.v })).filter(p => p.f >= .1).map(p => ({ t: p.t, v: p.v / p.f * 100 }));
+            // Where the forecast stays flat between stretches where it rises, an hour is missing from it: the line
+            // breaks across it rather than drawing it as no production.
+            const flats = (points, rose) => {
+                const up = points.map((p, i) => i > 0 && p.v - points[i - 1].v > 1e-6), last = up.lastIndexOf(true), breaks = [];
+                for (let i = 1; i < last; i++) { if (up[i]) rose = true; else if (rose) breaks.push({ start: points[i - 1].t, end: points[i].t }); }
+                return breaks.length ? { breaks } : {};
+            };
+            const rose = forecast.some((p, i) => i && p.v - forecast[i - 1].v > 1e-6);
             return [
                 { points: produced, color: 'var(--c-solar)', name: 'Produced', unit: 'kWh', digits: 2 },
-                { points: forecast, color: 'var(--sub)', name: 'Forecast', unit: 'kWh', digits: 2 },
-                { points: ahead, color: 'var(--sub)', name: 'Forecast', unit: 'kWh', digits: 2, forecast: true },
+                { points: forecast, color: 'var(--sub)', name: 'Forecast', unit: 'kWh', digits: 2, ...flats(forecast, false) },
+                { points: ahead, color: 'var(--sub)', name: 'Forecast', unit: 'kWh', digits: 2, forecast: true, ...flats(ahead, rose) },
                 { points: perf, color: 'var(--c-solar)', name: 'Performance', unit: '%', digits: 0, tipOnly: true },
             ];
         });
@@ -2557,13 +2565,21 @@ class SigenergyFlowCard extends HTMLElement {
             const at = this._valueAt(points, now), rest = points.filter(p => p.t > now && p.t <= end);
             return at === null ? rest : [{ t: now, v: at }, ...rest];
         };
-        // Each hour's energy (Wh) is its average power, placed at the middle of the hour; an hour the forecast
-        // leaves out (at night) produces nothing.
+        // Each hour's energy (Wh) is its average power, placed at the middle of the hour. Before the forecast's first
+        // hour and after its last it is night: nothing. An hour missing between them is missing from the forecast: the
+        // line breaks across it.
         let solar = null;
+        const breaks = [];
         if (hours.size) {
             solar = [];
-            for (let h = 0, t = today.getTime(); t < end; t = zoneDate(zone, day.y, day.m, day.d, ++h).getTime())
+            const known = [...hours.keys()].filter(t => t >= today.getTime() && t < end), first = Math.min(...known), last = Math.max(...known);
+            let missing = false;
+            for (let h = 0, t = today.getTime(); t < end; t = zoneDate(zone, day.y, day.m, day.d, ++h).getTime()) {
+                if (!hours.has(t) && t > first && t < last) { missing = true; continue; }
+                if (missing) breaks.push({ start: solar[solar.length - 1].t, end: t + 1800e3 });
+                missing = false;
                 solar.push({ t: t + 1800e3, v: hours.get(t) ?? 0 });
+            }
         }
         let history = {}, slot = 300e3;
         const ids = [...new Set([...specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power')), ...parts.map(spec => spec.id)])];
@@ -2591,8 +2607,9 @@ class SigenergyFlowCard extends HTMLElement {
                 .map(([minute, [total, count]]) => ({ t: zoneDate(zone, day.y, day.m, day.d, Math.floor(minute / 60)).getTime() + (minute % 60) * 60e3 + slot / 2, v: total / count }));
         };
         let series = specs.map(spec => {
-            const points = ahead(spec.key === 'pv_power' && solar ? solar.map(p => ({ t: p.t, v: p.v * (spec.negate ? -1 : 1) })) : profile(spec));
-            return { points, color: spec.color, name: spec.name, forecast: true };
+            const forecast = spec.key === 'pv_power' && solar;
+            const points = ahead(forecast ? solar.map(p => ({ t: p.t, v: p.v * (spec.negate ? -1 : 1) })) : profile(spec));
+            return { points, color: spec.color, name: spec.name, forecast: true, ...(forecast && breaks.length ? { breaks } : {}) };
         });
         let homeDay = specs.some(spec => spec.key === 'home_power') ? profile(spec('home_power')) : [];
         if (parts.length) {
@@ -2606,8 +2623,9 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartForecast = series.length ? { series, source: solar ? 'the solar forecast and the last 7 days' : 'the last 7 days' } : null;
         // The energy metrics' forecast, in kWh: the solar and home's for the rest of today, from the lines above, then
         // the solar forecast's later days, each with the home's average day.
-        const energy = points => points.reduce((sum, p, i) => i ? sum + Math.abs(p.v + points[i - 1].v) / 2 * (p.t - points[i - 1].t) / 3600e3 : 0, 0);
-        const rest = name => { const found = series.find(s => s.name === name); return found ? energy(found.points) : null; };
+        const energy = ({ points, breaks }) => points.reduce((sum, p, i) => !i || breaks?.some(b => points[i - 1].t < b.end && p.t > b.start) ? sum
+            : sum + Math.abs(p.v + points[i - 1].v) / 2 * (p.t - points[i - 1].t) / 3600e3, 0);
+        const rest = name => { const found = series.find(s => s.name === name); return found ? energy(found) : null; };
         this._energyForecast = { today: [rest('Solar'), rest('Home')], days, load: homeDay.length ? homeDay.reduce((sum, p) => sum + Math.abs(p.v), 0) * slot / 3600e3 : null };
         if (this._showPowerChart()) this._chartStatus();
         const view = this._view();
@@ -2687,10 +2705,11 @@ class SigenergyFlowCard extends HTMLElement {
             add('rect', { x: a, y: y(max), width: Math.max(1, b - a), height: (signed ? y(-max) : y(low)) - y(max), fill: 'var(--grid)', opacity: .35 });
             add('text', { x: (a + b) / 2, y: y(max) + 12, fill: '#e0a030', 'font-size': 11, 'text-anchor': 'middle' }, '⚠');
         }
-        for (const { points, color, forecast, tipOnly } of series) {
+        // A series' own breaks (hours its data leaves out) break its line too.
+        for (const { points, color, forecast, tipOnly, breaks = [] } of series) {
             if (points.length < 2 || tipOnly)
                 continue;
-            const d = points.map((p, j) => `${j && !gaps.some(g => points[j - 1].t < g.end && p.t > g.start) ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+            const d = points.map((p, j) => `${j && ![...gaps, ...breaks].some(g => points[j - 1].t < g.end && p.t > g.start) ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
             add('path', { d, fill: 'none', stroke: color, 'stroke-width': forecast ? 1.4 : 1.7, 'stroke-linejoin': 'round', ...(forecast ? { 'stroke-dasharray': '5 4' } : {}) });
         }
         const cursor = add('g', { display: 'none' });
@@ -2748,7 +2767,7 @@ class SigenergyFlowCard extends HTMLElement {
         // Up to now the recorded series are read, after it the forecast ones.
         const rows = new Map(), ahead = t > chart.now;
         chart.series.forEach((s, i) => {
-            const v = !!s.forecast === ahead ? this._valueAt(s.points, t) : null;
+            const v = !!s.forecast === ahead && !s.breaks?.some(b => b.start < t && t < b.end) ? this._valueAt(s.points, t) : null;
             chart.dots[i].setAttribute('display', v === null || s.tipOnly ? 'none' : 'inline');
             if (v === null) return;
             chart.dots[i].setAttribute('cx', px);
