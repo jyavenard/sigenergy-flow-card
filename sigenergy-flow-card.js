@@ -471,6 +471,7 @@ class SigenergyFlowCard extends HTMLElement {
             if (!(key in DEFAULT_ENTITIES)) throw new Error(`Unknown entities key "${key}". Valid keys: ${Object.keys(DEFAULT_ENTITIES).join(', ')}`);
             if (value !== false && value !== null && (typeof value !== 'string' || !value.includes('.'))) throw new Error(`entities.${key} must be an entity ID or false`);
         }
+        if (config.home_entities !== undefined && config.home_entities !== false && config.home_entities !== null && !Array.isArray(config.home_entities)) throw new Error('home_entities must be a list of entities or false');
         this.config = {
             pv_strings: ['PV1', 'PV2', 'PV3', 'PV4'],
             home_entities: [],
@@ -515,6 +516,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._updateSunTimes();
         this._updateScene();
         if (this._shown.has('scene')) this._updateWeather();
+        if (Date.now() - (this._energyDevicesAt ?? 0) > 3600e3) this._loadEnergyDevices();
         const today = new Date().toLocaleDateString('en-CA', { timeZone: this._zone });
         if (!previous || this._day !== today) {
             this._day = today;
@@ -560,9 +562,7 @@ class SigenergyFlowCard extends HTMLElement {
         </svg>
         <div class="node weather" id="weather" hidden><button id="weatherButton" title="Show the weather forecast"><span id="weatherIcon"></span><strong id="weatherTemp"></strong></button></div>
         <div class="node lead" style="${placeAt(READINGS.pv)}"><button id="pvButton" title="Show PV string details"><strong id="pv">—</strong><small>SOLAR ›</small></button></div>
-        <div class="node lead" style="${placeAt(READINGS.home)}">${this.config.home_entities.length
-            ? `<button id="homeButton" title="Show home power usage"><strong id="home">—</strong><small>HOME ›</small></button>`
-            : `<strong id="home">—</strong><small>HOME</small>`}</div>
+        <div class="node lead" style="${placeAt(READINGS.home)}"><button id="homeButton" title="Show home power usage" disabled><strong id="home">—</strong><small>HOME<span id="homeMore" hidden> ›</span></small></button></div>
         <div class="lower" style="${lowerStyle}">
           ${battery ? '<div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>' : ''}
           <div class="node"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
@@ -620,7 +620,7 @@ class SigenergyFlowCard extends HTMLElement {
             homeDialog: `
     <dialog id="homeDialog" aria-labelledby="homeTitle"><div class="dlg">
       ${head('home', 'Home power usage')}
-      <section class="panel"><div class="home-total"><span>Home consumption</span><b id="homeTotal">—</b></div><div class="muted" id="homeMeasured"></div></section>
+      <section class="panel"><div class="home-total"><span>Home consumption</span><b id="homeTotal">—</b></div><div class="muted" id="homeMeasured"></div><div class="homewarn" id="homeWarn" hidden>⚠ The listed loads exceed the home consumption: some may be counted twice. In the Energy dashboard, set the Upstream device of a device measured by another.</div></section>
       <section class="panel"><div class="loads" id="homeLoads"></div></section>
     </div></dialog>`,
             forecastDialog: `
@@ -738,6 +738,7 @@ class SigenergyFlowCard extends HTMLElement {
       .load ha-icon{--mdc-icon-size:18px;color:var(--icon);flex:none}
       .load .pct{color:var(--muted);font-size:12px;text-align:right}
       .load .bar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--load-bar);overflow:hidden}.load .bar i{display:block;height:100%;background:var(--load-fill)}
+      .homewarn{color:#d08a16;font-size:12px;margin-top:6px}.homewarn[hidden]{display:none}
       .load.other{cursor:default;background:transparent;border:1px dashed var(--other-line)}.load.other .bar i{background:var(--other-fill)}
       .home-total{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--icon)}.home-total b{font-size:22px;color:var(--fg)}
       .frame{container-type:inline-size}
@@ -1082,26 +1083,62 @@ class SigenergyFlowCard extends HTMLElement {
     _updateHome() {
         if (!this._hass || !this._id('homeDialog')?.open) return;
         const home = this._homePower();
-        const loads = this.config.home_entities.map(item => {
+        const loads = this._homeLoads().map(item => {
             const entity = typeof item === 'string' ? item : item.entity;
-            const name = (typeof item === 'object' && item.name) || this._hass.states[entity]?.attributes?.friendly_name || entity;
+            // The entity's own name, as Home Assistant shows it (without its device's), else the friendly name (a
+            // device's main entity has no name of its own).
+            const name = (typeof item === 'object' && item.name) || this._hass.entities?.[entity]?.name || this._hass.states[entity]?.attributes?.friendly_name || entity;
             const icon = (typeof item === 'object' && item.icon) || this._hass.states[entity]?.attributes?.icon || '';
-            return { entity, name, icon, kw: this._scaled(entity) };
+            return { entity, name, icon, parent: item.parent ?? null, kw: this._scaled(entity) };
         }).sort((a, b) => (b.kw ?? -Infinity) - (a.kw ?? -Infinity));
-        const measured = loads.reduce((sum, l) => sum + Math.max(0, l.kw ?? 0), 0);
+        // A device inside another (its Upstream device) is part of that one's reading, so only the outer ones add up.
+        const measured = loads.reduce((sum, l) => sum + (l.parent ? 0 : Math.max(0, l.kw ?? 0)), 0);
         const scale = Math.max(home ?? 0, measured, .001);
         const other = home === null ? null : home - measured;
         const drawing = loads.filter(l => l.kw !== null && l.kw >= .005);
-        const rows = drawing.map(l => this._loadRow(l, l.entity, scale, home));
+        // Each device follows the one it's inside, indented; one whose outer device isn't drawing stands on its own.
+        const shown = new Set(drawing.map(l => l.entity)), rows = [];
+        const place = (l, depth) => {
+            rows.push(this._loadRow(l, l.entity, scale, home, depth));
+            for (const child of drawing) if (child.parent === l.entity) place(child, depth + 1);
+        };
+        for (const l of drawing) if (!shown.has(l.parent)) place(l, 0);
         if (!drawing.length) rows.push(this._loadsEmpty ??= Object.assign(document.createElement('div'), { className: 'muted', textContent: 'No listed load is drawing power' }));
         if (other !== null && other >= .005) rows.push(this._loadRow({ name: 'Other (unmeasured)', icon: '', kw: other }, null, scale, home));
         const list = this._id('homeLoads');
         if (rows.length !== list.children.length || rows.some((row, i) => row !== list.children[i])) list.replaceChildren(...rows);
         this._text('homeTotal', this._power(home));
         this._text('homeMeasured', home === null || home <= 0 ? '' : `Measured ${formatPower(measured)} · ${Math.round(Math.min(measured / home, 1) * 100)}% of home consumption`);
+        this._id('homeWarn').hidden = home === null || measured <= home + Math.max(.1, home * .1);
+    }
+    // The loads HOME lists: home_entities, else (left out or empty) the Energy dashboard's individual devices that have a
+    // power sensor. The chargers are left out: HOME doesn't include them. A device's parent is its Upstream device's
+    // power sensor, when that one is listed.
+    _homeLoads() {
+        const list = this.config.home_entities;
+        if (!Array.isArray(list)) return [];
+        if (list.length) return list;
+        const chargers = new Set([this._ent('ac_charger_power'), this._ent('dc_charger_power')]);
+        const devices = (this._energyDevices ?? []).filter(d => typeof d.stat_rate === 'string' && !chargers.has(d.stat_rate));
+        const rates = new Map(devices.map(d => [d.stat_consumption, d.stat_rate]));
+        return devices.map(d => ({ entity: d.stat_rate, name: d.name, parent: rates.get(d.included_in_stat) ?? null }));
+    }
+    // The Energy dashboard's individual devices, for HOME when home_entities is left out. HA before 2025.12 has no
+    // device power sensor, and no saved energy preferences is an error: both leave HOME a plain label.
+    async _loadEnergyDevices() {
+        if (!this._shown.has('scene') || this.config.home_entities?.length !== 0 || typeof this._hass?.callWS !== 'function') return;
+        this._energyDevicesAt = Date.now();
+        try {
+            this._energyDevices = (await this._hass.callWS({ type: 'energy/get_prefs' }))?.device_consumption ?? [];
+        } catch {
+            this._energyDevices ??= [];
+        }
+        if (!this._hass) return;
+        this._update();
+        this._updateHome();
     }
     // Rows are kept per entity and updated in place, so a click is not lost to a refresh.
-    _loadRow(load, entity, scale, home) {
+    _loadRow(load, entity, scale, home, depth = 0) {
         const key = entity ?? '';
         let row = this._loadRows.get(key);
         if (!row) {
@@ -1112,6 +1149,7 @@ class SigenergyFlowCard extends HTMLElement {
             row.innerHTML = '<span class="name"><span></span></span><span></span><span class="pct"></span><span class="bar"><i></i></span>';
             this._loadRows.set(key, row);
         }
+        row.style.marginLeft = depth ? `${depth * 18}px` : '';
         const [name, value, pct, bar] = row.children;
         let icon = name.querySelector('ha-icon');
         if (load.icon && !icon) name.prepend(icon = document.createElement('ha-icon'));
@@ -1691,6 +1729,9 @@ class SigenergyFlowCard extends HTMLElement {
         const phases = this._gridPhases();
         this._id('gridButton').disabled = !phases;
         this._id('gridMore').hidden = !phases;
+        const loads = this._homeLoads().length;
+        this._id('homeButton').disabled = !loads;
+        this._id('homeMore').hidden = !loads;
         this._text('gridLabel', this.config.show_grid_voltage ? this._gridLabel(phases) : '');
         const phase = this._hass.states[e('phase_mode')]?.state;
         this._text('phaseMode', !this.config.show_phase_mode ? '' : phase === 'on' ? 'Power Per Phase Mode' : phase === 'off' ? 'Total Power Mode' : '');

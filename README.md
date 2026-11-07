@@ -172,7 +172,7 @@ All options are optional.
 | `battery_present` | `true` | Set `false` on a system without a battery to hide everything battery-related: the SigenStor reading, the battery charged and discharged tiles, the battery level panel, and the battery in the Power metrics chart and the Energy statistics. |
 | `battery_power_invert` | `false` | Set `true` if your battery power sensor is positive while **discharging**. The card expects positive while charging. |
 | `pv_strings` | `[PV1, PV2, PV3, PV4]` | The PV strings, in order. Each is a display name, or an object with its own entities (see [PV strings](#pv-strings)). The number of entries sets how many strings are shown. |
-| `home_entities` | `[]` | Power entities listed when tapping **HOME**. Without it, HOME is a plain label. |
+| `home_entities` | Energy dashboard devices | Power entities listed when tapping **HOME**. Without it, the individual devices of Home Assistant's Energy dashboard that have a power sensor; `false` turns the list off (see [Home power usage](#home-power-usage)). |
 | `ac_charger_soc` | none | Battery level entity of the vehicle on the AC charger. Same as `entities.ac_charger_vehicle_soc`. |
 | `ac_charger_range` | none | Range entity of that vehicle. Only shown together with `ac_charger_soc`. Same as `entities.ac_charger_vehicle_range`. |
 | `show_lifetime` | `true` | Show the AC charger's energy consumed and the DC charger's lifetime energy charged and discharged. |
@@ -195,9 +195,6 @@ pv_strings: [NE, NW, S, W]
 ac_charger_soc: sensor.my_car_battery_level
 ac_charger_range: sensor.my_car_battery_range
 home_entities:
-  - entity: sensor.sigen_ac_charger_charging_power
-    name: EV
-    icon: mdi:car-electric
   - entity: sensor.pool_power
     name: Pool
     icon: mdi:pool
@@ -478,15 +475,17 @@ pv_strings:
 
 ### Home power usage
 
+Without `home_entities`, tapping **HOME** lists the **individual devices** of Home Assistant's Energy dashboard (Settings → Dashboards → Energy) that have a power sensor. Home Assistant 2025.12 or later is needed: earlier versions take only an energy sensor per device. Devices without a power sensor are left out, and so are the AC and DC chargers, which Sigenergy doesn't count in the home consumption. A device whose **Upstream device** is set is listed under that device and not counted again in **Measured**; a device without one is counted on its own, so a circuit and the meter that feeds it are counted twice unless the circuit names the meter as its upstream device. With no device to list, HOME is a plain label. Set `home_entities: false` to keep it that way.
+
 Each `home_entities` item is either an entity ID or an object with:
 
 - `entity`: the power sensor (required)
-- `name`: label; defaults to the entity's friendly name
+- `name`: label; defaults to the entity's name as Home Assistant shows it, without the device's name
 - `icon`: e.g. `mdi:pool`; defaults to the entity's `icon` attribute, if any
 
 Other keys are ignored, so a list written for [power-flow-card-plus](https://github.com/flixlix/power-flow-card-plus) `individual` entities can be pasted as-is.
 
-The list shows only entities currently drawing power (anything that would display as more than 0.00 kW), sorted from highest to lowest. **Measured** is the sum of the listed entities, compared with the home consumption reported by Sigenergy; the remainder is shown as **Other (unmeasured)**. Avoid listing a sensor together with another sensor that already includes it (for example a circuit and the phase meter that feeds it), as it would be counted twice. Tapping an entry opens its Home Assistant details.
+The list shows only entities currently drawing power (anything that would display as more than 0.00 kW), sorted from highest to lowest. **Measured** is the sum of the listed entities, compared with the home consumption reported by Sigenergy; the remainder is shown as **Other (unmeasured)**. Avoid listing a sensor together with another sensor that already includes it (for example a circuit and the phase meter that feeds it), as it would be counted twice; a ⚠ note shows when the listed loads add up to more than the home consumption. Tapping an entry opens its Home Assistant details.
 
 ### Plant and inverter sensors
 
