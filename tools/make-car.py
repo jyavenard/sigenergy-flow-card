@@ -23,7 +23,7 @@ import importlib.util
 import pathlib
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 spec = importlib.util.spec_from_file_location('embed', pathlib.Path(__file__).with_name('embed-artwork.py'))
 embed = importlib.util.module_from_spec(spec)
@@ -31,6 +31,9 @@ spec.loader.exec_module(embed)
 
 # The car frame (left, top, right, bottom) in the first photo's frame; the card's CAR_FRAME places it.
 CAR_FRAME = (430, 198, 630, 390)
+# The AC charger and its cable on the garage wall (left, top, right, bottom), left out in case the scene has it: the card
+# draws its own.
+CHARGER = (442, 238, 474, 328)
 ROWS = 469
 # The house outside this box (left, top, right, bottom) is what the scene is aligned on.
 GARAGE_AREA = (420, 190, 645, 395)
@@ -89,7 +92,11 @@ def main():
         if error > args.max_error:
             raise SystemExit(f'{path}: the house differs too much from the card\'s photo ({error:.1f} > {args.max_error}); was it reframed or redrawn?')
         mask, empty = embed.garage_mask(f'garage_{time}.png')
-        alpha = Image.fromarray(mask[:ROWS])
+        mask = mask[:ROWS].copy()
+        charger = np.zeros(mask.shape, np.uint8)
+        charger[CHARGER[1]:CHARGER[3], CHARGER[0]:CHARGER[2]] = 255
+        charger = np.asarray(Image.fromarray(charger).filter(ImageFilter.GaussianBlur(1.5)), dtype=np.float32) / 255
+        alpha = Image.fromarray((mask * (1 - charger)).astype(np.uint8))
         scene.putalpha(alpha)
         car = scene.crop(CAR_FRAME)
         car.save(out.with_name(f'{out.name}-{time}.avif'), 'AVIF', quality=embed.OVERLAY_QUALITY, speed=embed.SPEED)

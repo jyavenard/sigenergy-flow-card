@@ -548,12 +548,15 @@ By default (`car_shown: auto`), the car in the garage only shows while a vehicle
 `car_image` and `car_image_night` replace the car in the garage with another one. They are URLs of car overlays made by `tools/make-car.py`: small transparent images of the garage's inside, which the card draws at a fixed place over its own photo, so they cannot move the house, the battery or the flows. The card's repository has these in [`cars/`](cars):
 
 - `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
+- `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
 - `byd-atto3-orange`: BYD Atto 3, orange
 - `volvo-ex90-black`: Volvo EX90, black
+- `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
+- `mg4-urban-stone-green`: MG4 Urban, Stone Green
 
 ```yaml
-car_image: https://cdn.jsdelivr.net/gh/jyavenard/sigenergy-flow-card@main/cars/byd-atto3-orange-day.avif
-car_image_night: https://cdn.jsdelivr.net/gh/jyavenard/sigenergy-flow-card@main/cars/byd-atto3-orange-night.avif
+car_image: https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/cars/byd-atto3-orange-day.avif
+car_image_night: https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/cars/byd-atto3-orange-night.avif
 ```
 
 A file in `/config/www/` works too, as `/local/<name>.avif`.
@@ -561,8 +564,10 @@ A file in `/config/www/` works too, as `/local/<name>.avif`.
 To make another car:
 
 1. `python3 tools/make-car.py --sources DIR` writes `car-source-day.png` and `car-source-night.png`, the card's photos without the charger.
-2. Ask an image generator (ChatGPT works) to edit each one: replace the car in the garage with your model and colour, parked in the same place, at the same size and angle, with nothing else changed and the image kept at 1676 × 469.
+2. Ask an image generator (ChatGPT and Gemini work) to edit them with the request in [`cars/PROMPT.md`](cars/PROMPT.md): replace the car in the garage with your model and colour, parked in the same place, at the same size and angle, with nothing else changed and the images kept at 1676 × 469.
 3. `python3 tools/make-car.py car-day.png car-night.png cars/<name>` aligns each result to the card's photo, refuses it if the house was reframed or redrawn, and writes `cars/<name>-day.avif`, `cars/<name>-night.avif` and `cars/<name>-preview.png`. Check the preview: a car the generator scaled or moved inside the garage still looks wrong.
+
+Made a car that isn't listed? Please share it so others can use it too: open a pull request adding `cars/<model>-<colour>-day.avif` and `-night.avif` with a line in the list above, and the preview in its description. If you can't run the tool, open an issue with the two images from the generator, and the car's model and colour.
 
 ## Changing the artwork
 
