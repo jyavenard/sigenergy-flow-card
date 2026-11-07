@@ -2,6 +2,15 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v71
+
+- Each part of the card is also a card of its own, for laying out a dashboard yourself: `custom:sigenergy-flow-scene` (the house and its live flows), `custom:sigenergy-flow-battery` (Battery level), `custom:sigenergy-flow-statistics` (the energy totals), `custom:sigenergy-flow-metrics` (Power metrics, or Energy metrics bars) and `custom:sigenergy-flow-sankey` (the Energy statistics diagram). They take the main card's options, and each only fetches the data it shows. See **Standalone cards** in the README.
+- The statistics, metrics and Sankey cards open on the new `period` option: `day`, `last_7_days` (today and the 6 days before), `week`, `month`, `year` or `lifetime`. `show_period_picker: false` keeps them on it, showing only its dates. The main card accepts `period` too, except `last_7_days`.
+- Without `home_entities`, tapping **HOME** lists the individual devices of Home Assistant's Energy dashboard that have a power sensor (Home Assistant 2025.12 or later). A device whose **Upstream device** is set is shown under that device and not counted twice in **Measured**; the AC and DC chargers are left out, as the home consumption doesn't include them. A list set in `home_entities` is used as before, and `home_entities: false` keeps HOME a plain label. **Upgrading:** if your `home_entities` list repeats the devices of your Energy dashboard, you can delete it from the card's configuration.
+- A ⚠ note in the HOME details warns when the listed loads add up to more than the home consumption, a sign that some are counted twice.
+- A chart's tip no longer runs past the bottom of the card: a tall one (a bar with many series, or with a ⚠ line) moves up instead. This affected the main card's chart with `show_energy_statistics: false`.
+- The solar forecast on Power metrics is no longer drawn at half its power with a forecast that reports half hours, such as Solcast: only the entries on the hour were read. The first hour after sunrise of a Forecast.Solar forecast is also no longer left out.
+
 ## v70.1
 
 - With a third-party inverter, the Energy statistics diagram shows its solar even when the integration's **Total Generation of Third Party Inverter** sensor isn't enabled (Sigenergy Local Modbus creates it disabled): the card falls back to the statistics of **Daily Third Party Inverter Energy**. On a system whose only PV is third-party, the diagram showed no solar, and so no battery charging. Enabling the lifetime sensor is still better, as the daily sensor misses any time Home Assistant wasn't recording; the README explains how.
