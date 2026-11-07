@@ -2,6 +2,12 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v71.1
+
+- **(Perf today)** compares the solar produced with Forecast.Solar's latest forecast for the day so far, so it no longer swings when the forecast recorded a bad hour, and by the evening it matches what the day shows afterwards.
+- Just after midnight, the Solar forecast tile no longer shows yesterday's forecast as today's while Forecast.Solar hasn't updated yet: it shows today's hourly forecast, or — without one.
+- Forecast.Solar's figures are wrong away from UTC (Australia, Asia, the Americas) until Home Assistant ships a fixed `forecast-solar` library ([forecast_solar#427](https://github.com/home-assistant-libs/forecast_solar/pull/427)). The README explains.
+
 ## v71
 
 - Each part of the card is also a card of its own, for laying out a dashboard yourself: `custom:sigenergy-flow-scene` (the house and its live flows), `custom:sigenergy-flow-battery` (Battery level), `custom:sigenergy-flow-statistics` (the energy totals), `custom:sigenergy-flow-metrics` (Power metrics, or Energy metrics bars) and `custom:sigenergy-flow-sankey` (the Energy statistics diagram). They take the main card's options, and each only fetches the data it shows. See **Standalone cards** in the README.
