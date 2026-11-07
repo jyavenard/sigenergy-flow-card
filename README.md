@@ -1,5 +1,12 @@
 # Sigenergy Flow Card
 
+[![hacs][hacs-badge]][hacs-url]
+[![release][release-badge]][release-url]
+[![downloads][downloads-badge]][release-url]
+[![maintained][maintained-badge]][commits-url]
+[![activity][activity-badge]][commits-url]
+[![license][license-badge]][license-url]
+
 A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySigen power-flow dashboard for a Sigenergy installation (solar, SigenStor battery, Sigen Gateway, grid, and optional AC/DC EV chargers).
 
 - Live power flow over a photo of the house, with day and night versions, following Home Assistant's light or dark mode.
@@ -520,3 +527,16 @@ Copyright 2025-2026 Jean-Yves Avenard. Licensed under the [Apache License, Versi
 ## Acknowledgements
 
 The original YAML version of this dashboard came from [this gist](https://gist.github.com/fbradyirl/08fef90bd11d7bdddf588a56e668d879).
+
+<!-- Badges -->
+
+[hacs-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=jyavenard&repository=sigenergy-flow-card&category=plugin
+[hacs-badge]: https://img.shields.io/badge/hacs-default-orange.svg?style=flat-square
+[release-badge]: https://img.shields.io/github/v/release/jyavenard/sigenergy-flow-card?style=flat-square&color=green
+[downloads-badge]: https://img.shields.io/github/downloads/jyavenard/sigenergy-flow-card/total?style=flat-square
+[maintained-badge]: https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square
+[activity-badge]: https://img.shields.io/github/commit-activity/y/jyavenard/sigenergy-flow-card?style=flat-square
+[license-badge]: https://img.shields.io/github/license/jyavenard/sigenergy-flow-card?style=flat-square
+[release-url]: https://github.com/jyavenard/sigenergy-flow-card/releases
+[commits-url]: https://github.com/jyavenard/sigenergy-flow-card/commits/main
+[license-url]: https://github.com/jyavenard/sigenergy-flow-card/blob/main/LICENSE
