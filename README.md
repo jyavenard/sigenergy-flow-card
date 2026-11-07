@@ -13,6 +13,8 @@ A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySige
 - Readings for solar, home, SigenStor (with charge level and remaining time), grid and the AC and DC chargers, plus the current weather.
 - One date and range picker at the top (Day, Week, Month, Year, Lifetime) for the energy totals, the power or energy chart and the energy flow diagram.
 - Tap a reading for its details: PV strings, grid phases, home power usage, battery history, the solar forecast.
+- A car in the garage while it's plugged in, which you can swap for your own model and colour (see [Changing the car](#changing-the-car)).
+- While intended for Sigenergy, it can be configured to work with any brand of batteries (or none at all) or solar systems.
 
 No other custom cards (button-card, card-mod, Mushroom) are needed.
 
