@@ -1433,10 +1433,13 @@ class SigenergyFlowCard extends HTMLElement {
             : [actual !== null && expected >= .1 ? `(Perf today: ${ratio(actual, expected)})` : '', week ? `(Perf 7 days: ${ratio(week.actual, week.forecast)})` : '']);
         this._updateForecastDialog();
     }
-    // Today's forecast up to [now], in kWh: the day's forecast less its remaining-today sensor, so that by the evening it
-    // is the day's forecast, as a past day shows it, plus the hourly forecast for the time since that sensor last changed,
-    // pro rata. Without that sensor, the forecast recorded hour by hour.
+    // Today's forecast up to [now], in kWh: Home Assistant's solar forecast up to now while it has no gap; else the day's
+    // forecast less its remaining-today sensor, so that by the evening it is the day's forecast, as a past day shows it,
+    // plus the hourly forecast for the time since that sensor last changed, pro rata. Without that sensor, the forecast
+    // recorded hour by hour.
     _forecastSoFar(now) {
+        const slots = this._slotsUpTo(now);
+        if (slots !== null) return slots;
         const remainingId = this._forecastEntity('energy_production_today_remaining', 'forecast_remaining_today');
         const total = this._today(this._ent('solar_forecast_today')), remaining = remainingId ? this._today(remainingId) : null;
         if (total === null || remaining === null) return this._forecastUpTo(now);
@@ -1455,10 +1458,37 @@ class SigenergyFlowCard extends HTMLElement {
     _today(id) {
         return this._stale(id) ? null : this._scaled(id);
     }
-    // The forecast's production from today's midnight up to [t] (now or earlier), in kWh, the hour at [t] counted pro
-    // rata: each hour's forecast as the forecast's sensor for the current hour recorded it up to [t], else Home
-    // Assistant's solar forecast for the hours it still has; null without either.
+    // Home Assistant's solar forecast from today's midnight up to [t], in kWh, each entry (half an hour for Solcast, an
+    // hour for Forecast.Solar) lasting until the next and the one at [t] counted pro rata; null without one, or with an
+    // entry missing before [t] (an interval longer than the usual one).
+    _slotsUpTo(t) {
+        const slots = this._solarSlots?.filter(([start]) => start < t);
+        if (!slots?.length) return null;
+        const counts = new Map();
+        for (let i = 1; i < this._solarSlots.length; i++) {
+            const gap = this._solarSlots[i][0] - this._solarSlots[i - 1][0];
+            counts.set(gap, (counts.get(gap) ?? 0) + 1);
+        }
+        const step = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 3600e3;
+        let sum = 0;
+        for (let i = 0; i < slots.length; i++) {
+            const [start, kwh] = slots[i];
+            let length = (this._solarSlots[i + 1]?.[0] ?? start + step) - start;
+            if (length > step * 1.5) {
+                if (t > start + step) return null;
+                length = step;
+            }
+            sum += kwh * Math.min(1, (t - start) / length);
+        }
+        return sum;
+    }
+    // The forecast's production from today's midnight up to [t] (now or earlier), in kWh: Home Assistant's solar forecast
+    // while it has no gap; else, the hour at [t] counted pro rata, each hour's forecast as the forecast's sensor for the
+    // current hour recorded it up to [t], else Home Assistant's solar forecast for the hours it still has; null without
+    // either.
     _forecastUpTo(t) {
+        const slots = this._slotsUpTo(t);
+        if (slots !== null) return slots;
         const recorded = this._forecastRecorded, hours = this._solarHours;
         let sum = 0;
         if (recorded) {
@@ -2568,7 +2598,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._forecastAt = Date.now();
         const request = this._forecastRequest = (this._forecastRequest ?? 0) + 1;
         if (typeof this._hass?.callWS !== 'function') {
-            this._chartForecast = this._solarHours = null;
+            this._chartForecast = this._solarHours = this._solarSlots = null;
             return;
         }
         const zone = this._zone, now = Date.now(), today = zoneMidnight(now, zone), day = zoneParts(today, zone);
@@ -2576,7 +2606,7 @@ class SigenergyFlowCard extends HTMLElement {
         // Today's solar forecast, in kWh for each hour from its start, which the Solar forecast tile also reads.
         // The days after it, in kWh for each day, for the energy metrics' forecast. Each entry of the forecast is
         // counted in the hour it starts in: Solcast gives half hours, Forecast.Solar hours plus the part from sunrise.
-        const hours = new Map(), days = new Map();
+        const hours = new Map(), days = new Map(), slots = new Map();
         try {
             const forecasts = await this._hass.callWS({ type: 'energy/solar_forecast' });
             for (const forecast of Object.values(forecasts ?? {}))
@@ -2586,6 +2616,7 @@ class SigenergyFlowCard extends HTMLElement {
                     if (t >= end) { const d = zoneMidnight(t, zone).getTime(); days.set(d, (days.get(d) ?? 0) + Number(wh) / 1000); continue; }
                     const p = zoneParts(t, zone), hour = zoneDate(zone, p.y, p.m, p.d, p.h).getTime();
                     hours.set(hour, (hours.get(hour) ?? 0) + Number(wh) / 1000);
+                    slots.set(t, (slots.get(t) ?? 0) + Number(wh) / 1000);
                 }
         } catch (e) {
             // No solar forecast in Home Assistant: the history average stands in.
@@ -2603,6 +2634,7 @@ class SigenergyFlowCard extends HTMLElement {
         }
         if (request !== this._forecastRequest) return;
         this._solarHours = hours.size ? hours : null;
+        this._solarSlots = slots.size ? [...slots].sort((a, b) => a[0] - b[0]) : null;
         this._forecastRecorded = recorded;
         this._updateForecastTile();
         if (!this.config.show_forecast || !this._shown.has('metrics')) {
