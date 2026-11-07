@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v71.2
+
+- An hour missing from the solar forecast is shown as a gap instead of no production: the forecast line on Power metrics no longer drops to zero, and the one in Solar performance no longer goes flat. Forecast.Solar currently loses one hour a day away from Europe (see v71.1).
+
 ## v71.1
 
 - **(Perf today)** compares the solar produced with Forecast.Solar's latest forecast for the day so far, so it no longer swings when the forecast recorded a bad hour, and by the evening it matches what the day shows afterwards.
