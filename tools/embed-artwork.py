@@ -12,7 +12,12 @@ Firefox 93 or later; at the same quality it is about a third smaller than WebP.
 The charger overlays are transparent images of the charger on the garage wall; each
 is scaled so its charger has the height CHARGER_REFERENCE gives (in photo units),
 centred on the wall position, cropped to its visible pixels and stored at twice the
-card's resolution. Run after changing any of the images:
+card's resolution.
+
+The garage images are the photos with the car removed, already in the first photo's frame
+(1676 pixels wide, row 0 at its top row). Only the garage's inside is kept, where they differ
+from the photo, and cut at the pillar on its right (whose position the photo keeps); the card
+draws that patch over the car to hide it. Run after changing any of the images:
 
     python3 tools/embed-artwork.py
 """
@@ -29,8 +34,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CARD = ROOT / 'sigenergy-flow-card.js'
 FILES = ['house_day.png', 'house_night.png']
 OVERLAYS = ['charger_day.png', 'charger_night.png']
+# Each garage image's photo, the x of the pillar's left edge on the garage's right and the boxes past it that
+# are still taken from the garage image (the day car's mirror shows on the pillar).
+GARAGES = {'garage_day.png': ('house_day.png', 617, [(617, 276, 626, 291)]), 'garage_night.png': ('house_night.png', 615, [])}
+# The garage's inside (left, top, bottom) in the first photo's frame, and the difference from the photo that counts.
+GARAGE_BOX, GARAGE_DIFF = (425, 195, 385), 20
 # AVIF quality of the photos and of the charger overlays, and the encoder's speed (0 is slowest and smallest).
-QUALITY, OVERLAY_QUALITY, SPEED = 60, 80, 2
+QUALITY, OVERLAY_QUALITY, SPEED = 50, 80, 2
 WIDTH = 1676
 # The photo's rows, starting EXTRA_TOP units above the first photo's top row.
 EXTRA_TOP, ROWS = 44, 557
@@ -82,6 +92,32 @@ def overlay(name):
             f"href: 'data:image/avif;base64,{data}' }},")
 
 
+def garage(name):
+    house, pillar, extra = GARAGES[name]
+    image = Image.open(ROOT / 'images' / name).convert('RGB')
+    if image.width != WIDTH:
+        raise SystemExit(f'{name}: must be {WIDTH} pixels wide, in the first photo\'s frame')
+    photo = np.asarray(place(house), dtype=np.int16)[EXTRA_TOP:EXTRA_TOP + image.height]
+    diff = np.abs(np.asarray(image, dtype=np.int16) - photo).max(2) > GARAGE_DIFF
+    left, top, bottom = GARAGE_BOX
+    mask = np.zeros(diff.shape, np.uint8)
+    mask[top:bottom, left:pillar] = diff[top:bottom, left:pillar] * 255
+    # Join the differing pixels into one area, drop stray specks, then soften its edge except against the pillar.
+    area = Image.fromarray(mask).filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(11)).filter(ImageFilter.MaxFilter(11))
+    mask = np.asarray(area.filter(ImageFilter.GaussianBlur(1.5))).copy()
+    mask[:, pillar:] = 0
+    mask[:, pillar - 2:pillar] = np.asarray(area)[:, pillar - 2:pillar]
+    for x0, y0, x1, y1 in extra:
+        mask[y0:y1, x0:x1] = 255
+    image.putalpha(Image.fromarray(mask))
+    left, top, right, bottom = image.getbbox()
+    buffer = io.BytesIO()
+    image.crop((left, top, right, bottom)).save(buffer, 'AVIF', quality=OVERLAY_QUALITY, speed=SPEED)
+    data = base64.b64encode(buffer.getvalue()).decode('ascii')
+    return (f"    '{name}': {{ size: [{right - left}, {bottom - top}], at: [{left}, {top + EXTRA_TOP}], "
+            f"href: 'data:image/avif;base64,{data}' }},")
+
+
 def place(name):
     scale, dx, dy = REGISTRATION[name]
     photo = Image.open(ROOT / 'images' / name).convert('RGB')
@@ -102,7 +138,7 @@ def entry(name):
 
 
 def main():
-    block = '\n'.join([BEGIN, 'const ARTWORK = {', *map(entry, FILES), *map(overlay, OVERLAYS), '};', END])
+    block = '\n'.join([BEGIN, 'const ARTWORK = {', *map(entry, FILES), *map(overlay, OVERLAYS), *map(garage, GARAGES), '};', END])
     source = CARD.read_text()
     pattern = re.compile(re.escape(BEGIN) + '.*?' + re.escape(END), re.S)
     if not pattern.search(source):

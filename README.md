@@ -180,6 +180,7 @@ All options are optional.
 | `name` | `My Home` | Second part of the heading (your home's name). An empty value hides that part. |
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
+| `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never (see [AC and DC chargers](#ac-and-dc-chargers)). |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
 | `show_forecast` | `true` | Draw the dashed solar and home forecast: for the rest of the day on the Power metrics chart, and as dashed bars in the current week or month (see [Forecast](#forecast)). |
@@ -297,6 +298,7 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `dc_charger_power` | `sensor.sigen_inverter_dc_charger_output_power` | DC charger value, chart; the DC charger only appears if this exists |
 | `dc_charger_vehicle_soc` | `sensor.sigen_inverter_dc_charger_vehicle_soc` | Vehicle battery level on the DC charger |
 | `dc_charger_limit` | `number.sigen_inverter_dc_charger_max_charging_power_limit` | Opened when tapping the DC charger (⚙) |
+| `car_charging` | none | Shows the car in the garage while on, `charging` or above 0 (e.g. a car's or third-party charger's charging sensor) |
 | `dc_charger_lifetime_charged_energy` | `sensor.sigen_plant_total_charged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_charging_capacity` | DC charger lifetime line (↓ charged) |
 | `dc_charger_lifetime_discharged_energy` | `sensor.sigen_plant_total_discharged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_discharging_capacity` | DC charger lifetime line (↑ discharged, hidden while 0) |
 | `pv_strings_power` | `sensor.sigen_plant_sigen_pv_power` | PV Strings **Total** power, for the Sigenergy PV inputs (the Total row adds `third_party_pv_power`) |
@@ -389,6 +391,7 @@ sigenergy_backend: sigenergy2mqtt
 | `dc_charger_power` | `sensor.sigen_0_dc_charger_1_output_power` |
 | `dc_charger_vehicle_soc` | `sensor.sigen_0_dc_charger_1_vehicle_soc` |
 | `dc_charger_limit` | `number.sigen_0_dc_charger_1_max_charging_power_limit` |
+| `car_charging` | none |
 | `dc_charger_lifetime_charged_energy` | `sensor.sigen_0_evdc_total_charge_energy`, fallback `sensor.sigen_0_si_evdc_total_charge_energy`, then `sensor.sigen_0_dc_charger_1_total_charging_capacity` |
 | `dc_charger_lifetime_discharged_energy` | `sensor.sigen_0_evdc_total_discharge_energy`, fallback `sensor.sigen_0_si_evdc_total_discharge_energy`, then `sensor.sigen_0_dc_charger_1_total_discharging_capacity` |
 | `pv_strings_power` | `sensor.sigen_0_plant_pv_power`, fallback `sensor.sigen_0_inverter_1_pv_power` |
@@ -534,9 +537,11 @@ Each line is hidden when its entities do not exist.
 
 The DC charger's vehicle state of charge is hidden while the charger is idle and reports 0%.
 
+By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it.
+
 ## Changing the artwork
 
-The scene photos `images/house_day.png` and `images/house_night.png` show the house without a car charger. The charger on the garage wall is a separate transparent image of the same size, `images/charger_day.png` and `images/charger_night.png`; the card draws it only when an AC or DC charger is present. `tools/embed-artwork.py` places each photo in the card's coordinates (a scale and offset measured against the first photo, kept in the tool), adds a short band above and below for the readings, scales each charger to the wall position, and embeds the result in the card. After changing any of the four, regenerate the embedded copy (requires [Pillow](https://python-pillow.org) 11.3 or later, for AVIF, and [NumPy](https://numpy.org)); if a new photo is framed differently, update its entry in `REGISTRATION` first:
+The scene photos `images/house_day.png` and `images/house_night.png` show the house without a car charger. `images/garage_day.png` and `images/garage_night.png` are the same photos with the car removed, in the first photo's frame (1676 pixels wide); the tool keeps only the garage's inside from them, cut at the pillar the photos keep, and the card draws that patch over the car to hide it. The charger on the garage wall is a separate transparent image of the same size, `images/charger_day.png` and `images/charger_night.png`; the card draws it only when an AC or DC charger is present. `tools/embed-artwork.py` places each photo in the card's coordinates (a scale and offset measured against the first photo, kept in the tool), adds a short band above and below for the readings, scales each charger to the wall position, and embeds the result in the card. After changing any of them, regenerate the embedded copy (requires [Pillow](https://python-pillow.org) 11.3 or later, for AVIF, and [NumPy](https://numpy.org)); if a new photo is framed differently, update its entry in `REGISTRATION` first:
 
 ```sh
 python3 tools/embed-artwork.py
