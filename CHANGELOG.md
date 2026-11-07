@@ -2,6 +2,13 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v72
+
+- The car in the garage only shows while it is plugged in: while a vehicle is connected to the AC charger (Reserving, Preparing, EV Ready or Charging), either charger has power (the DC charger in either direction), or the new `car_charging` entity is on, `charging` or above 0. The new `car_shown` option shows it always (`true`) or never (`false`); the default is `auto`.
+- `car_image` and `car_image_night` replace the car with another one. The repository's `cars/` folder has a Tesla Model Y and Model 3, a BYD Atto 3, a Volvo EX90, a Porsche Taycan and an MG4 Urban, and `tools/make-car.py` makes new ones from an image generator's edit of the card's photos, with the request in `cars/PROMPT.md`. See **Changing the car** in the README; shared cars are welcome.
+- **(Perf today)** and its chart agree again: while Home Assistant's solar forecast has no missing entry, both compare the solar produced with that forecast up to now. Solcast's "remaining today" sensor runs about 15 minutes behind its own half-hourly forecast, which made the forecast so far about 2 kWh too low in the morning (117% on the tile against 92% on its chart). The day's forecast less its remaining sensor is still used while an hour is missing, as with Forecast.Solar.
+- The card file is a fifth smaller (411 KB instead of 515 KB): the photos are stored at a lower quality, with no visible difference.
+
 ## v71.3
 
 - The Solar forecast tile follows the solar forecast set in the Energy dashboard (Forecast.Solar or Solcast), so switching provider needs no change to the card. A `solar_forecast_today` set in the card's configuration still takes precedence.
