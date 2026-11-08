@@ -2,12 +2,12 @@
 """Make the car overlays for the card's car_image / car_image_night from two edited scenes.
 
 Each scene is one of the images --sources writes (the card's photos without the charger, at
-1676 x 469) with a different car in the garage, as an image generator returns it. The scene is aligned to
-the card's photo (scale and offset, matched on the house outside the garage), refused if the
-house still differs too much, and only the garage's inside is kept, with the same soft edge as
-the empty-garage patch and cut at the pillar. The result is a small transparent AVIF in the
-card's car frame (CAR_FRAME, which must match the card), so the scene's framing never reaches
-the card:
+1676 x 469) with a different car in the garage, as an image generator returns it. The scene is
+aligned to the card's photo (scale, a vertical scale if the generator squashed or stretched it,
+and offset, matched on the house outside the garage), refused if the house still differs too
+much, and only the garage's inside is kept, as far as the pillar, with a soft edge. The result
+is a small transparent AVIF in the card's car frame (CAR_FRAME, which must match the card), so
+the scene's framing never reaches the card:
 
     python3 tools/make-car.py car-day.png car-night.png cars/model-y-glacier-blue
 
@@ -42,6 +42,9 @@ ROWS = 469
 # The house outside this box (left, top, right, bottom) is what the scene is aligned on.
 GARAGE_AREA = (420, 190, 645, 395)
 SCALES = np.arange(0.97, 1.0301, 0.005)
+# Vertical scales tried against the horizontal one: a generator that rendered another shape of image and resized it to
+# 1676 x 469 returns it squashed or stretched.
+ASPECTS = np.round(np.arange(0.80, 1.2001, 0.01), 2)
 SHIFT = 12
 QUARTER = 4
 
@@ -65,15 +68,22 @@ def align(scene, photo):
         small, mask = scene.resize((size[0], round(scene.height / k)), Image.LANCZOS), area[::k, ::k][:size[1], :size[0]]
         target = edges(photo.resize(size, Image.LANCZOS) if k > 1 else photo, mask)
         cx, cy = size[0] / 2, size[1] / 2
-        fit = lambda s, dx, dy: (small if k > 1 else scene).transform(size, Image.AFFINE, (s, 0, cx - s * cx + dx / k, 0, s, cy - s * cy + dy / k), Image.BICUBIC)
-        return fit, lambda s, dx, dy: np.abs(edges(fit(s, dx, dy), mask) - target).mean()
+        fit = lambda sx, sy, dx, dy: (small if k > 1 else scene).transform(size, Image.AFFINE, (sx, 0, cx - sx * cx + dx / k, 0, sy, cy - sy * cy + dy / k), Image.BICUBIC)
+        return fit, lambda sx, sy, dx, dy: np.abs(edges(fit(sx, sy, dx, dy), mask) - target).mean()
 
-    # Coarse search on a quarter-size image, in 4-pixel steps; then every pixel around the best, at full size.
+    # Coarse search on a quarter-size image, in 4-pixel steps: the scale, then the vertical scale against it; then every
+    # pixel around the best, at full size (the vertical scale too if it differs).
     _, coarse = scorer(QUARTER)
-    _, s0, x0, y0 = min((coarse(s, dx, dy), s, dx, dy) for s in SCALES for dx in range(-SHIFT, SHIFT + 1, QUARTER) for dy in range(-SHIFT, SHIFT + 1, QUARTER))
+    shifts = range(-SHIFT, SHIFT + 1, QUARTER)
+    _, s0, x0, y0 = min((coarse(s, s, dx, dy), s, dx, dy) for s in SCALES for dx in shifts for dy in shifts)
+    _, a0, y0 = min((coarse(s0, s0 * a, x0, dy), a, dy) for a in ASPECTS for dy in shifts)
     fit, score = scorer(1)
-    error, s, dx, dy = min((score(s, dx, dy), s, dx, dy) for s in (s0 - .0025, s0, s0 + .0025) for dx in range(x0 - 3, x0 + 4) for dy in range(y0 - 3, y0 + 4))
-    return fit(s, dx, dy), error, (s, dx, dy)
+    a0 = a0 if abs(a0 - 1) > .005 else 1
+    error, s, dx, dy = min((score(s, s * a0, dx, dy), s, dx, dy) for s in (s0 - .0025, s0, s0 + .0025) for dx in range(x0 - 3, x0 + 4) for dy in range(y0 - 3, y0 + 4))
+    if a0 != 1:
+        error, a, dx, dy = min((score(s, s * a, x, y), a, x, y) for a in (1, a0 - .005, a0, a0 + .005) for x in range(dx - 1, dx + 2) for y in range(dy - 1, dy + 2))
+        a0 = a
+    return fit(s, s * a0, dx, dy), error, (s, s * a0, dx, dy)
 
 
 def main():
@@ -100,12 +110,19 @@ def main():
     previews = []
     for time, path in (('day', args.day), ('night', args.night)):
         photo = embed.place(f'house_{time}.png').crop((0, embed.EXTRA_TOP, embed.WIDTH, embed.EXTRA_TOP + ROWS))
-        scene, error, (s, dx, dy) = align(Image.open(path).convert('RGB'), photo)
-        print(f'{time}: scale {s:.4f}, offset {dx:+d} {dy:+d} px, house difference {error:.1f}')
+        scene, error, (sx, sy, dx, dy) = align(Image.open(path).convert('RGB'), photo)
+        scale = f'{sx:.4f}' if abs(sy - sx) < 1e-6 else f'{sx:.4f} across, {sy:.4f} down (the image was {"squashed" if sy < sx else "stretched"})'
+        print(f'{time}: scale {scale}, offset {dx:+d} {dy:+d} px, house difference {error:.1f}')
         if error > args.max_error:
             raise SystemExit(f'{path}: the house differs too much from the card\'s photo ({error:.1f} > {args.max_error}); was it reframed or redrawn?')
-        mask, empty = embed.garage_mask(f'garage_{time}.png')
-        mask = mask[:ROWS].copy()
+        patch, empty = embed.garage_mask(f'garage_{time}.png')
+        patch = patch[:ROWS]
+        # The empty-garage patch only covers where the empty garage differed from the photo, which leaves notches along
+        # the back wall; the car covers the whole of the garage's inside, as far as the pillar.
+        pillar = embed.GARAGES[f'garage_{time}.png'][1]
+        solid = Image.fromarray(((patch > 128) * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(41)).filter(ImageFilter.MinFilter(41))
+        mask = np.maximum(patch, np.asarray(solid.filter(ImageFilter.GaussianBlur(1.5))))
+        mask[:, pillar:] = patch[:, pillar:]
         charger = np.zeros(mask.shape, np.uint8)
         charger[CHARGER[1]:CHARGER[3], CHARGER[0]:CHARGER[2]] = 255
         charger = np.asarray(Image.fromarray(charger).filter(ImageFilter.GaussianBlur(1.5)), dtype=np.float32) / 255
@@ -115,7 +132,7 @@ def main():
         car.save(out.with_name(f'{out.name}-{time}.avif'), 'AVIF', quality=embed.OVERLAY_QUALITY, speed=embed.SPEED)
         # As the card draws it: the photo, the empty-garage patch, then the car.
         preview = photo.convert('RGBA')
-        empty.putalpha(alpha)
+        empty.putalpha(Image.fromarray(patch))
         preview.alpha_composite(empty.crop((0, 0, embed.WIDTH, ROWS)))
         preview.alpha_composite(car, CAR_FRAME[:2])
         previews.append(preview.crop((CAR_FRAME[0] - 60, CAR_FRAME[1] - 30, CAR_FRAME[2] + 60, CAR_FRAME[3] + 30)))
@@ -130,13 +147,15 @@ def main():
 
 
 def catalogue(path, car):
-    """Adds [car] to the cars.json at [path], or updates its entry, and rewrites the README's list from it."""
+    """Adds [car] to the cars.json at [path], or updates its entry, keeps it sorted by model and colour, and rewrites the
+    README's list from it."""
     cars = json.loads(path.read_text()) if path.exists() else []
     known = next((i for i, c in enumerate(cars) if c['id'] == car['id']), None)
     if known is None:
         cars.append(car)
     else:
         cars[known] = car
+    cars.sort(key=lambda c: (c['model'].casefold(), c['colour'].casefold()))
     path.write_text('[\n' + ',\n'.join('  ' + json.dumps(c, ensure_ascii=False) for c in cars) + '\n]\n')
     print(f'{"added" if known is None else "updated"} {car["id"]} in {path}')
     readme = embed.ROOT / 'README.md'

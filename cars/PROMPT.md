@@ -7,7 +7,7 @@ Attach, in this order, `car-source-day.png` and `car-source-night.png` (from `py
 - ChatGPT and Gemini both work. Gemini returns other sizes (1952 × 544); the tool handles that.
 
 ```
-Edit the first two attached images (daytime and nighttime). This is an image EDIT, not a new image. Keep the camera, framing and image size exactly as they are, and the house in the same place at the same size. Fine detail outside the garage may differ; only the garage area is used.
+Edit the first two attached images (daytime and nighttime). This is an image EDIT, not a new image. Keep the camera, framing and image size exactly as they are, and the house in the same place at the same size. Keep the image's proportions: work at 1676 × 469 throughout, and never render another shape and then squash, stretch or resize it to fit. Fine detail outside the garage may differ; only the garage area is used.
 
 Replace the car parked in the garage with a {CAR_MODEL} in {CAR_COLOUR}. The third attachment is a reference photo of the real car: copy its shape, headlights, front bumper, wheels and paint colour accurately, as the real car, not a generic look-alike, but do not edit it or use anything else from it.
 
@@ -22,7 +22,7 @@ The new car:
 - Nighttime: lit by the garage lights like the current car; both headlights' daytime running lights may glow like the current car's; no other new lights.
 - No charging cable, EV charger, people, text or objects.
 
-Keep the garage as it is: its walls, pillar, back wall, floor, lights and the plants in front. Keep the image at 1676 × 469. Before delivering, compare each result with its original. A shift of a few pixels, a slight change of scale, or different textures and lighting outside the garage are fine: they are corrected afterwards, so don't redo the image for them. Redo it only if the image was cropped, zoomed or reframed, the house was clearly moved or redrawn, or something in the garage other than the car and its shadow changed.
+Keep the garage as it is: its walls, pillar, back wall, floor, lights and the plants in front. The wooden back wall must keep exactly its original colour, brightness and slats all around the car, with no lighter or darker patch. Keep the image at 1676 × 469. Before delivering, compare each result with its original. A shift of a few pixels, a slight change of scale, or different textures and lighting outside the garage are fine: they are corrected afterwards, so don't redo the image for them. Redo it only if the image was cropped, zoomed or reframed, the house was clearly moved or redrawn, or something in the garage other than the car and its shadow changed.
 
 Deliver car-day.png and car-night.png.
 ```

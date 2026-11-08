@@ -553,13 +553,15 @@ car: byd-atto3-orange
 ```
 
 <!-- cars: generated from cars/cars.json by tools/make-car.py -->
-- `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
-- `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
 - `byd-atto3-orange`: BYD Atto 3, Orange
-- `volvo-ex90-black`: Volvo EX90, Black
-- `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
-- `mg4-urban-stone-green`: MG4 Urban, Stone Green
 - `lotus-eletre-red`: Lotus Eletre, Red
+- `mg-zsev-diamond-red`: MG ZS EV Excite, Diamond Red
+- `mg4-camden-grey`: MG4, Camden Grey
+- `mg4-urban-stone-green`: MG4 Urban, Stone Green
+- `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
+- `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
+- `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
+- `volvo-ex90-black`: Volvo EX90, Black
 <!-- end cars -->
 
 The card loads the car from GitHub, so a car added there is available without updating the card. A name that doesn't load leaves the built-in car (the browser's console says which image is missing).
