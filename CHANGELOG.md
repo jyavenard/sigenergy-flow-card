@@ -2,6 +2,12 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v73
+
+- `car` also takes an entity whose state is a car's name, e.g. `car: input_select.garage_car`, and the garage follows it as it changes. While the entity is unknown or unavailable, or its state isn't a car's name, the card shows the built-in car.
+- The period picker's date follows the date format set in your Home Assistant profile, with your language's separator, and stays `YYYY-MM-DD` without one. The new `date_format` option sets it instead, e.g. `DD/MM/YYYY` or `MM-DD-YY` ([#12](https://github.com/jyavenard/sigenergy-flow-card/issues/12)).
+- New cars: an MG4 in Camden Grey and an MG ZS EV in Diamond Red. The Lotus Eletre and MG4 Urban no longer show a halo around the car, and `tools/make-car.py` undoes an image generator's squashed or stretched result.
+
 ## v72.1
 
 - `car` names a car from the card's `cars/` folder, e.g. `car: byd-atto3-orange`, instead of two URLs. The card loads it from GitHub, so cars added there are available without updating the card; a name that doesn't load leaves the built-in car. `car_image` and `car_image_night` still take your own.
