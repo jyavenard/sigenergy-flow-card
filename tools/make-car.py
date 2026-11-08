@@ -39,6 +39,7 @@ ROWS = 469
 GARAGE_AREA = (420, 190, 645, 395)
 SCALES = np.arange(0.97, 1.0301, 0.005)
 SHIFT = 12
+QUARTER = 4
 
 
 def edges(image, area):
@@ -52,16 +53,22 @@ def align(scene, photo):
     area[:SHIFT * 2], area[-SHIFT * 2:], area[:, :SHIFT * 2], area[:, -SHIFT * 2:] = False, False, False, False
     left, top, right, bottom = GARAGE_AREA
     area[top:bottom, left:right] = False
-    target = edges(photo, area)
-    cx, cy = embed.WIDTH / 2, ROWS / 2
     scene = scene.resize((embed.WIDTH, round(scene.height * embed.WIDTH / scene.width)), Image.LANCZOS)
-    fit = lambda s, dx, dy: scene.transform((embed.WIDTH, ROWS), Image.AFFINE, (s, 0, cx - s * cx + dx, 0, s, cy - s * cy + dy), Image.BICUBIC)
-    score = lambda s, dx, dy: np.abs(edges(fit(s, dx, dy), area) - target).mean()
-    # Coarse search in 2-pixel steps, then every pixel around the best.
-    best = min((score(s, dx, dy), s, dx, dy) for s in SCALES for dx in range(-SHIFT, SHIFT + 1, 2) for dy in range(-SHIFT, SHIFT + 1, 2))
-    _, s0, x0, y0 = best
-    best = min((score(s, dx, dy), s, dx, dy) for s in (s0 - .0025, s0, s0 + .0025) for dx in range(x0 - 2, x0 + 3) for dy in range(y0 - 2, y0 + 3))
-    error, s, dx, dy = best
+
+    def scorer(k):
+        """Scoring of a scale and offset (in full-size pixels) on the images shrunk [k] times."""
+        size = (embed.WIDTH // k, ROWS // k)
+        small, mask = scene.resize((size[0], round(scene.height / k)), Image.LANCZOS), area[::k, ::k][:size[1], :size[0]]
+        target = edges(photo.resize(size, Image.LANCZOS) if k > 1 else photo, mask)
+        cx, cy = size[0] / 2, size[1] / 2
+        fit = lambda s, dx, dy: (small if k > 1 else scene).transform(size, Image.AFFINE, (s, 0, cx - s * cx + dx / k, 0, s, cy - s * cy + dy / k), Image.BICUBIC)
+        return fit, lambda s, dx, dy: np.abs(edges(fit(s, dx, dy), mask) - target).mean()
+
+    # Coarse search on a quarter-size image, in 4-pixel steps; then every pixel around the best, at full size.
+    _, coarse = scorer(QUARTER)
+    _, s0, x0, y0 = min((coarse(s, dx, dy), s, dx, dy) for s in SCALES for dx in range(-SHIFT, SHIFT + 1, QUARTER) for dy in range(-SHIFT, SHIFT + 1, QUARTER))
+    fit, score = scorer(1)
+    error, s, dx, dy = min((score(s, dx, dy), s, dx, dy) for s in (s0 - .0025, s0, s0 + .0025) for dx in range(x0 - 3, x0 + 4) for dy in range(y0 - 3, y0 + 4))
     return fit(s, dx, dy), error, (s, dx, dy)
 
 
