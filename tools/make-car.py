@@ -38,7 +38,7 @@ ROWS = 469
 # The house outside this box (left, top, right, bottom) is what the scene is aligned on.
 GARAGE_AREA = (420, 190, 645, 395)
 SCALES = np.arange(0.97, 1.0301, 0.005)
-SHIFT = 8
+SHIFT = 12
 
 
 def edges(image, area):
