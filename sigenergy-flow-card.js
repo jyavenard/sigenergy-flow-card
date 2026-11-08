@@ -476,7 +476,7 @@ class SigenergyFlowCard extends HTMLElement {
         if (config.car_shown !== undefined && !['auto', true, false].includes(config.car_shown)) throw new Error(`Unknown car_shown "${config.car_shown}". Valid values: auto, true, false`);
         for (const key of ['car_image', 'car_image_night'])
             if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') throw new Error(`${key} must be an image URL`);
-        if (config.car !== undefined && config.car !== null && !/^[a-z0-9-]+$/.test(config.car)) throw new Error('car must be the name of a car in the card\'s cars folder, e.g. byd-atto3-orange');
+        if (config.car !== undefined && config.car !== null && !/^([a-z0-9-]+|[a-z_]+\.[a-z0-9_]+)$/.test(config.car)) throw new Error('car must be the name of a car in the card\'s cars folder, e.g. byd-atto3-orange, or an entity whose state is one');
         const periods = Object.keys(PERIODS).filter(period => this._solo || PERIODS[period] !== 'Last 7 days');
         if (config.period !== undefined && !periods.includes(config.period)) throw new Error(`Unknown period "${config.period}". Valid values: ${periods.join(', ')}`);
         const entities = config.entities ?? {};
@@ -979,22 +979,41 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('garageArt').setAttribute('display', shown && !other ? 'none' : 'inline');
         this._id('carArt').setAttribute('display', shown && other ? 'inline' : 'none');
     }
+    // The car's name: car itself, or the state of the entity it names. A state that isn't a car's name never goes in
+    // the URL; unknown or unavailable leaves the built-in car.
+    _carName() {
+        const { car } = this.config;
+        if (!car?.includes('.')) return car;
+        const state = this._hass?.states[car]?.state?.trim().toLowerCase();
+        if (!state || ['unknown', 'unavailable'].includes(state)) return null;
+        if (/^[a-z0-9-]+$/.test(state)) return state;
+        if (this._carWarned !== state) console.warn(`sigenergy-flow-card: ${car} is not a car's name: ${state}`);
+        this._carWarned = state;
+        return null;
+    }
+    // The car drawn over the garage, which follows the time of day and car's entity.
+    _updateCar(day) {
+        const { car_image: image, car_image_night: night } = this.config, car = this._carName();
+        const href = image ? (day ? image : night ?? image) : car ? `${CARS_URL}${car}-${day ? 'day' : 'night'}.avif` : null;
+        if (href === this._carHref) return;
+        this._carHref = href;
+        this._carFailed = false;
+        this._id('carArt').setAttribute('href', href ?? '');
+        this._showCar();
+    }
     _updateScene() {
         const day = this._isDay();
         this.toggleAttribute('day', day);
         this.toggleAttribute('light', this._isLight());
         const file = day ? 'house_day.png' : 'house_night.png';
-        if (this._sceneFile === file || !this._shown.has('scene')) return;
+        if (!this._shown.has('scene')) return;
+        this._updateCar(day);
+        if (this._sceneFile === file) return;
         this._sceneFile = file;
         this._id('chargerArt').setAttribute('href', ARTWORK[day ? 'charger_day.png' : 'charger_night.png'].href);
         const garage = ARTWORK[day ? 'garage_day.png' : 'garage_night.png'];
         for (const [name, value] of Object.entries({ href: garage.href, x: garage.at[0], y: PHOTO.top + garage.at[1], width: garage.size[0], height: garage.size[1] }))
             this._id('garageArt').setAttribute(name, value);
-        const { car, car_image: image, car_image_night: night } = this.config;
-        this._carHref = (image ? (day ? image : night ?? image) : car ? `${CARS_URL}${car}-${day ? 'day' : 'night'}.avif` : null);
-        this._carFailed = false;
-        this._id('carArt').setAttribute('href', this._carHref ?? '');
-        this._showCar();
         for (const photo of this.root.querySelectorAll('.photo')) photo.setAttribute('href', ARTWORK[file].href);
     }
     // The weather entity's condition as an icon, and its current temperature.

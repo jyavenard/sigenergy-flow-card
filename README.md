@@ -183,7 +183,7 @@ All options are optional.
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
 | `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never (see [AC and DC chargers](#ac-and-dc-chargers)). |
-| `car` | none | Name of a different car for the garage, from the card's `cars/` folder (see [Changing the car](#changing-the-car)). |
+| `car` | none | Name of a different car for the garage, from the card's `cars/` folder, or an entity whose state is that name (see [Changing the car](#changing-the-car)). |
 | `car_image` | none | URL of your own car overlay, instead of `car`. |
 | `car_image_night` | `car_image` | The same car at night. |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
@@ -551,6 +551,14 @@ By default (`car_shown: auto`), the car in the garage only shows while a vehicle
 ```yaml
 car: byd-atto3-orange
 ```
+
+Or name an entity whose state is the car's name, such as an `input_select` or a template sensor that says which car is plugged in; the garage follows its state:
+
+```yaml
+car: input_select.garage_car
+```
+
+While the entity is unknown or unavailable, or its state isn't a car's name, the card shows the built-in car.
 
 <!-- cars: generated from cars/cars.json by tools/make-car.py -->
 - `byd-atto3-orange`: BYD Atto 3, Orange
