@@ -11,7 +11,9 @@ the card:
 
     python3 tools/make-car.py car-day.png car-night.png cars/model-y-glacier-blue
 
-writes cars/model-y-glacier-blue-day.avif, -night.avif and a -preview.png of both on the photo.
+writes cars/model-y-glacier-blue-day.avif, -night.avif and a -preview.png of both on the photo. With
+--model and --colour, the car is also added to cars.json beside the overlays (the list of cars the card's
+`car` option names), and the README's list of cars is rewritten from it.
 
     python3 tools/make-car.py --sources DIR
 
@@ -20,7 +22,9 @@ writes the images to edit, car-source-day.png and car-source-night.png, in DIR.
 
 import argparse
 import importlib.util
+import json
 import pathlib
+import re
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -79,6 +83,8 @@ def main():
     parser.add_argument('out', nargs='?', help='output path without the -day.avif / -night.avif suffix')
     parser.add_argument('--max-error', type=float, default=12, help='refuse a scene whose house differs more than this after alignment')
     parser.add_argument('--sources', metavar='DIR', help='write the images to edit in DIR instead')
+    parser.add_argument('--model', help='the car\'s model, e.g. "BYD Atto 3", to add it to cars.json')
+    parser.add_argument('--colour', help='the car\'s colour, with --model')
     args = parser.parse_args()
     if args.sources:
         sources = pathlib.Path(args.sources)
@@ -119,6 +125,26 @@ def main():
     sheet = sheet.resize((sheet.width * 2, sheet.height * 2), Image.LANCZOS)
     sheet.save(out.with_name(f'{out.name}-preview.png'))
     print(f'wrote {out.name}-day.avif, {out.name}-night.avif and {out.name}-preview.png in {out.parent}')
+    if args.model:
+        catalogue(out.parent / 'cars.json', {'id': out.name, 'model': args.model, 'colour': args.colour or ''})
+
+
+def catalogue(path, car):
+    """Adds [car] to the cars.json at [path], or updates its entry, and rewrites the README's list from it."""
+    cars = json.loads(path.read_text()) if path.exists() else []
+    known = next((i for i, c in enumerate(cars) if c['id'] == car['id']), None)
+    if known is None:
+        cars.append(car)
+    else:
+        cars[known] = car
+    path.write_text('[\n' + ',\n'.join('  ' + json.dumps(c, ensure_ascii=False) for c in cars) + '\n]\n')
+    print(f'{"added" if known is None else "updated"} {car["id"]} in {path}')
+    readme = embed.ROOT / 'README.md'
+    lines = '\n'.join(f'- `{c["id"]}`: {c["model"]}, {c["colour"]}' for c in cars)
+    text, count = re.subn(r'(<!-- cars:[^\n]*-->\n).*?(\n<!-- end cars -->)', lambda m: m.group(1) + lines + m.group(2), readme.read_text(), flags=re.S)
+    if count:
+        readme.write_text(text)
+        print(f'rewrote the list of cars in {readme.name}')
 
 
 if __name__ == '__main__':

@@ -1,0 +1,9 @@
+[
+  {"id": "model-y-glacier-blue", "model": "Tesla Model Y", "colour": "Glacier Blue"},
+  {"id": "model-3-stealth-grey", "model": "Tesla Model 3", "colour": "Stealth Grey"},
+  {"id": "byd-atto3-orange", "model": "BYD Atto 3", "colour": "Orange"},
+  {"id": "volvo-ex90-black", "model": "Volvo EX90", "colour": "Black"},
+  {"id": "taycan-dolomite-grey", "model": "Porsche Taycan", "colour": "Dolomite Grey"},
+  {"id": "mg4-urban-stone-green", "model": "MG4 Urban", "colour": "Stone Green"},
+  {"id": "lotus-eletre-red", "model": "Lotus Eletre", "colour": "Red"}
+]

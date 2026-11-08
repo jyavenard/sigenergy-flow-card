@@ -183,7 +183,8 @@ All options are optional.
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
 | `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never (see [AC and DC chargers](#ac-and-dc-chargers)). |
-| `car_image` | none | URL of a different car for the garage (see [Changing the car](#changing-the-car)). |
+| `car` | none | Name of a different car for the garage, from the card's `cars/` folder (see [Changing the car](#changing-the-car)). |
+| `car_image` | none | URL of your own car overlay, instead of `car`. |
 | `car_image_night` | `car_image` | The same car at night. |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
@@ -545,29 +546,33 @@ By default (`car_shown: auto`), the car in the garage only shows while a vehicle
 
 ## Changing the car
 
-`car_image` and `car_image_night` replace the car in the garage with another one. They are URLs of car overlays made by `tools/make-car.py`: small transparent images of the garage's inside, which the card draws at a fixed place over its own photo, so they cannot move the house, the battery or the flows. The card's repository has these in [`cars/`](cars):
-
-- `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
-- `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
-- `byd-atto3-orange`: BYD Atto 3, orange
-- `volvo-ex90-black`: Volvo EX90, black
-- `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
-- `mg4-urban-stone-green`: MG4 Urban, Stone Green
+`car` replaces the car in the garage with one from the card's [`cars/`](cars) folder (listed in [`cars/cars.json`](cars/cars.json)), by name:
 
 ```yaml
-car_image: https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/cars/byd-atto3-orange-day.avif
-car_image_night: https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/cars/byd-atto3-orange-night.avif
+car: byd-atto3-orange
 ```
 
-A file in `/config/www/` works too, as `/local/<name>.avif`.
+<!-- cars: generated from cars/cars.json by tools/make-car.py -->
+- `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
+- `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
+- `byd-atto3-orange`: BYD Atto 3, Orange
+- `volvo-ex90-black`: Volvo EX90, Black
+- `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
+- `mg4-urban-stone-green`: MG4 Urban, Stone Green
+- `lotus-eletre-red`: Lotus Eletre, Red
+<!-- end cars -->
+
+The card loads the car from GitHub, so a car added there is available without updating the card. A name that doesn't load leaves the built-in car (the browser's console says which image is missing).
+
+The cars are overlays made by `tools/make-car.py`: small transparent images of the garage's inside, which the card draws at a fixed place over its own photo, so they cannot move the house, the battery or the flows. `car_image` and `car_image_night` take your own instead, by URL; a file in `/config/www/` works as `/local/<name>-day.avif`.
 
 To make another car:
 
 1. `python3 tools/make-car.py --sources DIR` writes `car-source-day.png` and `car-source-night.png`, the card's photos without the charger.
-2. Ask an image generator (ChatGPT and Gemini work) to edit them with the request in [`cars/PROMPT.md`](cars/PROMPT.md): replace the car in the garage with your model and colour, parked in the same place, at the same size and angle, with nothing else changed and the images kept at 1676 × 469.
-3. `python3 tools/make-car.py car-day.png car-night.png cars/<name>` aligns each result to the card's photo, refuses it if the house was reframed or redrawn, and writes `cars/<name>-day.avif`, `cars/<name>-night.avif` and `cars/<name>-preview.png`. Check the preview: a car the generator scaled or moved inside the garage still looks wrong.
+2. Ask an image generator (ChatGPT and Gemini work) to edit them with the request in [`cars/PROMPT.md`](cars/PROMPT.md), attaching a photo of the real car as a reference: replace the car in the garage with your model and colour, parked in the same place, at the same size and angle, with nothing else changed and the images kept at 1676 × 469.
+3. `python3 tools/make-car.py car-day.png car-night.png cars/<name> --model "<model>" --colour "<colour>"` aligns each result to the card's photo, refuses it if the house was reframed or redrawn, writes `cars/<name>-day.avif`, `cars/<name>-night.avif` and `cars/<name>-preview.png`, and adds the car to `cars/cars.json` and to the list above. Check the preview: a car the generator scaled or moved inside the garage still looks wrong.
 
-Made a car that isn't listed? Please share it so others can use it too: open a pull request adding `cars/<model>-<colour>-day.avif` and `-night.avif` with a line in the list above, and the preview in its description. If you can't run the tool, open an issue with the two images from the generator, and the car's model and colour.
+Made a car that isn't listed? Please share it so others can use it too: open a pull request with what step 3 wrote for a `<model>-<colour>` name (the two images, `cars/cars.json` and the README), and the preview in its description. If you can't run the tool, open an issue with the two images from the generator, and the car's model and colour.
 
 ## Changing the artwork
 
