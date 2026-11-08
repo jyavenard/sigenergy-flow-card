@@ -192,6 +192,7 @@ All options are optional.
 | `debug_energy_statistics` | `false` | List, under the Energy statistics panel, the energy each statistics sensor recorded over the period (to check the sensors against another source). |
 | `style` | `auto` | Artwork: `day`, `night` or `auto` (day between sunrise and sunset). |
 | `theme` | `auto` | Colours: `light`, `dark` or `auto` (Home Assistant's light or dark mode, as set in your profile; the artwork's when Home Assistant doesn't report one). |
+| `date_format` | `auto` | Date format of the period picker, e.g. `DD/MM/YYYY`, `MM-DD-YY` or `YYYY.MM.DD`. `auto` follows your Home Assistant profile's **Date format**, else `YYYY-MM-DD`. |
 
 ### Example
 

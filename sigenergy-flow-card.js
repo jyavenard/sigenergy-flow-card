@@ -434,13 +434,21 @@ const statStep = (range, date, direction, zone) => {
     if (range === 'Month') return zoneDate(zone, y, m + direction, 1);
     return zoneDate(zone, y + direction, 0, 1);
 };
-const statLabel = (range, date, zone) => {
-    const [start, end] = statWindow(range, date, zone), day = d => d.toLocaleDateString('en-CA', { timeZone: zone });
+// [format] is the date's fields in order ('DMY', 'MDY' or 'YMD'), their separator and whether the year has two digits;
+// a month drops the day. A year on its own keeps four.
+const statLabel = (range, date, zone, format = { order: 'YMD', sep: '-' }) => {
+    const [start, end] = statWindow(range, date, zone);
+    const day = (t, fields = format.order) => {
+        const { y, m, d } = zoneParts(t, zone), parts = { Y: format.short ? String(y).slice(-2) : String(y), M: String(m + 1).padStart(2, '0'), D: String(d).padStart(2, '0') };
+        return [...fields].map(field => parts[field]).join(format.sep);
+    };
     if (range === 'Day') return day(start);
     if (range === 'Week' || range === 'Last 7 days') return `${day(start)} – ${day(new Date(end - 1))}`;
-    if (range === 'Month') return day(start).slice(0, 7);
-    return range === 'Year' ? day(start).slice(0, 4) : 'Lifetime';
+    if (range === 'Month') return day(start, format.order.replace('D', ''));
+    return range === 'Year' ? String(zoneParts(start, zone).y) : 'Lifetime';
 };
+// date_format: DD, MM and YYYY (or YY) in any order, with one separator that isn't a letter or digit.
+const DATE_FORMAT = /^(DD|MM|YYYY|YY)([^A-Za-z0-9])(DD|MM|YYYY|YY)\2(DD|MM|YYYY|YY)$/;
 
 // Power given in kW, shown as W below 1 kW and MW from 1000 kW.
 const formatPower = kw => {
@@ -476,6 +484,9 @@ class SigenergyFlowCard extends HTMLElement {
         if (config.car_shown !== undefined && !['auto', true, false].includes(config.car_shown)) throw new Error(`Unknown car_shown "${config.car_shown}". Valid values: auto, true, false`);
         for (const key of ['car_image', 'car_image_night'])
             if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') throw new Error(`${key} must be an image URL`);
+        const dateFormat = DATE_FORMAT.exec(config.date_format ?? 'auto');
+        if (config.date_format !== undefined && config.date_format !== 'auto' && !(dateFormat && new Set([dateFormat[1][0], dateFormat[3][0], dateFormat[4][0]]).size === 3))
+            throw new Error(`Unknown date_format "${config.date_format}". Valid values: auto, or DD, MM and YYYY (or YY) in any order with one separator, e.g. DD/MM/YYYY`);
         if (config.car !== undefined && config.car !== null && !/^([a-z0-9-]+|[a-z_]+\.[a-z0-9_]+)$/.test(config.car)) throw new Error('car must be the name of a car in the card\'s cars folder, e.g. byd-atto3-orange, or an entity whose state is one');
         const periods = Object.keys(PERIODS).filter(period => this._solo || PERIODS[period] !== 'Last 7 days');
         if (config.period !== undefined && !periods.includes(config.period)) throw new Error(`Unknown period "${config.period}". Valid values: ${periods.join(', ')}`);
@@ -506,6 +517,7 @@ class SigenergyFlowCard extends HTMLElement {
             debug_energy_statistics: false,
             period: 'day',
             show_period_picker: true,
+            date_format: 'auto',
             ...this.constructor.defaults,
             ...config,
             sigenergy_backend: backend,
@@ -2216,11 +2228,25 @@ class SigenergyFlowCard extends HTMLElement {
         }
         this._updateDaily();
     }
+    // The period's date format: date_format, else the order set in Home Assistant's profile (Date format) with its
+    // language's separator, else ISO. The profile's default (Language) and System leave ISO.
+    _dateFormat() {
+        const { date_format: format } = this.config, match = DATE_FORMAT.exec(format);
+        const fields = match && [match[1], match[3], match[4]];
+        if (match) return { order: fields.map(field => field[0]).join(''), sep: match[2], short: fields.includes('YY') };
+        const { date_format: order, language } = this._hass?.locale ?? {};
+        if (!['DMY', 'MDY', 'YMD'].includes(order)) return { order: 'YMD', sep: '-' };
+        let sep = '/';
+        try {
+            sep = new Intl.DateTimeFormat(language, { day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(new Date()).find(part => part.type === 'literal')?.value.trim() || '/';
+        } catch { }
+        return { order, sep };
+    }
     _statControls() {
         if (!this._stat || !this._id('statDate')) return;
         const { range, date } = this._stat, lifetime = range === 'Lifetime';
         // Each date stays whole; a week's range wraps between its dates.
-        const label = this._id('statDate'), text = statLabel(range, date, this._zone);
+        const label = this._id('statDate'), text = statLabel(range, date, this._zone, this._dateFormat());
         if (label.textContent !== text) label.replaceChildren(...text.split(' – ').flatMap((part, i) => [...(i ? [' – '] : []), Object.assign(document.createElement('span'), { textContent: part })]));
         this._id('statPrev').disabled = lifetime;
         this._id('statNext').disabled = lifetime || statWindow(range, statStep(range, date, 1, this._zone), this._zone)[0] > new Date();
@@ -2252,7 +2278,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._historyRequest = (this._historyRequest ?? 0) + 1;
         this._chartLive = null;
         // A standalone card's picker, or its dates without one, sits under its title and already shows the range.
-        this._text('chartTitle', this._solo ? 'Energy metrics' : `Energy metrics · ${statLabel(view.range, view.date, zone)}`);
+        this._text('chartTitle', this._solo ? 'Energy metrics' : `Energy metrics · ${statLabel(view.range, view.date, zone, this._dateFormat())}`);
         this._id('legendPower').hidden = true;
         const svg = this._id('chart'), legend = this._id('legendBars');
         legend.hidden = false;
