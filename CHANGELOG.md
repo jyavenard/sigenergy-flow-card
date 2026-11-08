@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v72.1
+
+- `car` names a car from the card's `cars/` folder, e.g. `car: byd-atto3-orange`, instead of two URLs. The card loads it from GitHub, so cars added there are available without updating the card; a name that doesn't load leaves the built-in car. `car_image` and `car_image_night` still take your own.
+- New cars: a red Lotus Eletre, and a better Porsche Taycan. `tools/make-car.py` is about ten times faster and keeps `cars/cars.json`, the list of cars, up to date.
+
 ## v72
 
 - The car in the garage only shows while it is plugged in: while a vehicle is connected to the AC charger (Reserving, Preparing, EV Ready or Charging), either charger has power (the DC charger in either direction), or the new `car_charging` entity is on, `charging` or above 0. The new `car_shown` option shows it always (`true`) or never (`false`); the default is `auto`.
