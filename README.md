@@ -182,7 +182,7 @@ All options are optional.
 | `name` | `My Home` | Second part of the heading (your home's name). An empty value hides that part. |
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
-| `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never (see [AC and DC chargers](#ac-and-dc-chargers)). |
+| `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never, or a `binary_sensor` entity: while it is on (see [AC and DC chargers](#ac-and-dc-chargers)). |
 | `car` | none | Name of a different car for the garage, from the card's `cars/` folder, or an entity whose state is that name (see [Changing the car](#changing-the-car)). |
 | `car_image` | none | URL of your own car overlay, instead of `car`. |
 | `car_image_night` | `car_image` | The same car at night. |
@@ -553,7 +553,7 @@ Each line is hidden when its entities do not exist.
 
 The DC charger's vehicle state of charge is hidden while the charger is idle and reports 0%.
 
-By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it.
+By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it. With a `binary_sensor` (e.g. your car's "at home" or "plugged in" sensor), the car shows while it is on; while it is unknown or unavailable, the card falls back to `auto`.
 
 ## Changing the car
 

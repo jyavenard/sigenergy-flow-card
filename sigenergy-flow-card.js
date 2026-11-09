@@ -481,7 +481,8 @@ class SigenergyFlowCard extends HTMLElement {
         const backend = config.sigenergy_backend ?? 'sigenergy_local_modbus';
         if (!Object.hasOwn(BACKENDS, backend)) throw new Error(`Unknown sigenergy_backend "${backend}". Valid values: ${Object.keys(BACKENDS).join(', ')}`);
         if (config.theme !== undefined && !['auto', 'light', 'dark'].includes(config.theme)) throw new Error(`Unknown theme "${config.theme}". Valid values: auto, light, dark`);
-        if (config.car_shown !== undefined && !['auto', true, false].includes(config.car_shown)) throw new Error(`Unknown car_shown "${config.car_shown}". Valid values: auto, true, false`);
+        if (config.car_shown !== undefined && !['auto', true, false].includes(config.car_shown) && !/^binary_sensor\.[a-z0-9_]+$/.test(config.car_shown))
+            throw new Error(`Unknown car_shown "${config.car_shown}". Valid values: auto, true, false or a binary_sensor entity`);
         for (const key of ['car_image', 'car_image_night'])
             if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') throw new Error(`${key} must be an image URL`);
         const dateFormat = DATE_FORMAT.exec(config.date_format ?? 'auto');
@@ -1897,10 +1898,12 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('dcNode').hidden = !hasDc;
         this._id('chargerArt').setAttribute('display', hasAc || hasDc ? 'inline' : 'none');
         // With car_shown: auto, the garage patch hides the car unless a vehicle is connected to the AC charger, a charger
-        // has power (either way for DC: the car may supply the house) or car_charging says so.
+        // has power (either way for DC: the car may supply the house) or car_charging says so. A binary_sensor shows it
+        // while on, and falls back to auto while unknown or unavailable.
         const plugged = this._hass.states[e('car_charging')]?.state?.toLowerCase()
           , connected = AC_CONNECTED.has(this._hass.states[e('ac_charger_state')]?.state?.toLowerCase())
-          , showCar = this.config.car_shown !== 'auto' ? this.config.car_shown : connected || ac > 0.025 || Math.abs(dc ?? 0) > 0.025 || ['on', 'charging', 'true'].includes(plugged) || Number(plugged) > 0;
+          , { car_shown: shown } = this.config, sensor = typeof shown === 'string' && shown !== 'auto' ? this._hass.states[shown]?.state : undefined
+          , showCar = typeof shown === 'boolean' ? shown : sensor === 'on' || sensor === 'off' ? sensor === 'on' : connected || ac > 0.025 || Math.abs(dc ?? 0) > 0.025 || ['on', 'charging', 'true'].includes(plugged) || Number(plugged) > 0;
         this._showCar(showCar);
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
         this._text('pv', this._power(pv));
