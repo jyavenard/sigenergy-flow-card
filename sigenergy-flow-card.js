@@ -496,6 +496,8 @@ class SigenergyFlowCard extends HTMLElement {
             if (!(key in DEFAULT_ENTITIES)) throw new Error(`Unknown entities key "${key}". Valid keys: ${Object.keys(DEFAULT_ENTITIES).join(', ')}`);
             if (value !== false && value !== null && (typeof value !== 'string' || !value.includes('.'))) throw new Error(`entities.${key} must be an entity ID or false`);
         }
+        const tap = config.tap_action;
+        if (tap !== undefined && tap !== null && (typeof tap !== 'object' || Array.isArray(tap) || typeof tap.action !== 'string')) throw new Error('tap_action must be a Home Assistant action, e.g. { action: navigate, navigation_path: /energy }');
         if (config.home_entities !== undefined && config.home_entities !== false && config.home_entities !== null && !Array.isArray(config.home_entities)) throw new Error('home_entities must be a list of entities or false');
         this.config = {
             pv_strings: ['PV1', 'PV2', 'PV3', 'PV4'],
@@ -517,6 +519,7 @@ class SigenergyFlowCard extends HTMLElement {
             debug_energy_statistics: false,
             period: 'day',
             show_period_picker: true,
+            tap_action: null,
             date_format: 'auto',
             ...this.constructor.defaults,
             ...config,
@@ -665,8 +668,10 @@ class SigenergyFlowCard extends HTMLElement {
     </div></dialog>`,
         };
         // A standalone card is its part under a header that holds what the panel's heading held.
+        // With a tap_action, the title ends with a › (the tap itself is handled by the card).
+        const more = this._tapAction() ? '<span class="more"> ›</span>' : '';
         const header = (heading, sub = '', bar = picker) => `<div class="header"><div class="title"><div class="heading">${heading}</div>${sub}</div>${bar}</div>`;
-        const body = !solo ? `<div class="header"><div class="title"><div class="heading" id="heading"></div><div class="sub">Live power flow</div></div>${picker}<div class="sub" id="stamp"></div></div>
+        const body = !solo ? `<div class="header"><div class="title"><div class="heading"><span id="heading"></span>${more}</div><div class="sub">Live power flow</div></div>${picker}<div class="sub" id="stamp"></div></div>
       <div class="frame"><div class="layout">${scene}<aside class="sidebar fill">${battery ? `<section class="panel"><h3>Battery level</h3>${batteryLevel}</section>` : ''}
         <section class="panel daypanel"><h3>Energy statistics</h3>${tiles}</section>
       </aside></div></div>
@@ -674,11 +679,11 @@ class SigenergyFlowCard extends HTMLElement {
       ${metrics}</section>
       <section class="panel statpanel" id="statPanel"${this.config.show_energy_statistics ? '' : ' hidden'}><div class="charthead"><h3>Energy statistics<button class="gap" id="statGap" title="Missing data" hidden>⚠</button></h3><span class="muted" id="statStatus">Loading…</span></div>
       ${sankey}</section>` : {
-            scene: () => header('<span id="heading"></span>', '<div class="sub">Live power flow</div>', '<div class="sub" id="stamp"></div>') + scene,
-            battery: () => header('<span id="heading"></span>', '', '') + (battery ? batteryLevel : ''),
-            tiles: () => header('<span id="heading"></span>') + tiles,
-            metrics: () => header(`<span id="heading"></span><span id="chartTitle"${this.config.title ? ' hidden' : ''}>Power metrics · Today</span>`, '<div class="sub" id="chartStatus">Loading history…</div>') + metrics,
-            sankey: () => header('<span id="heading"></span><button class="gap" id="statGap" title="Missing data" hidden>⚠</button>', '<div class="sub" id="statStatus">Loading…</div>') + sankey,
+            scene: () => header(`<span id="heading"></span>${more}`, '<div class="sub">Live power flow</div>', '<div class="sub" id="stamp"></div>') + scene,
+            battery: () => header(`<span id="heading"></span>${more}`, '', '') + (battery ? batteryLevel : ''),
+            tiles: () => header(`<span id="heading"></span>${more}`) + tiles,
+            metrics: () => header(`<span id="heading"></span><span id="chartTitle"${this.config.title ? ' hidden' : ''}>Power metrics · Today</span>${more}`, '<div class="sub" id="chartStatus">Loading history…</div>') + metrics,
+            sankey: () => header(`<span id="heading"></span>${more}<button class="gap" id="statGap" title="Missing data" hidden>⚠</button>`, '<div class="sub" id="statStatus">Loading…</div>') + sankey,
         }[part]();
         const dialogIds = !solo ? Object.keys(dialogs) : { scene: ['pvDialog', 'gridDialog', 'socDialog', 'homeDialog'], battery: ['energyDialog'], tiles: ['forecastDialog'] }[part] ?? [];
         this.shadowRoot.innerHTML = `<style>
@@ -686,6 +691,7 @@ class SigenergyFlowCard extends HTMLElement {
       :host([light]){${styleVars('day')}}
       [hidden]{display:none !important}
       button *{pointer-events:none}
+      ha-card.tappable{cursor:pointer}
       ha-card{container-type:inline-size;display:block;background:var(--card);border:1px solid var(--card-line);border-radius:16px;overflow:hidden;color:inherit;padding:16px;box-sizing:border-box}
       .header{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'title bar' 'title stamp';align-items:center;gap:4px 12px;margin-bottom:14px}.header>.title{grid-area:title}.header>#stamp{grid-area:stamp;justify-self:end}
       .heading{font-size:20px;font-weight:650;letter-spacing:.2px}.sub{font-size:12px;color:var(--sub)}
@@ -778,7 +784,7 @@ class SigenergyFlowCard extends HTMLElement {
       @container (max-width:680px){.header{grid-template-areas:'title stamp' 'bar bar'}.statbar{justify-content:space-between;margin-top:8px}}
       @container (max-width:420px){.statnav>span{min-width:0}}
     </style>
-    <ha-card>${body}
+    <ha-card${more && ' class="tappable"'}>${body}
     </ha-card><div class="note" id="gapNote" role="status" hidden></div>${dialogIds.map(id => dialogs[id]).join('')}`;
         this.root = this.shadowRoot;
         this._id('heading').textContent = [this.config.title, this.config.name].filter(Boolean).join(' · ');
@@ -850,6 +856,14 @@ class SigenergyFlowCard extends HTMLElement {
             gap.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') this._id('gapNote').hidden = true; });
         }
         this.root.addEventListener('pointerdown', e => { if (!e.target.closest?.('.gap')) this._id('gapNote').hidden = true; });
+        // tap_action runs on a tap anywhere but the card's own controls: buttons, the range, links, the metrics chart (a
+        // tap shows its tip) and the Sankey's nodes. On the full card, only the header and the scene: its panels are
+        // where the period is explored.
+        const tap = this._tapAction(), skip = `button, select, a, #chart, [data-side]${this._solo ? '' : ', .sidebar, .chartpanel, .statpanel'}`;
+        if (tap) this.root.querySelector('ha-card').addEventListener('click', e => {
+            if (e.composedPath().some(el => el.matches?.(skip))) return;
+            this.dispatchEvent(new CustomEvent('hass-action', { bubbles: true, composed: true, detail: { config: { entity: tap.entity, tap_action: tap }, action: 'tap' } }));
+        });
         this._observeCharts();
         for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['forecastChart', 'forecastChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
@@ -990,6 +1004,11 @@ class SigenergyFlowCard extends HTMLElement {
         const other = this._carHref && !this._carFailed;
         this._id('garageArt').setAttribute('display', shown && !other ? 'none' : 'inline');
         this._id('carArt').setAttribute('display', shown && other ? 'inline' : 'none');
+    }
+    // tap_action, unless it is absent or does nothing.
+    _tapAction() {
+        const tap = this.config.tap_action;
+        return tap && tap.action !== 'none' ? tap : null;
     }
     // The car's name: car itself, or the state of the entity it names. A state that isn't a car's name never goes in
     // the URL; unknown or unavailable leaves the built-in car.

@@ -193,6 +193,7 @@ All options are optional.
 | `style` | `auto` | Artwork: `day`, `night` or `auto` (day between sunrise and sunset). |
 | `theme` | `auto` | Colours: `light`, `dark` or `auto` (Home Assistant's light or dark mode, as set in your profile; the artwork's when Home Assistant doesn't report one). |
 | `date_format` | `auto` | Date format of the period picker, e.g. `DD/MM/YYYY`, `MM-DD-YY` or `YYYY.MM.DD`. `auto` follows your Home Assistant profile's **Date format**, else `YYYY-MM-DD`. |
+| `tap_action` | none | A Home Assistant action, e.g. to open another dashboard. It runs on a tap on the title, which then ends with ›, or anywhere on the card that isn't already tappable; on the full card, only the title and the house. |
 
 ### Example
 
@@ -238,6 +239,15 @@ period: last_7_days
 type: custom:sigenergy-flow-statistics
 period: month
 show_period_picker: false
+```
+
+For a summary dashboard, `tap_action` opens a more detailed one:
+
+```yaml
+type: custom:sigenergy-flow-scene
+tap_action:
+  action: navigate
+  navigation_path: /dashboard-energy/details
 ```
 
 ### Style
