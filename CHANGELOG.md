@@ -2,6 +2,10 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v74
+
+- `tap_action` runs a Home Assistant action when the card is tapped, e.g. to open a more detailed dashboard from a summary one. It runs on a tap on the title, which then ends with ›, or anywhere on the card that isn't already tappable: the readings, tiles, charts and picker keep their own behaviour. On the full card, only the title and the house run it.
+
 ## v73
 
 - `car` also takes an entity whose state is a car's name, e.g. `car: input_select.garage_car`, and the garage follows it as it changes. While the entity is unknown or unavailable, or its state isn't a car's name, the card shows the built-in car.
