@@ -2,6 +2,14 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v75
+
+- **Required update for Sigenergy Local Modbus users upgrading to its 2.0**, which stores charger states as keys (`ev_ready`, `charging`) instead of English labels. With earlier versions of the card, a car plugged into an AC charger reporting EV Ready no longer shows in the garage, and the AC charger's status reads `charging` or `not_connected`. The card now reads both: 2.0's keys, with Home Assistant's labels in your language, and 1.x's labels.
+- The card shows a two-car garage: with both an AC and a DC charger, the garage has a second bay on its left, under the main roof lengthened over it with more solar panels. The DC charger's car and wallbox are in the existing bay, the AC charger's in the new one, and the charger readings move onto the driveway, each under its car. This is the new default with both chargers; `garage: single` keeps the single garage, and `garage: double` shows two bays with one charger. On a phone in portrait, the card keeps the single garage, with whichever car is charging.
+- The second car has the first one's options: `car_2` (a car's name, or an entity whose state is one), `car_shown_2`, `car_image_2`, `car_image_night_2` and a `car_charging_2` entity. Without them, it is the same car as the first. The README shows how an automation can tell the card which car is at which charger, with Tessie as the example.
+- A car plugged into the DC charger shows in the garage while it is connected, charging or not (e.g. waiting for solar): the DC charger reports the vehicle's SOC for as long as its gun is in, and its new `dc_charger_state` entity says while a session is being prepared. Before, the car only showed once the charger delivered power.
+- `car_shown` also takes a `binary_sensor` entity, such as the car's "at home" or "plugged in" sensor: the car shows while it is on.
+
 ## v74
 
 - `tap_action` runs a Home Assistant action when the card is tapped, e.g. to open a more detailed dashboard from a summary one. It runs on a tap on the title, which then ends with ›, or anywhere on the card that isn't already tappable: the readings, tiles, charts and picker keep their own behaviour. On the full card, only the title and the house run it.
