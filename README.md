@@ -2,7 +2,8 @@
 
 [![hacs][hacs-badge]][hacs-url]
 [![release][release-badge]][release-url]
-[![downloads][downloads-badge]][release-url]
+[![total downloads][downloads-badge]][release-url]
+![Latest release downloads][downloads-latest-badge]
 [![maintained][maintained-badge]][commits-url]
 [![activity][activity-badge]][commits-url]
 [![license][license-badge]][license-url]
@@ -802,7 +803,8 @@ actions:
 [hacs-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=jyavenard&repository=sigenergy-flow-card&category=plugin
 [hacs-badge]: https://img.shields.io/badge/hacs-default-orange.svg?style=flat-square
 [release-badge]: https://img.shields.io/github/v/release/jyavenard/sigenergy-flow-card?style=flat-square&color=green
-[downloads-badge]: https://img.shields.io/github/downloads/jyavenard/sigenergy-flow-card/total?style=flat-square
+[downloads-badge]: https://img.shields.io/github/downloads/jyavenard/sigenergy-flow-card/total?style=flat-square&label=total%20downloads
+[downloads-latest-badge]: https://img.shields.io/github/downloads/jyavenard/sigenergy-flow-card/latest/total?style=flat-square&label=latest%20downloads
 [maintained-badge]: https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square
 [activity-badge]: https://img.shields.io/github/commit-activity/y/jyavenard/sigenergy-flow-card?style=flat-square
 [license-badge]: https://img.shields.io/github/license/jyavenard/sigenergy-flow-card?style=flat-square
