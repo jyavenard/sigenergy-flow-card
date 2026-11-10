@@ -166,8 +166,9 @@ const SIGENERGY2MQTT_ENTITIES = {
     weather: DEFAULT_ENTITIES.weather,
 };
 const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_energy'];
-// The AC charger states (IEC 61851 B1 to C2) with a vehicle connected: Sigenergy Local Modbus's, then sigenergy2mqtt's.
-const AC_CONNECTED = new Set(['reserving', 'preparing', 'ev ready', 'charging', 'charger and ev not ready', 'charger ready; ev not ready', 'charger not ready; ev ready']);
+// The AC charger states (IEC 61851 B1 to C2) with a vehicle connected, lower-cased: Sigenergy Local Modbus's (2.0 stores
+// keys such as ev_ready, 1.x labels such as EV Ready), then sigenergy2mqtt's.
+const AC_CONNECTED = new Set(['reserving', 'preparing', 'ev_ready', 'ev ready', 'charging', 'charger and ev not ready', 'charger ready; ev not ready', 'charger not ready; ev ready']);
 // Browser storage of the battery's learnt overhead (see _learnOverhead).
 const OVERHEAD_KEY = 'sigenergy-flow-card-battery-overhead';
 // The battery's keys, none of which is read with battery_present: false.
@@ -1938,9 +1939,13 @@ class SigenergyFlowCard extends HTMLElement {
         const car = carEntity ? n(carEntity) : null
           , range = rangeEntity ? n(rangeEntity) : null
           , dcsoc = n(e('dc_charger_vehicle_soc'));
-        const acState = this._hass.states[e('ac_charger_state')]?.state?.split('-')[0];
+        // Sigenergy Local Modbus 2.0 stores keys (charging, not_connected) that Home Assistant labels in the user's language;
+        // otherwise the state is already the label.
+        const acEntity = this._hass.states[e('ac_charger_state')], acRaw = acEntity?.state
+          , acLabel = acEntity && this._hass.formatEntityState ? this._hass.formatEntityState(acEntity) : acRaw
+          , acState = acRaw && !['unknown', 'unavailable'].includes(acRaw) ? (acLabel && acLabel !== acRaw ? acLabel : acRaw.split('-')[0]) : '';
         const carText = !carEntity ? '' : car === null ? 'Vehicle SOC unavailable' : `${car.toFixed(0)}%${range === null ? '' : ` · ${range.toFixed(0)} km`}`;
-        this._parts('acSoc', [acState && !['unknown', 'unavailable'].includes(acState) ? acState : '', carText]);
+        this._parts('acSoc', [acState, carText]);
         // The inverter reports 0% with no DC vehicle attached; a genuine 0% while charging is still shown.
         // Negative DC power is the vehicle supplying the house.
         const dcState = dc === null ? '' : dc > 0.025 ? 'Charging' : dc < -0.025 ? 'Discharging' : '';
