@@ -29,6 +29,18 @@ const PHOTO = { width: 1676, height: 557, top: 56, bottom: 60, bleed: 100 };
 const CAR_FRAME = { at: [430, 242], size: [200, 192] };
 // The cars named by `car`, as <name>-day.avif and <name>-night.avif (listed in cars/cars.json).
 const CARS_URL = 'https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/cars/';
+// The double garage's overlays (tools/make-garage.py), from GitHub like the cars: the second bay and the lengthened roof
+// as double-<day|night>.avif, and the photo's own car, for the second bay, as car-<day|night>.avif.
+const GARAGE_URL = 'https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/garage/';
+// Where the double garage's overlay goes, in ARTWORK's coordinates, and the transform (an SVG matrix, in the same
+// coordinates) that moves a car from the existing bay into the new one.
+const DOUBLE_GARAGE = { at: [245, 68], size: [319, 402], car: [0.80792, -0.01126, 0, 0.89884, -67.32, 19.243] };
+// The two cars and their options: the AC charger's (the garage's, in the double garage's new bay) and the DC charger's
+// (in the double garage's existing bay).
+const CARS = [
+    { art: 'carArt', car: 'car', image: 'car_image', night: 'car_image_night', shown: 'car_shown', charging: 'car_charging' },
+    { art: 'carArt2', car: 'car_2', image: 'car_image_2', night: 'car_image_night_2', shown: 'car_shown_2', charging: 'car_charging_2' },
+];
 // Where the top and bottom fades (which keep the readings legible) end and start.
 const FADE = { topEnd: 140, bottomStart: 533 };
 const SCENE = { width: PHOTO.width, height: PHOTO.top + PHOTO.height + PHOTO.bottom, keep: [160, 1320], keepNarrow: [385, 1215], narrowBelow: 560, scale: 1 };
@@ -75,10 +87,14 @@ const DEFAULT_ENTITIES = {
     ac_charger_vehicle_soc: [],
     ac_charger_vehicle_range: [],
     dc_charger_power: ['sensor.sigen_inverter_dc_charger_output_power'],
+    dc_charger_state: ['sensor.sigen_inverter_dc_charger_running_state'],
     dc_charger_vehicle_soc: ['sensor.sigen_inverter_dc_charger_vehicle_soc'],
     dc_charger_limit: ['number.sigen_inverter_dc_charger_max_charging_power_limit'],
     // The car shows in the garage while either charger has power, or while this reads on, charging or more than 0.
     car_charging: [],
+    // With the double garage, the second car shows in the new bay while the DC charger has power, or while this reads on,
+    // charging or more than 0.
+    car_charging_2: [],
     // The plant's EVDC counters cover every inverter but are disabled by default; the first inverter's DC charger
     // totals are enabled.
     dc_charger_lifetime_charged_energy: ['sensor.sigen_plant_total_charged_energy_of_the_evdc', 'sensor.sigen_inverter_dc_charger_total_charging_capacity'],
@@ -136,9 +152,11 @@ const SIGENERGY2MQTT_ENTITIES = {
     ac_charger_vehicle_soc: [],
     ac_charger_vehicle_range: [],
     dc_charger_power: ['sensor.sigen_0_dc_charger_1_output_power'],
+    dc_charger_state: ['sensor.sigen_0_dc_charger_1_running_state'],
     dc_charger_vehicle_soc: ['sensor.sigen_0_dc_charger_1_vehicle_soc'],
     dc_charger_limit: ['number.sigen_0_dc_charger_1_max_charging_power_limit'],
     car_charging: [],
+    car_charging_2: [],
     dc_charger_lifetime_charged_energy: ['sensor.sigen_0_evdc_total_charge_energy', 'sensor.sigen_0_si_evdc_total_charge_energy', 'sensor.sigen_0_dc_charger_1_total_charging_capacity'],
     dc_charger_lifetime_discharged_energy: ['sensor.sigen_0_evdc_total_discharge_energy', 'sensor.sigen_0_si_evdc_total_discharge_energy', 'sensor.sigen_0_dc_charger_1_total_discharging_capacity'],
     // plant_pv_power is the Sigenergy PV alone; total_pv_power, total_daily_pv_energy and lifetime_pv_energy add the
@@ -169,6 +187,10 @@ const PV_KEYS = ['voltage', 'current', 'power', 'daily_energy', 'accumulated_ene
 // The AC charger states (IEC 61851 B1 to C2) with a vehicle connected, lower-cased: Sigenergy Local Modbus's (2.0 stores
 // keys such as ev_ready, 1.x labels such as EV Ready), then sigenergy2mqtt's.
 const AC_CONNECTED = new Set(['reserving', 'preparing', 'ev_ready', 'ev ready', 'charging', 'charger and ev not ready', 'charger ready; ev not ready', 'charger not ready; ev ready']);
+// The DC charger states with a vehicle connected, as keys: Sigenergy Local Modbus 2.0's (preparing_comm), 1.x's labels
+// (Preparing Comm) and sigenergy2mqtt's (Preparing (Establishing communication)) read the same through dcStateKey.
+const DC_CONNECTED = new Set(['occupied', 'preparing', 'preparing_comm', 'preparing_insulation', 'charging', 'scheduled', 'ended', 'discharging']);
+const dcStateKey = state => state?.toLowerCase().split(' (')[0].trim().replace(/ /g, '_');
 // Browser storage of the battery's learnt overhead (see _learnOverhead).
 const OVERHEAD_KEY = 'sigenergy-flow-card-battery-overhead';
 // The battery's keys, none of which is read with battery_present: false.
@@ -482,14 +504,19 @@ class SigenergyFlowCard extends HTMLElement {
         const backend = config.sigenergy_backend ?? 'sigenergy_local_modbus';
         if (!Object.hasOwn(BACKENDS, backend)) throw new Error(`Unknown sigenergy_backend "${backend}". Valid values: ${Object.keys(BACKENDS).join(', ')}`);
         if (config.theme !== undefined && !['auto', 'light', 'dark'].includes(config.theme)) throw new Error(`Unknown theme "${config.theme}". Valid values: auto, light, dark`);
-        if (config.car_shown !== undefined && !['auto', true, false].includes(config.car_shown) && !/^binary_sensor\.[a-z0-9_]+$/.test(config.car_shown))
-            throw new Error(`Unknown car_shown "${config.car_shown}". Valid values: auto, true, false or a binary_sensor entity`);
-        for (const key of ['car_image', 'car_image_night'])
-            if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') throw new Error(`${key} must be an image URL`);
+        if (config.garage !== undefined && !['auto', 'single', 'double'].includes(config.garage)) throw new Error(`Unknown garage "${config.garage}". Valid values: auto, single, double`);
+        for (const keys of CARS) {
+            const shown = config[keys.shown], car = config[keys.car];
+            if (shown !== undefined && !['auto', true, false].includes(shown) && !/^binary_sensor\.[a-z0-9_]+$/.test(shown))
+                throw new Error(`Unknown ${keys.shown} "${shown}". Valid values: auto, true, false or a binary_sensor entity`);
+            for (const key of [keys.image, keys.night])
+                if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') throw new Error(`${key} must be an image URL`);
+            if (car !== undefined && car !== null && !/^([a-z0-9-]+|[a-z_]+\.[a-z0-9_]+)$/.test(car))
+                throw new Error(`${keys.car} must be the name of a car in the card's cars folder, e.g. byd-atto3-orange, or an entity whose state is one`);
+        }
         const dateFormat = DATE_FORMAT.exec(config.date_format ?? 'auto');
         if (config.date_format !== undefined && config.date_format !== 'auto' && !(dateFormat && new Set([dateFormat[1][0], dateFormat[3][0], dateFormat[4][0]]).size === 3))
             throw new Error(`Unknown date_format "${config.date_format}". Valid values: auto, or DD, MM and YYYY (or YY) in any order with one separator, e.g. DD/MM/YYYY`);
-        if (config.car !== undefined && config.car !== null && !/^([a-z0-9-]+|[a-z_]+\.[a-z0-9_]+)$/.test(config.car)) throw new Error('car must be the name of a car in the card\'s cars folder, e.g. byd-atto3-orange, or an entity whose state is one');
         const periods = Object.keys(PERIODS).filter(period => this._solo || PERIODS[period] !== 'Last 7 days');
         if (config.period !== undefined && !periods.includes(config.period)) throw new Error(`Unknown period "${config.period}". Valid values: ${periods.join(', ')}`);
         const entities = config.entities ?? {};
@@ -508,10 +535,15 @@ class SigenergyFlowCard extends HTMLElement {
             show_lifetime: true,
             show_phase_mode: false,
             show_grid_voltage: false,
+            garage: 'auto',
             car_shown: 'auto',
             car: null,
             car_image: null,
             car_image_night: null,
+            car_shown_2: 'auto',
+            car_2: null,
+            car_image_2: null,
+            car_image_night_2: null,
             grid_phases: null,
             title: 'Sigenergy',
             name: 'My Home',
@@ -589,8 +621,11 @@ class SigenergyFlowCard extends HTMLElement {
           </defs>
           <image class="photo" href="${ARTWORK['house_day.png'].href}" x="0" y="${-PHOTO.bleed}" width="${SCENE.width}" height="${SCENE.height + 2 * PHOTO.bleed}" preserveAspectRatio="none"/>
           <image id="garageArt" display="none" href="${ARTWORK['garage_day.png'].href}" x="${ARTWORK['garage_day.png'].at[0]}" y="${PHOTO.top + ARTWORK['garage_day.png'].at[1]}" width="${ARTWORK['garage_day.png'].size[0]}" height="${ARTWORK['garage_day.png'].size[1]}" preserveAspectRatio="none"/>
+          <image id="doubleArt" display="none" x="${DOUBLE_GARAGE.at[0]}" y="${PHOTO.top + DOUBLE_GARAGE.at[1]}" width="${DOUBLE_GARAGE.size[0]}" height="${DOUBLE_GARAGE.size[1]}" preserveAspectRatio="none"/>
           <image id="carArt" display="none" x="${CAR_FRAME.at[0]}" y="${PHOTO.top + CAR_FRAME.at[1]}" width="${CAR_FRAME.size[0]}" height="${CAR_FRAME.size[1]}" preserveAspectRatio="none"/>
+          <image id="carArt2" display="none" x="${CAR_FRAME.at[0]}" y="${PHOTO.top + CAR_FRAME.at[1]}" width="${CAR_FRAME.size[0]}" height="${CAR_FRAME.size[1]}" preserveAspectRatio="none" transform="translate(0 ${PHOTO.top}) matrix(${DOUBLE_GARAGE.car.join(' ')}) translate(0 ${-PHOTO.top})"/>
           <image id="chargerArt" display="none" href="${ARTWORK['charger_day.png'].href}" x="${ARTWORK['charger_day.png'].at[0]}" y="${PHOTO.top + ARTWORK['charger_day.png'].at[1]}" width="${ARTWORK['charger_day.png'].size[0]}" height="${ARTWORK['charger_day.png'].size[1]}" preserveAspectRatio="none"/>
+          <image id="chargerArt2" display="none" href="${ARTWORK['charger_day.png'].href}" x="${ARTWORK['charger_day.png'].at[0]}" y="${PHOTO.top + ARTWORK['charger_day.png'].at[1]}" width="${ARTWORK['charger_day.png'].size[0]}" height="${ARTWORK['charger_day.png'].size[1]}" preserveAspectRatio="none" transform="translate(0 ${PHOTO.top}) matrix(${DOUBLE_GARAGE.car.join(' ')}) translate(0 ${-PHOTO.top})"/>
           <rect x="0" y="${-PHOTO.bleed}" width="${PHOTO.width}" height="${PHOTO.bleed + FADE.topEnd}" class="fadeRect" fill="url(#fadeTop)"/>
           <rect x="0" y="${FADE.bottomStart}" width="${PHOTO.width}" height="${SCENE.height - FADE.bottomStart + PHOTO.bleed}" class="fadeRect" fill="url(#fadeBottom)"/>
           <rect x="0" y="${-PHOTO.bleed}" width="520" height="${SCENE.height + 2 * PHOTO.bleed}" fill="url(#fadeLeft)"/>
@@ -723,6 +758,7 @@ class SigenergyFlowCard extends HTMLElement {
       .compact .node em span{display:block}.compact .node em span+span::before{content:none}
       .node.weather button{display:flex;align-items:center;gap:calc(10px * var(--s))}.weather svg{width:clamp(30px,calc(58px * var(--s)),62px);height:clamp(30px,calc(58px * var(--s)),62px);overflow:visible}
       .sidecol{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:flex;flex-direction:column;justify-content:space-between;gap:max(14px,calc(24px * var(--s)));min-height:calc(184px * var(--s))}
+      .double #chargers{flex-direction:row;top:auto;bottom:${((SCENE.height - READINGS.lower.bottom) / SCENE.height * 100).toFixed(3)}%;transform:none;min-height:0;gap:max(14px,calc(40px * var(--s)))}
       .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}.lower>.node:first-child{min-width:0;padding-right:calc(12px * var(--s))}.lower>.node:first-child em{white-space:normal}
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
       .node button{all:unset;cursor:pointer;display:block}.node button[disabled]{cursor:default}.nobreak{white-space:nowrap}.narrow #gridButton small{white-space:normal}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
@@ -795,13 +831,23 @@ class SigenergyFlowCard extends HTMLElement {
             this._id(`pvRow${i}`).querySelector('th').append(String(name));
             this._id(`pvLegend${i}`).append(String(name));
         });
-        this._sceneFile = this._carHref = null;
-        // A car that doesn't load (a misspelt or removed name) leaves the built-in one.
-        this._id('carArt')?.addEventListener('error', event => {
-            if (!this._carHref || event.target.getAttribute('href') !== this._carHref) return;
-            console.warn(`sigenergy-flow-card: car image not found: ${this._carHref}`);
-            this._carFailed = true;
-            this._showCar();
+        this._sceneFile = null;
+        // An image that doesn't load (a misspelt or removed car, or GitHub out of reach) is left out: a car leaves the
+        // built-in one, the double garage the single one.
+        this._failed ??= new Set();
+        for (const id of ['carArt', 'carArt2', 'doubleArt'])
+            this._id(id)?.addEventListener('error', event => {
+                const href = event.target.getAttribute('href');
+                if (!href || this._failed.has(href)) return;
+                console.warn(`sigenergy-flow-card: image not found: ${href}`);
+                this._failed.add(href);
+                this._showCars();
+            });
+        // The double garage shows once its overlay has loaded, so the new bay's car never stands in the trees.
+        this._loaded ??= new Set();
+        this._id('doubleArt')?.addEventListener('load', event => {
+            this._loaded.add(event.target.getAttribute('href'));
+            this._showCars();
         });
         this._loadRows = new Map();
         this._loadsEmpty = null;
@@ -902,7 +948,8 @@ class SigenergyFlowCard extends HTMLElement {
     // with a single charger the line must also stop short of the charger on the garage wall.
     _stackLifetime(narrow, scale) {
         const art = ARTWORK['charger_day.png'], single = this._id('acNode').hidden !== this._id('dcNode').hidden;
-        const room = narrow ? 230 : single ? art.at[0] - READINGS.chargers[0] - 8 : 420;
+        const double = this._id('plane').classList.contains('double');
+        const room = narrow ? 230 : double ? (READINGS.lower.left - READINGS.chargers[0]) / 2 - 40 : single ? art.at[0] - READINGS.chargers[0] - 8 : 420;
         const el = this._id('dcLifetime');
         el.classList.remove('stack');
         el.style.whiteSpace = 'nowrap';
@@ -914,9 +961,11 @@ class SigenergyFlowCard extends HTMLElement {
     }
     // With one charger its readings are level with the charger on the garage wall; otherwise they are
     // centred vertically.
+    // With the double garage, they stand side by side on the driveway instead, each under its car (AC left, DC right),
+    // in line with SigenStor and GRID.
     _alignChargers(narrow) {
         const chargers = this._id('chargers'), ac = this._id('acNode'), dc = this._id('dcNode');
-        if (ac.hidden === dc.hidden) {
+        if (ac.hidden === dc.hidden || this._id('plane').classList.contains('double')) {
             Object.assign(chargers.style, { top: '', transform: '', minHeight: '' });
             return;
         }
@@ -956,6 +1005,12 @@ class SigenergyFlowCard extends HTMLElement {
         plane.style.setProperty('--s', scale);
         plane.classList.toggle('compact', scale < .6);
         plane.classList.toggle('narrow', narrow);
+        // The double garage needs the scene to show its new bay at this size: otherwise the single garage, as without it.
+        const fits = !narrow && centre - visible / 2 <= DOUBLE_GARAGE.at[0];
+        if (fits !== this._doubleFits) {
+            this._doubleFits = fits;
+            this._showCars();
+        }
         const chargers = this._id('chargers');
         chargers.style.left = `${(READINGS.chargers[narrow ? 1 : 0] / SCENE.width * 100).toFixed(3)}%`;
         this._stackLifetime(narrow, scale);
@@ -965,6 +1020,7 @@ class SigenergyFlowCard extends HTMLElement {
         const lower = this.root.querySelector('.lower'), planeHeight = SCENE.height * scale, spare = (height - planeHeight) / 2;
         const drop = narrow || spare <= 0 ? 0 : Math.max(0, Math.min(READINGS.lower.start * scale - lower.offsetTop, planeHeight + spare - 12 - lower.offsetTop - lower.offsetHeight));
         lower.style.transform = drop ? `translateY(${drop}px)` : '';
+        if (plane.classList.contains('double')) chargers.style.transform = lower.style.transform;
         for (const leader of this.root.querySelectorAll('.lowerLeader'))
             leader.setAttribute('d', leader.dataset.d.replace(/V([\d.]+)/, (_, end) => `V${+end + drop / scale}`));
     }
@@ -999,40 +1055,67 @@ class SigenergyFlowCard extends HTMLElement {
         if (theme === 'light' || theme === 'dark') return theme === 'light';
         return typeof dark === 'boolean' ? !dark : this._isDay();
     }
-    // The car in the garage, shown or not: another car (car or car_image) is drawn over the empty garage.
-    _showCar(shown = this._carShown) {
-        this._carShown = shown;
-        if (shown === undefined || !this._id('carArt')) return;
-        const other = this._carHref && !this._carFailed;
-        this._id('garageArt').setAttribute('display', shown && !other ? 'none' : 'inline');
-        this._id('carArt').setAttribute('display', shown && other ? 'inline' : 'none');
+    // The cars in the garage: [_carWanted] (from _update) says which are there. With the double garage and room for it
+    // (_fitScene), each has its bay; otherwise the single bay shows the first car there. A car with an image of its own
+    // is drawn over the empty garage; without one, the existing bay shows the photo's car, the new bay a copy of it.
+    _showCars() {
+        const wanted = this._carWanted;
+        if (!wanted || !this._id('carArt')) return;
+        const day = this._isDay(), time = day ? 'day' : 'night', ok = href => href && !this._failed.has(href);
+        const garage = this._doubleGarage ? `${GARAGE_URL}double-${time}.avif` : null;
+        // Only fetched once it fits, so a phone, which always shows the single garage, never loads it.
+        const double = this._doubleFits && ok(garage) && this._loaded.has(garage);
+        // The double garage has the DC charger's car in the existing bay and the AC charger's in the new one.
+        const right = double ? (wanted[1] ? 1 : null) : wanted[0] ? 0 : wanted[1] ? 1 : null;
+        const left = double && wanted[0] ? 0 : null;
+        const draw = (id, href, shown) => {
+            const art = this._id(id);
+            if (href && art.getAttribute('href') !== href) art.setAttribute('href', href);
+            art.setAttribute('display', shown ? 'inline' : 'none');
+        };
+        draw('doubleArt', this._doubleFits ? garage : null, double);
+        const own = right === null ? null : this._carHref(right, day);
+        draw('carArt', own, right !== null && ok(own));
+        this._id('garageArt').setAttribute('display', right !== null && !ok(own) ? 'none' : 'inline');
+        let second = left === null ? null : this._carHref(left, day);
+        if (left !== null && !ok(second)) second = `${GARAGE_URL}car-${time}.avif`;
+        draw('carArt2', second, left !== null && ok(second));
+        // The wallbox on the garage wall: with the double garage, the existing bay's is the DC charger's and the new bay's
+        // the AC charger's.
+        const { ac, dc } = this._chargers ?? {};
+        this._id('chargerArt').setAttribute('display', double ? (dc ? 'inline' : 'none') : ac || dc ? 'inline' : 'none');
+        this._id('chargerArt2').setAttribute('display', double && ac ? 'inline' : 'none');
+        // The charger readings move with it: the scene is laid out again.
+        if (this._id('plane').classList.contains('double') !== double) {
+            this._id('plane').classList.toggle('double', double);
+            this._fitScene();
+        }
     }
     // tap_action, unless it is absent or does nothing.
     _tapAction() {
         const tap = this.config.tap_action;
         return tap && tap.action !== 'none' ? tap : null;
     }
-    // The car's name: car itself, or the state of the entity it names. A state that isn't a car's name never goes in
+    // A car's name: [key]'s value, or the state of the entity it names. A state that isn't a car's name never goes in
     // the URL; unknown or unavailable leaves the built-in car.
-    _carName() {
-        const { car } = this.config;
+    _carName(key) {
+        const car = this.config[key];
         if (!car?.includes('.')) return car;
         const state = this._hass?.states[car]?.state?.trim().toLowerCase();
         if (!state || ['unknown', 'unavailable'].includes(state)) return null;
         if (/^[a-z0-9-]+$/.test(state)) return state;
-        if (this._carWarned !== state) console.warn(`sigenergy-flow-card: ${car} is not a car's name: ${state}`);
-        this._carWarned = state;
+        this._carWarned ??= {};
+        if (this._carWarned[key] !== state) console.warn(`sigenergy-flow-card: ${car} is not a car's name: ${state}`);
+        this._carWarned[key] = state;
         return null;
     }
-    // The car drawn over the garage, which follows the time of day and car's entity.
-    _updateCar(day) {
-        const { car_image: image, car_image_night: night } = this.config, car = this._carName();
-        const href = image ? (day ? image : night ?? image) : car ? `${CARS_URL}${car}-${day ? 'day' : 'night'}.avif` : null;
-        if (href === this._carHref) return;
-        this._carHref = href;
-        this._carFailed = false;
-        this._id('carArt').setAttribute('href', href ?? '');
-        this._showCar();
+    // Car [i]'s image: its car_image, else its car's, which follows the time of day and the car's entity; the second
+    // car, given neither, is the first. Null for the built-in car.
+    _carHref(i, day) {
+        const keys = CARS[i], image = this.config[keys.image], night = this.config[keys.night], car = this._carName(keys.car);
+        if (image) return day ? image : night ?? image;
+        if (car) return `${CARS_URL}${car}-${day ? 'day' : 'night'}.avif`;
+        return i && !this.config[keys.car] ? this._carHref(0, day) : null;
     }
     _updateScene() {
         const day = this._isDay();
@@ -1040,10 +1123,10 @@ class SigenergyFlowCard extends HTMLElement {
         this.toggleAttribute('light', this._isLight());
         const file = day ? 'house_day.png' : 'house_night.png';
         if (!this._shown.has('scene')) return;
-        this._updateCar(day);
+        this._showCars();
         if (this._sceneFile === file) return;
         this._sceneFile = file;
-        this._id('chargerArt').setAttribute('href', ARTWORK[day ? 'charger_day.png' : 'charger_night.png'].href);
+        for (const id of ['chargerArt', 'chargerArt2']) this._id(id).setAttribute('href', ARTWORK[day ? 'charger_day.png' : 'charger_night.png'].href);
         const garage = ARTWORK[day ? 'garage_day.png' : 'garage_night.png'];
         for (const [name, value] of Object.entries({ href: garage.href, x: garage.at[0], y: PHOTO.top + garage.at[1], width: garage.size[0], height: garage.size[1] }))
             this._id('garageArt').setAttribute(name, value);
@@ -1897,15 +1980,28 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('dcGear').hidden = !this._has(e('dc_charger_limit'));
         this._id('acNode').hidden = !hasAc;
         this._id('dcNode').hidden = !hasDc;
-        this._id('chargerArt').setAttribute('display', hasAc || hasDc ? 'inline' : 'none');
+        this._chargers = { ac: hasAc, dc: hasDc };
         // With car_shown: auto, the garage patch hides the car unless a vehicle is connected to the AC charger, a charger
-        // has power (either way for DC: the car may supply the house) or car_charging says so. A binary_sensor shows it
-        // while on, and falls back to auto while unknown or unavailable.
-        const plugged = this._hass.states[e('car_charging')]?.state?.toLowerCase()
-          , connected = AC_CONNECTED.has(this._hass.states[e('ac_charger_state')]?.state?.toLowerCase())
-          , { car_shown: shown } = this.config, sensor = typeof shown === 'string' && shown !== 'auto' ? this._hass.states[shown]?.state : undefined
-          , showCar = typeof shown === 'boolean' ? shown : sensor === 'on' || sensor === 'off' ? sensor === 'on' : connected || ac > 0.025 || Math.abs(dc ?? 0) > 0.025 || ['on', 'charging', 'true'].includes(plugged) || Number(plugged) > 0;
-        this._showCar(showCar);
+        // has power (either way for DC: the car may supply the house) or car_charging says so. With the double garage, the
+        // first car is the AC charger's and the second the DC charger's (or car_charging_2's). car_shown(_2) true or false
+        // overrides it, and so does a binary_sensor while it is on or off.
+        const reads = key => this._hass.states[e(key)]?.state?.toLowerCase()
+          , charging = key => ['on', 'charging', 'true'].includes(reads(key)) || Number(reads(key)) > 0
+          , forced = key => {
+              const shown = this.config[key], sensor = typeof shown === 'string' && shown !== 'auto' ? this._hass.states[shown]?.state : undefined;
+              return typeof shown === 'boolean' ? shown : sensor === 'on' || sensor === 'off' ? sensor === 'on' : undefined;
+          }
+          , acCar = AC_CONNECTED.has(reads('ac_charger_state')) || ac > 0.025
+          // The DC charger reads the vehicle's SOC for as long as its gun is in, charging or not (0 without a vehicle).
+          , dcCar = DC_CONNECTED.has(dcStateKey(reads('dc_charger_state'))) || Math.abs(dc ?? 0) > 0.025 || n(e('dc_charger_vehicle_soc')) > 0
+          , { garage } = this.config, double = garage === 'double' || (garage === 'auto' && hasAc && hasDc);
+        // `garage: auto` is the double garage while both chargers are there, a bay for each one's car.
+        this._doubleGarage = double;
+        this._carWanted = [
+            forced('car_shown') ?? (acCar || (!double && dcCar) || charging('car_charging')),
+            double && (forced('car_shown_2') ?? (dcCar || charging('car_charging_2'))),
+        ];
+        this._showCars();
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));

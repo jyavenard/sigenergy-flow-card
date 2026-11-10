@@ -9,6 +9,7 @@
 //
 //     npm install --prefix /tmp/sigpw playwright-core && npx --prefix /tmp/sigpw playwright-core install webkit
 //     PLAYWRIGHT_CORE=/tmp/sigpw/node_modules/playwright-core node tools/screenshots.js
+const fs = require('fs');
 const path = require('path');
 const { webkit } = require(process.env.PLAYWRIGHT_CORE || 'playwright-core');
 const ROOT = path.resolve(__dirname, '..');
@@ -251,6 +252,16 @@ async function statClip(page, pad) {
     return { x: 0, y: r.top - pad, width, height: r.height + 2 * pad };
 }
 
+// A browser context whose GitHub requests (the cars and the double garage's overlays) are served from the repository.
+async function newContext(browser, options) {
+    const context = await browser.newContext(options);
+    await context.route('https://raw.githubusercontent.com/**', route => {
+        const file = path.join(ROOT, route.request().url().split('/main/')[1]);
+        return fs.existsSync(file) ? route.fulfill({ path: file, contentType: 'image/avif' }) : route.fulfill({ status: 404 });
+    });
+    return context;
+}
+
 (async () => {
     const browser = await webkit.launch(process.env.WEBKIT ? { executablePath: process.env.WEBKIT } : {});
     const device = (width, height, pad, scale) => ({ viewport: { width, height }, deviceScaleFactor: scale, locale: 'en-AU', timezoneId: 'Australia/Sydney', pad });
@@ -260,7 +271,7 @@ async function statClip(page, pad) {
     ];
     for (const shot of shots) {
         for (const night of [false, true]) {
-            const context = await browser.newContext({ viewport: shot.viewport, deviceScaleFactor: shot.deviceScaleFactor, locale: shot.locale, timezoneId: shot.timezoneId, isMobile: !!shot.mobile, hasTouch: !!shot.mobile });
+            const context = await newContext(browser, { viewport: shot.viewport, deviceScaleFactor: shot.deviceScaleFactor, locale: shot.locale, timezoneId: shot.timezoneId, isMobile: !!shot.mobile, hasTouch: !!shot.mobile });
             await context.clock.setFixedTime(NOW);
             const page = await context.newPage();
             page.on('pageerror', e => console.log('PAGEERROR', e.message));
@@ -317,7 +328,7 @@ async function statClip(page, pad) {
     ];
     for (const shot of [{ name: 'column', ...device(520, 400, 11, 1.6) }, shots[1]]) {
         for (const [file, tag, extra] of solo) {
-            const context = await browser.newContext({ viewport: shot.viewport, deviceScaleFactor: shot.deviceScaleFactor, locale: shot.locale, timezoneId: shot.timezoneId, isMobile: !!shot.mobile, hasTouch: !!shot.mobile });
+            const context = await newContext(browser, { viewport: shot.viewport, deviceScaleFactor: shot.deviceScaleFactor, locale: shot.locale, timezoneId: shot.timezoneId, isMobile: !!shot.mobile, hasTouch: !!shot.mobile });
             await context.clock.setFixedTime(NOW);
             const page = await context.newPage();
             page.on('pageerror', e => console.log('PAGEERROR', file, e.message));
@@ -331,6 +342,22 @@ async function statClip(page, pad) {
             await page.screenshot({ path: `${out}/${shot.name}-solo-${file}.png`, clip: { x: 0, y: 0, width: shot.viewport.width, height } });
             await context.close();
         }
+    }
+    // The double garage, with both chargers in use.
+    {
+        const context = await newContext(browser, { viewport: { width: 1000, height: 625 }, deviceScaleFactor: 1.6, locale: 'en-AU', timezoneId: 'Australia/Sydney' });
+        await context.clock.setFixedTime(NOW);
+        const page = await context.newPage();
+        page.on('pageerror', e => console.log('PAGEERROR', 'double', e.message));
+        const dc = 'sensor.sigen_inverter_dc_charger_output_power', idle = data.states[dc];
+        data.states[dc] = kw(6.5);
+        await mount(page, null, 'sigenergy-flow-scene', { garage: 'double', car: 'byd-atto3-orange', car_2: 'model-y-glacier-blue' });
+        data.states[dc] = idle;
+        await page.evaluate(pad => document.body.style.setProperty('--pad', `${pad}px`), 11);
+        await page.waitForTimeout(1500);
+        const height = Math.ceil(await page.evaluate(() => document.querySelector('sigenergy-flow-scene').getBoundingClientRect().bottom + 11));
+        await page.screenshot({ path: `${out}/desktop-double-garage.png`, clip: { x: 0, y: 0, width: 1000, height } });
+        await context.close();
     }
     await browser.close();
     console.log(`${out}: today's totals (kWh)`, JSON.stringify({ pv: sum('pv').toFixed(2), imp: sum('imp').toFixed(2), exp: sum('exp').toFixed(2), charge: sum('charge').toFixed(2), discharge: sum('discharge').toFixed(2), ac: sum('ac').toFixed(2) }));

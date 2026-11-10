@@ -186,6 +186,8 @@ All options are optional.
 | `car` | none | Name of a different car for the garage, from the card's `cars/` folder, or an entity whose state is that name (see [Changing the car](#changing-the-car)). |
 | `car_image` | none | URL of your own car overlay, instead of `car`. |
 | `car_image_night` | `car_image` | The same car at night. |
+| `garage` | `auto` | `double` adds a second bay on the left for a second car, when the card is wide enough to show it (see [Double garage](#double-garage)); `auto` does while both the AC and DC chargers are there; `single` never does. |
+| `car_shown_2`, `car_2`, `car_image_2`, `car_image_night_2` | as the first car's | The second car, the DC charger's in the double garage, with the same options as `car_shown`, `car`, `car_image` and `car_image_night`. Without `car_2` or `car_image_2`, it is the same car as the first. |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
 | `show_forecast` | `true` | Draw the dashed solar and home forecast: for the rest of the day on the Power metrics chart, and as dashed bars in the current week or month (see [Forecast](#forecast)). |
@@ -312,9 +314,11 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `ac_charger_vehicle_soc` | none | Vehicle battery level on the AC charger |
 | `ac_charger_vehicle_range` | none | Vehicle range on the AC charger |
 | `dc_charger_power` | `sensor.sigen_inverter_dc_charger_output_power` | DC charger value, chart; the DC charger only appears if this exists |
-| `dc_charger_vehicle_soc` | `sensor.sigen_inverter_dc_charger_vehicle_soc` | Vehicle battery level on the DC charger |
+| `dc_charger_state` | `sensor.sigen_inverter_dc_charger_running_state` | DC charger state: a vehicle shows in the garage while it is connected (Occupied, Preparing, Charging, Scheduled, Ended or Discharging) |
+| `dc_charger_vehicle_soc` | `sensor.sigen_inverter_dc_charger_vehicle_soc` | Vehicle battery level on the DC charger; above 0 while a vehicle is plugged in, which shows it in the garage |
 | `dc_charger_limit` | `number.sigen_inverter_dc_charger_max_charging_power_limit` | Opened when tapping the DC charger (⚙) |
 | `car_charging` | none | Shows the car in the garage while on, `charging` or above 0 (e.g. a car's or third-party charger's charging sensor) |
+| `car_charging_2` | none | With the double garage, shows the second car while on, `charging` or above 0 |
 | `dc_charger_lifetime_charged_energy` | `sensor.sigen_plant_total_charged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_charging_capacity` | DC charger lifetime line (↓ charged) |
 | `dc_charger_lifetime_discharged_energy` | `sensor.sigen_plant_total_discharged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_discharging_capacity` | DC charger lifetime line (↑ discharged, hidden while 0) |
 | `pv_strings_power` | `sensor.sigen_plant_sigen_pv_power` | PV Strings **Total** power, for the Sigenergy PV inputs (the Total row adds `third_party_pv_power`) |
@@ -405,9 +409,11 @@ sigenergy_backend: sigenergy2mqtt
 | `ac_charger_vehicle_soc` | none |
 | `ac_charger_vehicle_range` | none |
 | `dc_charger_power` | `sensor.sigen_0_dc_charger_1_output_power` |
+| `dc_charger_state` | `sensor.sigen_0_dc_charger_1_running_state` |
 | `dc_charger_vehicle_soc` | `sensor.sigen_0_dc_charger_1_vehicle_soc` |
 | `dc_charger_limit` | `number.sigen_0_dc_charger_1_max_charging_power_limit` |
 | `car_charging` | none |
+| `car_charging_2` | none |
 | `dc_charger_lifetime_charged_energy` | `sensor.sigen_0_evdc_total_charge_energy`, fallback `sensor.sigen_0_si_evdc_total_charge_energy`, then `sensor.sigen_0_dc_charger_1_total_charging_capacity` |
 | `dc_charger_lifetime_discharged_energy` | `sensor.sigen_0_evdc_total_discharge_energy`, fallback `sensor.sigen_0_si_evdc_total_discharge_energy`, then `sensor.sigen_0_dc_charger_1_total_discharging_capacity` |
 | `pv_strings_power` | `sensor.sigen_0_plant_pv_power`, fallback `sensor.sigen_0_inverter_1_pv_power` |
@@ -553,7 +559,7 @@ Each line is hidden when its entities do not exist.
 
 The DC charger's vehicle state of charge is hidden while the charger is idle and reports 0%.
 
-By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it. With a `binary_sensor` (e.g. your car's "at home" or "plugged in" sensor), the car shows while it is on; while it is unknown or unavailable, the card falls back to `auto`.
+By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, a vehicle is connected to the DC charger (it reports the vehicle's SOC, or `dc_charger_state` reads Occupied, Preparing, Charging, Scheduled, Ended or Discharging), the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it. With a `binary_sensor` (e.g. your car's "at home" or "plugged in" sensor), the car shows while it is on; while it is unknown or unavailable, the card falls back to `auto`.
 
 ## Changing the car
 
@@ -595,6 +601,25 @@ To make another car:
 
 Made a car that isn't listed? Please share it so others can use it too: open a pull request with what step 3 wrote for a `<model>-<colour>` name (the two images, `cars/cars.json` and the README), and the preview in its description. If you can't run the tool, open an issue with the two images from the generator, and the car's model and colour.
 
+## Double garage
+
+With both an AC and a DC charger (or `garage: double`), the garage has two bays, each with its charger on the wall: the DC charger's car in the existing bay and the AC charger's in a new bay on its left, under the main roof lengthened over it with more solar panels.
+
+![Double garage](docs/screenshots/desktop-double-garage.png)
+
+Each car shows as the single garage's does with `car_shown: auto`: the first while a vehicle is connected to the AC charger, the AC charger draws power or `car_charging` says so; the second while a vehicle is connected to the DC charger, it charges or discharges, or `car_charging_2` says so. `car_shown_2`, `car_2`, `car_image_2` and `car_image_night_2` work as the first car's options, so either car can follow an entity:
+
+```yaml
+garage: double
+car: byd-atto3-orange
+car_2: input_select.second_car
+car_shown_2: binary_sensor.second_car_home
+```
+
+The double garage only shows when the card is wide enough to show the new bay. On a phone in portrait, the card keeps the single garage, with whichever car is charging (the AC charger's when both are). With the double garage, the charger readings move onto the driveway, each under its car.
+
+The new bay and roof are an overlay that `tools/make-garage.py` makes from the card's own photos, loaded from GitHub like the cars. If it can't load, the card shows the single garage.
+
 ## Changing the artwork
 
 The scene photos `images/house_day.png` and `images/house_night.png` show the house without a car charger. `images/garage_day.png` and `images/garage_night.png` are the same photos with the car removed, in the first photo's frame (1676 pixels wide); the tool keeps only the garage's inside from them, cut at the pillar the photos keep, and the card draws that patch over the car to hide it. The charger on the garage wall is a separate transparent image of the same size, `images/charger_day.png` and `images/charger_night.png`; the card draws it only when an AC or DC charger is present. `tools/embed-artwork.py` places each photo in the card's coordinates (a scale and offset measured against the first photo, kept in the tool), adds a short band above and below for the readings, scales each charger to the wall position, and embeds the result in the card. After changing any of them, regenerate the embedded copy (requires [Pillow](https://python-pillow.org) 11.3 or later, for AVIF, and [NumPy](https://numpy.org)); if a new photo is framed differently, update its entry in `REGISTRATION` first:
@@ -622,6 +647,155 @@ Copyright 2025-2026 Jean-Yves Avenard. Licensed under the [Apache License, Versi
 ## Acknowledgements
 
 The original YAML version of this dashboard came from [this gist](https://gist.github.com/fbradyirl/08fef90bd11d7bdddf588a56e668d879).
+
+## Which car is on which charger
+
+With two cars and the double garage, `car` and `car_2` can each follow an entity, so the garage shows the right car at each charger. The car integration knows whether each car is plugged in and how much power it takes; the Sigenergy integration knows whether a vehicle is connected to each charger and how much power it delivers. An automation matches the two and writes each charger's car into a text helper, which the card reads.
+
+The example below uses [Tessie](https://www.home-assistant.io/integrations/tessie/), whose entities for a car named "car_a" are `sensor.car_a_charger_power`, `sensor.car_a_charging` and `binary_sensor.car_a_charge_cable`. Other car integrations work the same with their own entities: a charging power in kW, a charge cable sensor (on while plugged in) and a charging state.
+
+1. **Create two text helpers**: Settings → Devices & services → Helpers → Create helper → Text, named "Garage AC car" and "Garage DC car". Check that their entity IDs are `input_text.garage_ac_car` and `input_text.garage_dc_car`.
+2. **Create the automation**: Settings → Automations & scenes → Create automation → ⋮ → Edit in YAML, and paste the YAML below. Then replace:
+   - `car_a` and `car_b` with your cars' names in their entity IDs (e.g. `sensor.glacier_charger_power`);
+   - `model-y-glacier-blue` and `model-3-stealth-grey` with your cars from the [list above](#changing-the-car), car A's and car B's;
+   - the Sigenergy entities, if yours differ from Sigenergy Local Modbus's defaults (sigenergy2mqtt: `sensor.sigen_0_ac_charger_1_charging_power`, `sensor.sigen_0_ac_charger_1_running_state`, `sensor.sigen_0_dc_charger_1_output_power`, `sensor.sigen_0_dc_charger_1_running_state` and `sensor.sigen_0_dc_charger_1_vehicle_soc`).
+
+   Save it, then run it once from its ⋮ menu.
+3. **Point the card at the helpers**:
+
+   ```yaml
+   car: input_text.garage_ac_car
+   car_2: input_text.garage_dc_car
+   ```
+
+How the automation decides, whenever any of its entities changes (and at start-up):
+
+- A car that's charging is on the charger whose power is closest to its own.
+- A car that's plugged in but not charging (charging complete, or waiting for solar), while the other car is not plugged in, is on the only charger that reports a vehicle: the AC charger while its state is Reserving, Preparing, EV Ready or Charging, the DC charger while it reports the vehicle's SOC or a connected state.
+- The other car is then on the other charger.
+- With both cars plugged in and neither charging, nothing changes: the cars stay where they were last seen charging.
+- With no car plugged in, car B goes back to the AC charger, the default.
+
+Whether each bay shows its car at all is still the card's decision, from the chargers (see [Double garage](#double-garage)): the helpers only say which car it is.
+
+```yaml
+alias: Garage cars follow the chargers
+mode: queued
+triggers:
+  - trigger: state
+    entity_id:
+      - sensor.car_a_charger_power
+      - sensor.car_b_charger_power
+      - binary_sensor.car_a_charge_cable
+      - binary_sensor.car_b_charge_cable
+      - sensor.car_a_charging
+      - sensor.car_b_charging
+      - sensor.sigen_ac_charger_charging_power
+      - sensor.sigen_inverter_dc_charger_output_power
+      - sensor.sigen_ac_charger_system_state
+      - sensor.sigen_inverter_dc_charger_running_state
+      - sensor.sigen_inverter_dc_charger_vehicle_soc
+  # Every input above triggers it as it changes; once more at start-up,
+  # for a change missed while Home Assistant was down.
+  - trigger: homeassistant
+    event: start
+variables:
+  ac: >-
+    {{ states('sensor.sigen_ac_charger_charging_power')
+       | float(0) | abs }}
+  dc: >-
+    {{ states('sensor.sigen_inverter_dc_charger_output_power')
+       | float(0) | abs }}
+  car_a: "{{ states('sensor.car_a_charger_power') | float(0) }}"
+  car_b: "{{ states('sensor.car_b_charger_power') | float(0) }}"
+  # A car is plugged in while its charge cable is (on: Connected);
+  # without that sensor, unless its charging state is disconnected.
+  car_a_in: >-
+    {%- set cable = states('binary_sensor.car_a_charge_cable') -%}
+    {%- if cable in ['on', 'off'] -%} {{ cable == 'on' }}
+    {%- else -%}
+      {{ states('sensor.car_a_charging')
+         not in ['disconnected', 'unknown', 'unavailable'] }}
+    {%- endif -%}
+  car_b_in: >-
+    {%- set cable = states('binary_sensor.car_b_charge_cable') -%}
+    {%- if cable in ['on', 'off'] -%} {{ cable == 'on' }}
+    {%- else -%}
+      {{ states('sensor.car_b_charging')
+         not in ['disconnected', 'unknown', 'unavailable'] }}
+    {%- endif -%}
+  # A charger with a vehicle connected. Sigenergy Local Modbus 2.0
+  # stores keys (ev_ready), 1.x labels (EV Ready), sigenergy2mqtt longer
+  # labels (Occupied (Charging Gun plugged in...)): all read as keys.
+  ac_in: >-
+    {{ states('sensor.sigen_ac_charger_system_state')
+       | lower | regex_replace(' \\(.*', '') | replace(' ', '_')
+       in ['reserving', 'preparing', 'ev_ready', 'charging',
+           'charger_and_ev_not_ready', 'charger_ready;_ev_not_ready',
+           'charger_not_ready;_ev_ready'] }}
+  # The DC charger reads the vehicle's SOC while its gun is in, charging
+  # or not.
+  dc_in: >-
+    {{ states('sensor.sigen_inverter_dc_charger_vehicle_soc')
+       | float(0) > 0
+       or states('sensor.sigen_inverter_dc_charger_running_state')
+       | lower | regex_replace(' \\(.*', '') | replace(' ', '_')
+       in ['occupied', 'preparing_comm', 'charging', 'scheduled',
+           'ended', 'discharging', 'preparing_insulation',
+           'preparing'] }}
+  # A charging car goes with the charger whose power is closest to
+  # its own.
+  car_a_on: >-
+    {%- if car_a < 0.5 -%} none
+    {%- elif (car_a - ac) | abs <= (car_a - dc) | abs -%} ac
+    {%- else -%} dc
+    {%- endif -%}
+  car_b_on: >-
+    {%- if car_b < 0.5 -%} none
+    {%- elif (car_b - ac) | abs <= (car_b - dc) | abs -%} ac
+    {%- else -%} dc
+    {%- endif -%}
+  # Nothing charging: a car that's plugged in, alone, goes with the
+  # only charger that has a vehicle connected.
+  parked: >-
+    {%- if car_a_in and not car_b_in -%} model-y-glacier-blue
+    {%- elif car_b_in and not car_a_in -%} model-3-stealth-grey
+    {%- endif -%}
+  parked_on: >-
+    {%- if ac_in and not dc_in -%} ac
+    {%- elif dc_in and not ac_in -%} dc
+    {%- endif -%}
+  ac_car: >-
+    {%- if car_a_on == 'ac' -%} model-y-glacier-blue
+    {%- elif car_b_on == 'ac' -%} model-3-stealth-grey
+    {%- elif car_a_on == 'dc' -%} model-3-stealth-grey
+    {%- elif car_b_on == 'dc' -%} model-y-glacier-blue
+    {%- elif parked and parked_on == 'ac' -%} {{ parked }}
+    {%- elif parked == 'model-y-glacier-blue' and parked_on == 'dc' -%}
+      model-3-stealth-grey
+    {%- elif parked and parked_on == 'dc' -%} model-y-glacier-blue
+    {%- elif not car_a_in and not car_b_in -%} model-3-stealth-grey
+    {%- endif -%}
+  dc_car: >-
+    {%- if ac_car == 'model-y-glacier-blue' -%} model-3-stealth-grey
+    {%- elif ac_car -%} model-y-glacier-blue
+    {%- endif -%}
+actions:
+  # Both plugged in, neither charging: both keep their last car.
+  # Nothing plugged in: back to the default, car B on AC.
+  - condition: template
+    value_template: "{{ ac_car != '' }}"
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.garage_ac_car
+    data:
+      value: "{{ ac_car }}"
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.garage_dc_car
+    data:
+      value: "{{ dc_car }}"
+```
 
 <!-- Badges -->
 
