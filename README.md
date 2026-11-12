@@ -183,6 +183,7 @@ All options are optional.
 | `name` | `My Home` | Second part of the heading (your home's name). An empty value hides that part. |
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
+| `home_includes_ac_charger` | `false` | `home_power` includes the AC charger, e.g. a third-party one: HOME, its chart line and its forecast deduct the charger's power (see [A third-party charger](#a-third-party-charger)). |
 | `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never, or a `binary_sensor` entity: while it is on (see [AC and DC chargers](#ac-and-dc-chargers)). |
 | `car` | none | Name of a different car for the garage, from the card's `cars/` folder, or an entity whose state is that name (see [Changing the car](#changing-the-car)). |
 | `car_image` | none | URL of your own car overlay, instead of `car`. |
@@ -559,6 +560,21 @@ Unless `show_lifetime: false`, the card also shows under each charger's power:
 Each line is hidden when its entities do not exist.
 
 The DC charger's vehicle state of charge is hidden while the charger is idle and reports 0%.
+
+#### A third-party charger
+
+A charger from another brand can take the AC charger's place: point the AC charger's keys at its entities. Sigenergy doesn't know about it, so its home consumption (`sensor.sigen_plant_consumed_power`) includes the charger's power; `home_includes_ac_charger: true` deducts it from HOME, the Power metrics' Home line and the home's forecast. Energy statistics and Energy metrics need nothing: their Load is what is left once the other flows, the charger included, are counted.
+
+```yaml
+home_includes_ac_charger: true
+entities:
+  ac_charger_power: sensor.wallbox_charging_power          # W or kW
+  ac_charger_total_energy: sensor.wallbox_total_energy     # the lifetime reading
+  stat_evac_charge: sensor.wallbox_total_energy            # the EVAC in Energy statistics and Energy metrics
+  car_charging: binary_sensor.wallbox_cable_connected      # the car and its plugged-in cable while a car is connected
+```
+
+`ac_charger_state` only recognises Sigenergy's states, so `car_charging` takes the charger's (or the car's) plugged-in sensor instead. With sigenergy2mqtt and General Load Power disabled (its default), HOME is the balance of the other flows, which already leaves the charger out; the option has no effect then.
 
 By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, a vehicle is connected to the DC charger (it reports the vehicle's SOC, or `dc_charger_state` reads Occupied, Preparing, Charging, Scheduled, Ended or Discharging), the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it. With a `binary_sensor` (e.g. your car's "at home" or "plugged in" sensor), the car shows while it is on; while it is unknown or unavailable, the card falls back to `auto`.
 
