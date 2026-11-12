@@ -2,6 +2,13 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v76
+
+- The charger on the garage wall shows whether the car is plugged in. While the car shows and a vehicle is connected (the same tests that show the car, including `car_charging`), the holster is empty, the cable runs along the floor under the car and a green bar lights the top half of the charger's front. While the charger also has power or reads Charging, the bar runs the whole front and glows, pulsing (steady with reduced motion). Otherwise the cable hangs in a loop as before, including with `car_shown: true` and nothing connected.
+- A third-party charger can take the AC charger's place: point the AC charger's keys at its entities, and set the new `home_includes_ac_charger: true`. Sigenergy counts a charger it doesn't manage as part of the home, so the option deducts its power from HOME, the Power metrics' Home line and the home's forecast. The README has a section with an example; a plug sensor goes in `car_charging`, since `ac_charger_state` only knows Sigenergy's states.
+- `car_shown` and `car_shown_2` also take a `device_tracker`, such as the car's location: the car shows while it is home.
+- The battery's remaining time counts down to the Backup SOC while discharging on grid, where the battery stops, and to the discharge cut-off SOC off grid (from the new `grid_status` entity), and names the SOC it counts to: with 20.8% left and a 20% Backup SOC, it reads "Discharging (0h03m to 20%)" where it read "Discharging (remaining time: 1h16m)" ([#14](https://github.com/jyavenard/sigenergy-flow-card/issues/14)). Charging and idle name theirs too, e.g. "Charging (5h48m to 100%)". **Enable the cut-off and backup SOC entities** for this: Sigenergy Local Modbus disables Charge Cut-Off SOC, Discharge Cut-Off SOC and ESS Backup State of Charge by default, and without them the time counts to 100% and 0% (sigenergy2mqtt enables its own). The new `battery_remaining_target` option keeps the old count (`discharge_cut_off_soc`) or always uses the Backup SOC (`backup_soc`). While idle, the power-cut estimate now counts down to the discharge cut-off SOC, since a power cut can use the reserve.
+
 ## v75
 
 - **Required update for Sigenergy Local Modbus users upgrading to its 2.0**, which stores charger states as keys (`ev_ready`, `charging`) instead of English labels. With earlier versions of the card, a car plugged into an AC charger reporting EV Ready no longer shows in the garage, and the AC charger's status reads `charging` or `not_connected`. The card now reads both: 2.0's keys, with Home Assistant's labels in your language, and 1.x's labels.
