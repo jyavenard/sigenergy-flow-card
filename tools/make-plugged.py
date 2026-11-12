@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Make the plugged-in charger overlays, images/charger_<time>_plugged.png, from images/charger_<time>.png.
+"""Make the plugged-in charger overlays, images/charger_<time>_plugged.png, and the LED's glow while charging,
+images/charger_<time>_led.png, from images/charger_<time>.png.
 
 The connector leaves the holster (the handle is painted out), the LED bar turns green and the cable loop is
 replaced by a cable that drops down the pillar and runs along its foot into the dark under the car's front, where it
 fades out. The car images cover the floor too, so the cable is drawn over them: it ends at x 510-514, where every
 car in cars/ is dark under it (the shade under the bumper), however far back its bumper is.
-The result keeps the source's canvas and pixel scale, so tools/embed-artwork.py places it with the unplugged
+The glow overlay is the LED bar, bright, with its glow into the dark recess around it; the card shows it, pulsing,
+while the car charges. Both keep the source's canvas and pixel scale, so tools/embed-artwork.py places them with the unplugged
 overlay's geometry. The cable's route is given in the card's photo units; each overlay converts it with that
 geometry. Needs Pillow and NumPy:
 
@@ -26,21 +28,25 @@ spec.loader.exec_module(embed)
 # Per overlay, in its own pixels: the area repainted without the handle, the holster's recess (left, right, bottom,
 # corner radius) with the rows above the handle that give its colour, the body's right edge, bottom and bottom corner
 # radius there, the frame's columns either side of the recess that give its colour (the left one only by day: the
-# right one crosses the handle's edge), the LED bar's box, the cable's exit under the body, and the cable's colour and
+# right one crosses the handle's edge), the LED bar's box and the recess's top row, the cable's exit under the body, and the cable's colour and
 # highlight. The loop below the body goes.
 SOURCES = {
     'charger_day.png': dict(zone=(437, 262, 497, 385), recess=(435, 484.5, 340, 10), recess_rows=(245, 262),
-                            body=(493, 367, 22), frame=(432, None), led=(450, 195, 468, 242), exit=(418, 360),
+                            body=(493, 367, 22), frame=(432, None), led=(450, 195, 468, 242), recess_top=184, exit=(418, 360),
                             colour=(38, 38, 41), light=(92, 92, 98)),
     'charger_night.png': dict(zone=(461, 246, 512, 340), recess=(459.5, 500, 294, 8), recess_rows=(226, 234),
-                              body=(508.5, 325, 12), frame=(455, 503), led=(474, 185, 490, 245), exit=(437, 320),
+                              body=(508.5, 325, 12), frame=(455, 503), led=(474, 185, 490, 245), recess_top=169, exit=(437, 320),
                               colour=(30, 22, 16), light=(84, 60, 40)),
 }
 # The cable's route after the exit, in photo units (y from the frame's top, as the overlays' `at`): down the pillar,
 # along its foot and under the car's bumper. It fades out over the last FADE units.
 ROUTE = [(455.8, 340), (456.2, 362), (457.5, 373), (462, 378.6), (472, 380.6), (488, 382), (505, 383.6), (514, 384.5)]
 WIDTH, FADE, SUPER = 3.0, 4.0, 4
-LED_GREEN = np.array([70, 235, 110])
+LED_GREEN, LED_BRIGHT = np.array([40, 220, 80]), np.array([90, 255, 120])
+# The lit bar, LED_WIDTH units wide, runs down the top half of the recess, LED_MARGIN units from its top, so it shows at
+# the card's size; while charging, it runs down the whole recess but LED_MARGIN units at either end, glows LED_GLOW units
+# into the dark recess around it and lights the charger and the wall around it over LED_HALO units.
+LED_WIDTH, LED_MARGIN, LED_GLOW, LED_HALO = 1.1, 2.2, 1.8, 5.0
 
 
 def geometry(name):
@@ -124,12 +130,31 @@ def make(name):
     # The loop goes.
     rgba[body_bottom + 1:, :, 3] = 0
 
-    # The LED bar turns green, by its brightness.
+    # The LED bar: green, at the original one's place, down the recess's top half (its whole height while charging).
     x0, y0, x1, y1 = src['led']
-    box = rgba[y0:y1, x0:x1, :3].astype(float)
-    level = box.mean(2, keepdims=True) / 255
-    lit = np.clip((level - 0.45) / 0.4, 0, 1)
-    rgba[y0:y1, x0:x1, :3] = np.clip(box * (1 - lit) + LED_GREEN * level * 1.1 * lit, 0, 255).astype(np.uint8)
+    level = np.clip((rgba[y0:y1, x0:x1, :3].astype(float).mean(2) - 115) / 100, 0, 1).sum(0)
+    centre = x0 + (level * np.arange(x1 - x0)).sum() / level.sum()
+    half, margin = LED_WIDTH / unit / 2, LED_MARGIN / unit
+    top, bottom = src['recess_top'] + margin, src['recess'][2] - margin
+    def strip(end):
+        mask = Image.new('L', (canvas.width * SUPER, canvas.height * SUPER))
+        ImageDraw.Draw(mask).rounded_rectangle([(centre - half) * SUPER, top * SUPER, (centre + half) * SUPER, end * SUPER], half * SUPER, fill=255)
+        return mask.resize(canvas.size, Image.LANCZOS)
+    idle, bar = strip((top + bottom) / 2), strip(bottom)
+    glow = np.asarray(bar.filter(ImageFilter.GaussianBlur(LED_GLOW / unit)), float)[..., None] / 255
+    halo = np.asarray(bar.filter(ImageFilter.GaussianBlur(LED_HALO / unit)), float)[..., None]
+    bar, idle = (np.asarray(m, float)[..., None] / 255 for m in (bar, idle))
+    rgb = rgba[..., :3].astype(float)
+    dark = (rgb.mean(2, keepdims=True) < 100) & (rgba[..., 3:4] > 0)
+    rgba[..., :3] = (rgb * (1 - idle) + LED_GREEN * idle).clip(0, 255).astype(np.uint8)
+    # The glow while charging: the bright bar, nearly white at its core, its glow into the recess, and a halo of light.
+    halo = halo / halo.max() * 0.6
+    shine = np.maximum.reduce([bar, np.where(dark, np.clip(glow * 1.8, 0, 1) * 0.9, 0), halo])
+    colour = LED_BRIGHT + (255 - LED_BRIGHT) * bar * 0.6
+    led = np.concatenate([colour, shine * 255], 2).clip(0, 255).astype(np.uint8)
+    led_target = ROOT / 'images' / name.replace('.png', '_led.png')
+    Image.fromarray(led).save(led_target)
+    print(led_target.relative_to(ROOT))
 
     # The cable, with a highlight along its upper side and a contact shadow where it lies on the floor.
     path = smooth(path_px)

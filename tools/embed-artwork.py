@@ -12,8 +12,8 @@ Firefox 93 or later; at the same quality it is about a third smaller than WebP.
 The charger overlays are transparent images of the charger on the garage wall; each
 is scaled so its charger has the height CHARGER_REFERENCE gives (in photo units),
 centred on the wall position, cropped to its visible pixels and stored at twice the
-card's resolution. The plugged-in overlays (charger_<time>_plugged.png, from
-tools/make-plugged.py) keep their unplugged overlay's canvas and are placed with its scale.
+card's resolution. The plugged-in overlays and the LED's glow (charger_<time>_plugged.png and
+_led.png, from tools/make-plugged.py) keep their unplugged overlay's canvas and are placed with its scale.
 
 The garage images are the photos with the car removed, already in the first photo's frame
 (1676 pixels wide, row 0 at its top row). Only the garage's inside is kept, where they differ
@@ -34,7 +34,8 @@ from PIL import Image, ImageFilter
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CARD = ROOT / 'sigenergy-flow-card.js'
 FILES = ['house_day.png', 'house_night.png']
-OVERLAYS = ['charger_day.png', 'charger_night.png', 'charger_day_plugged.png', 'charger_night_plugged.png']
+OVERLAYS = ['charger_day.png', 'charger_night.png', 'charger_day_plugged.png', 'charger_night_plugged.png', 'charger_day_led.png',
+            'charger_night_led.png']
 # Each garage image's photo, the x of the pillar's left edge on the garage's right and the boxes past it that
 # are still taken from the garage image (the day car's mirror shows on the pillar).
 GARAGES = {'garage_day.png': ('house_day.png', 617, [(617, 276, 626, 291)]), 'garage_night.png': ('house_night.png', 615, [])}
@@ -79,7 +80,7 @@ def overlay(name):
     image = Image.open(ROOT / 'images' / name).convert('RGBA')
     left, top, right, bottom = image.getchannel('A').getbbox()
     # The unplugged overlay's charger gives the scale and the position of its canvas.
-    reference = name.replace('_plugged', '')
+    reference = re.sub('_(plugged|led)', '', name)
     alpha = Image.open(ROOT / 'images' / reference).getchannel('A')
     body_left, body_top, body_right, body_bottom = alpha.point(lambda v: 255 if v >= 64 else 0).getbbox()
     height, centre_x, body_top_y = CHARGER_REFERENCE[reference]
