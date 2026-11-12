@@ -70,8 +70,10 @@ const DEFAULT_ENTITIES = {
     // The SOCs the battery stops charging and discharging at, for its remaining time (disabled by default).
     battery_charge_cut_off_soc: ['sensor.sigen_plant_charge_cut_off_soc', 'number.sigen_plant_ess_charge_cut_off_state_of_charge'],
     battery_discharge_cut_off_soc: ['sensor.sigen_plant_discharge_cut_off_soc', 'number.sigen_plant_ess_discharge_cut_off_state_of_charge'],
-    // The SOC the battery can run down to in a power cut, for its remaining time while idle (disabled by default).
+    // The SOC the battery keeps for a power cut: on grid it stops discharging there (disabled by default).
     battery_backup_soc: ['number.sigen_plant_ess_backup_state_of_charge'],
+    // On Grid, Off Grid (Auto) or Off Grid (Manual): off grid, the battery runs down to its discharge cut-off SOC.
+    grid_status: ['sensor.sigen_plant_grid_connection_status'],
     grid_import_power: ['sensor.sigen_plant_grid_import_power'],
     grid_export_power: ['sensor.sigen_plant_grid_export_power'],
     phase_mode: ['switch.sigen_plant_independent_phase_power_control'],
@@ -140,6 +142,7 @@ const SIGENERGY2MQTT_ENTITIES = {
     battery_charge_cut_off_soc: ['number.sigen_0_plant_ess_charge_cut_off_soc'],
     battery_discharge_cut_off_soc: ['number.sigen_0_plant_ess_discharge_cut_off_soc'],
     battery_backup_soc: ['number.sigen_0_plant_ess_backup_soc'],
+    grid_status: ['sensor.sigen_0_plant_grid_status'],
     grid_import_power: ['sensor.sigen_0_grid_sensor_import_power'],
     grid_export_power: ['sensor.sigen_0_grid_sensor_export_power'],
     phase_mode: ['switch.sigen_0_plant_independent_phase_power_control'],
@@ -527,6 +530,8 @@ class SigenergyFlowCard extends HTMLElement {
         }
         const tap = config.tap_action;
         if (tap !== undefined && tap !== null && (typeof tap !== 'object' || Array.isArray(tap) || typeof tap.action !== 'string')) throw new Error('tap_action must be a Home Assistant action, e.g. { action: navigate, navigation_path: /energy }');
+        if (config.battery_remaining_target !== undefined && !['auto', 'backup_soc', 'discharge_cut_off_soc'].includes(config.battery_remaining_target))
+            throw new Error(`Unknown battery_remaining_target "${config.battery_remaining_target}". Valid values: auto, backup_soc, discharge_cut_off_soc`);
         if (config.home_includes_ac_charger !== undefined && typeof config.home_includes_ac_charger !== 'boolean') throw new Error('home_includes_ac_charger must be true or false');
         if (config.home_entities !== undefined && config.home_entities !== false && config.home_entities !== null && !Array.isArray(config.home_entities)) throw new Error('home_entities must be a list of entities or false');
         this.config = {
@@ -537,6 +542,7 @@ class SigenergyFlowCard extends HTMLElement {
             show_phase_mode: false,
             show_grid_voltage: false,
             home_includes_ac_charger: false,
+            battery_remaining_target: 'auto',
             garage: 'auto',
             car_shown: 'auto',
             car: null,
@@ -1215,11 +1221,13 @@ class SigenergyFlowCard extends HTMLElement {
     _factor(id) {
         return { W: .001, Wh: .001, MW: 1000, MWh: 1000 }[this._hass?.states[id]?.attributes?.unit_of_measurement] ?? 1;
     }
-    // Time until the battery reaches its charge cut-off SOC while charging, or its discharge cut-off SOC while
-    // discharging, at the current power, as "1h10m". While idle, it is how long the battery would run the home in a power
-    // cut, down to its Backup SOC: the home's consumption plus the base load learnt by _learnOverhead, and nothing until it
-    // has been learnt. Empty when unknown, at the limit or 100 hours or more. Without the cut-off and backup entities, it
-    // counts to 100% and 0%.
+    // The battery's remaining time at the current power, as "1h10m to 20%": while charging, to its charge
+    // cut-off SOC; while discharging, to its Backup SOC on grid (where it stops then) and to its discharge cut-off SOC off
+    // grid (battery_remaining_target: auto), or always to one of them. While idle, it is how long the battery would run
+    // the home in a power cut, down to its discharge cut-off SOC (its Backup SOC with backup_soc): the home's consumption
+    // plus the base load learnt by _learnOverhead, and nothing until it has been learnt. Empty when unknown, at the limit
+    // or 100 hours or more. Without the cut-off
+    // entities, it counts to 100% and 0%; without the backup one, to the discharge cut-off.
     _batteryRemaining(bat, soc, home) {
         const cap = this._scaled(this._ent('battery_capacity'));
         if (bat === null || soc === null || cap === null) return '';
@@ -1227,9 +1235,13 @@ class SigenergyFlowCard extends HTMLElement {
         if (idle && overhead.samples < 10) return '';
         const charging = bat > .025, power = idle ? (home === null ? 0 : home + overhead.kw) : Math.abs(bat);
         if (power <= .025) return '';
-        const cutOff = this._num(this._ent(charging ? 'battery_charge_cut_off_soc' : idle ? 'battery_backup_soc' : 'battery_discharge_cut_off_soc')) ?? (charging ? 100 : 0);
-        const minutes = Math.round((charging ? cutOff - soc : soc - cutOff) / 100 * cap / power * 60);
-        return minutes > 0 && minutes < 6000 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m` : '';
+        const level = key => this._num(this._ent(key)), mode = this.config.battery_remaining_target;
+        const offGrid = /^off[ _]?grid/i.test(this._hass.states[this._ent('grid_status')]?.state ?? '');
+        const cutOff = level('battery_discharge_cut_off_soc') ?? 0, backup = level('battery_backup_soc');
+        const reserve = backup !== null && backup > cutOff && (mode === 'backup_soc' || (mode === 'auto' && !idle && !offGrid));
+        const target = charging ? level('battery_charge_cut_off_soc') ?? 100 : reserve ? backup : cutOff;
+        const minutes = Math.round((charging ? target - soc : soc - target) / 100 * cap / power * 60);
+        return minutes > 0 && minutes < 6000 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m to\u00A0${+target.toFixed(1)}%` : '';
     }
     // While the battery alone supplies the home (discharging, with no solar, grid or charger flow), what it supplies
     // beyond the home's consumption is the base load of the inverters and the system. A running average of it, in kW, is
@@ -2050,7 +2062,7 @@ class SigenergyFlowCard extends HTMLElement {
             const battStatus = bat === null ? '' : bat > 0.025 ? 'Charging' : bat < -.025 ? 'Discharging' : 'Idle', remaining = this._batteryRemaining(bat, soc, home);
             this._learnOverhead(pv, imp, exp, bat, ac, dc, home);
             // The bracket stays on one line: a narrow column wraps before it.
-            this._text('battStatus', remaining ? `${battStatus} (remaining\u00A0time:\u00A0${remaining})` : battStatus);
+            this._text('battStatus', remaining ? `${battStatus} (${remaining})` : battStatus);
         }
         this._text('grid', this._power(grid));
         this._text('gridStatus', grid === null ? '' : grid > 0.025 ? 'Importing' : grid < -.025 ? 'Exporting' : 'Idle');
