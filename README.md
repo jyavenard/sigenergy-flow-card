@@ -184,7 +184,7 @@ All options are optional.
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
 | `home_includes_ac_charger` | `false` | `home_power` includes the AC charger, e.g. a third-party one: HOME, its chart line and its forecast deduct the charger's power (see [A third-party charger](#a-third-party-charger)). |
-| `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never, or a `binary_sensor` entity: while it is on (see [AC and DC chargers](#ac-and-dc-chargers)). |
+| `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never, or a `binary_sensor` entity: while it is on, or a `device_tracker`: while it is home (see [AC and DC chargers](#ac-and-dc-chargers)). |
 | `car` | none | Name of a different car for the garage, from the card's `cars/` folder, or an entity whose state is that name (see [Changing the car](#changing-the-car)). |
 | `car_image` | none | URL of your own car overlay, instead of `car`. |
 | `car_image_night` | `car_image` | The same car at night. |
@@ -576,7 +576,7 @@ entities:
 
 `ac_charger_state` only recognises Sigenergy's states, so `car_charging` takes the charger's (or the car's) plugged-in sensor instead. With sigenergy2mqtt and General Load Power disabled (its default), HOME is the balance of the other flows, which already leaves the charger out; the option has no effect then.
 
-By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, a vehicle is connected to the DC charger (it reports the vehicle's SOC, or `dc_charger_state` reads Occupied, Preparing, Charging, Scheduled, Ended or Discharging), the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it. With a `binary_sensor` (e.g. your car's "at home" or "plugged in" sensor), the car shows while it is on; while it is unknown or unavailable, the card falls back to `auto`.
+By default (`car_shown: auto`), the car in the garage only shows while a vehicle is connected to the AC charger (`ac_charger_state` reads Reserving, Preparing, EV Ready or Charging), the AC charger draws power, a vehicle is connected to the DC charger (it reports the vehicle's SOC, or `dc_charger_state` reads Occupied, Preparing, Charging, Scheduled, Ended or Discharging), the DC charger charges or discharges (V2H), or the `car_charging` entity is on, `charging` or above 0. Set `car_shown: true` to show it all the time, or `false` to never show it. With a `binary_sensor` (e.g. your car's "at home" or "plugged in" sensor), the car shows while it is on; with a `device_tracker` (your car's location), while it is `home`. While either is unknown or unavailable, the card falls back to `auto`.
 
 While the car shows and a vehicle is connected to its charger (or charging, by the same rules), the charger's cable runs to the car and its light is green; otherwise the cable hangs in a loop beside it. With `car_shown: true` and no vehicle connected, the car shows with the cable hanging.
 

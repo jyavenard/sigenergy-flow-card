@@ -507,8 +507,8 @@ class SigenergyFlowCard extends HTMLElement {
         if (config.garage !== undefined && !['auto', 'single', 'double'].includes(config.garage)) throw new Error(`Unknown garage "${config.garage}". Valid values: auto, single, double`);
         for (const keys of CARS) {
             const shown = config[keys.shown], car = config[keys.car];
-            if (shown !== undefined && !['auto', true, false].includes(shown) && !/^binary_sensor\.[a-z0-9_]+$/.test(shown))
-                throw new Error(`Unknown ${keys.shown} "${shown}". Valid values: auto, true, false or a binary_sensor entity`);
+            if (shown !== undefined && !['auto', true, false].includes(shown) && !/^(binary_sensor|device_tracker)\.[a-z0-9_]+$/.test(shown))
+                throw new Error(`Unknown ${keys.shown} "${shown}". Valid values: auto, true, false, a binary_sensor or a device_tracker entity`);
             for (const key of [keys.image, keys.night])
                 if (config[key] !== undefined && config[key] !== null && typeof config[key] !== 'string') throw new Error(`${key} must be an image URL`);
             if (car !== undefined && car !== null && !/^([a-z0-9-]+|[a-z_]+\.[a-z0-9_]+)$/.test(car))
@@ -2002,12 +2002,14 @@ class SigenergyFlowCard extends HTMLElement {
         // With car_shown: auto, the garage patch hides the car unless a vehicle is connected to the AC charger, a charger
         // has power (either way for DC: the car may supply the house) or car_charging says so. With the double garage, the
         // first car is the AC charger's and the second the DC charger's (or car_charging_2's). car_shown(_2) true or false
-        // overrides it, and so does a binary_sensor while it is on or off.
+        // overrides it, and so does a binary_sensor while it is on or off, or a device_tracker while it is home or elsewhere.
         const reads = key => this._hass.states[e(key)]?.state?.toLowerCase()
           , charging = key => ['on', 'charging', 'true'].includes(reads(key)) || Number(reads(key)) > 0
           , forced = key => {
               const shown = this.config[key], sensor = typeof shown === 'string' && shown !== 'auto' ? this._hass.states[shown]?.state : undefined;
-              return typeof shown === 'boolean' ? shown : sensor === 'on' || sensor === 'off' ? sensor === 'on' : undefined;
+              if (typeof shown === 'boolean') return shown;
+              if (shown?.startsWith?.('device_tracker.')) return sensor === undefined || sensor === 'unknown' || sensor === 'unavailable' ? undefined : sensor === 'home';
+              return sensor === 'on' || sensor === 'off' ? sensor === 'on' : undefined;
           }
           , acCar = AC_CONNECTED.has(reads('ac_charger_state')) || ac > 0.025
           // The DC charger reads the vehicle's SOC for as long as its gun is in, charging or not (0 without a vehicle).
