@@ -2948,12 +2948,13 @@ class SigenergyFlowCard extends HTMLElement {
         };
         const values = series.filter(s => !s.tipOnly).flatMap(s => s.points.map(p => Math.abs(p.v)));
         // A signed chart's limit is rounded up to a half, whole, 5, 10, 50… kW, as in Sigenergy's app, so the labels are exact.
-        const peak = Math.max(1, ...values), step = 10 ** Math.floor(Math.log10(peak)) / 2;
-        let max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.max(1, Math.ceil(Math.max(0, ...values))));
+        const peak = values.reduce((maximum, value) => Math.max(maximum, value), 1), step = 10 ** Math.floor(Math.log10(peak)) / 2;
+        let max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.ceil(peak));
         let low = 0, places = null;
         if (window?.fit && values.length) {
             // Three labels a 1, 2, 2.5 or 5 × 10ⁿ step apart, spanning the data.
-            const all = series.filter(s => !s.tipOnly).flatMap(s => s.points.map(p => p.v)), least = Math.min(...all), most = Math.max(...all);
+            const all = series.filter(s => !s.tipOnly).flatMap(s => s.points.map(p => p.v));
+            const least = all.reduce((minimum, value) => Math.min(minimum, value), Infinity), most = all.reduce((maximum, value) => Math.max(maximum, value), -Infinity);
             const nice = v => { const e = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(m => m * e).find(m => m >= v * (1 - 1e-9)); };
             let gap = nice(Math.max(most - least, Math.abs(most) * .02, 1e-3) * .6);
             while (Math.floor(least / gap) * gap + 2 * gap < most) gap = nice(gap * 1.01);
