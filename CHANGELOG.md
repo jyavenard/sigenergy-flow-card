@@ -2,6 +2,11 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v77
+
+- The scene follows the weather: with the `weather` entity reporting cloud, fog, rain, storms, hail, snow or wind, the house is shown in that weather, by day and at night, the built-in car and the double garage included ([#15](https://github.com/jyavenard/sigenergy-flow-card/issues/15)). The photos are loaded from GitHub like the cars, when the weather changes; until one has loaded, or if it can't, the card keeps the photo it shows. Sunny and clear nights keep the usual photos, and the new `weather_scene: false` keeps them always.
+- The grid details name what each column measures: Inverter voltage, Inverter current and Inverter power come from the first inverter's AC terminals, and Grid power from the grid sensor. The inverter's apparent power next to the meter's active power read as the grid's, and could look larger than it.
+
 ## v76
 
 - The charger on the garage wall shows whether the car is plugged in. While the car shows and a vehicle is connected (the same tests that show the car, including `car_charging`), the holster is empty, the cable runs along the floor under the car and a green bar lights the top half of the charger's front. While the charger also has power or reads Charging, the bar runs the whole front and glows, pulsing (steady with reduced motion). Otherwise the cable hangs in a loop as before, including with `car_shown: true` and nothing connected.
