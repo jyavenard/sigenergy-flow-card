@@ -66,6 +66,13 @@ def warp(image, matrix):
     return image.transform(image.size, Image.PERSPECTIVE, tuple(inverse.flatten()[:8]), Image.BICUBIC)
 
 
+def sky_moved(moved, sky_from, sky_to):
+    """[moved] (pixels copied from elsewhere) with the sky it brought along changed to the sky where it goes: pixels close to
+    [sky_from] (the sky beside the copy's source) are shifted by [sky_to] - [sky_from]."""
+    w = np.clip(1 - (np.abs(moved - sky_from).max(-1) - 4) / 16, 0, 1)[..., None]
+    return moved + (sky_to - sky_from) * w
+
+
 def bilinear(image, x, y):
     x, y = np.clip(x, 0, image.shape[1] - 2), np.clip(y, 0, image.shape[0] - 2)
     x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
@@ -169,12 +176,14 @@ def roof(image, src, day, time, matrix):
         out[strip] = moved[strip]
     # The ridge cap, continued along its row.
     ridge = (xs >= EDGE - SHIFT - 2) & (xs < EDGE + 6) & (ys >= RIDGE - 3) & (ys < CAP)
-    out[ridge] = bilinear(src, 556 + np.mod(xs - 556, 88), ys)[ridge]
+    cap_x = 556 + np.mod(xs - 556, 88)
+    above = np.full_like(ys, RIDGE - 6)
+    out[ridge] = sky_moved(bilinear(src, cap_x, ys), bilinear(src, cap_x, above), bilinear(src, xs, above))[ridge]
     # The roof's left edge (its board), moved along the rows.
     edge = (u >= EDGE - 5) & (u < EDGE + 1) & (ys >= RIDGE - 3) & (ys < 158)
     moved = np.zeros_like(edge)
     moved[:, :-SHIFT] = edge[:, SHIFT:]
-    out[moved] = bilinear(src, xs + SHIFT, ys)[moved]
+    out[moved] = sky_moved(bilinear(src, xs + SHIFT, ys), bilinear(src, xs + SHIFT - 6, ys), bilinear(src, xs - 6, ys))[moved]
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
