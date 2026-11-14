@@ -255,7 +255,7 @@ async function statClip(page, pad) {
     return { x: 0, y: r.top - pad, width, height: r.height + 2 * pad };
 }
 
-// A browser context whose GitHub requests (the cars and the double garage's overlays) are served from the repository.
+// A browser context whose GitHub requests (the cars, the double garage's overlays and the weather photos) are served from the repository.
 async function newContext(browser, options) {
     const context = await browser.newContext(options);
     await context.route('https://raw.githubusercontent.com/**', route => {
@@ -360,6 +360,22 @@ async function newContext(browser, options) {
         await page.waitForTimeout(1500);
         const height = Math.ceil(await page.evaluate(() => document.querySelector('sigenergy-flow-scene').getBoundingClientRect().bottom + 11));
         await page.screenshot({ path: `${out}/desktop-double-garage.png`, clip: { x: 0, y: 0, width: 1000, height } });
+        await context.close();
+    }
+    // The weather's scene, snowing.
+    {
+        const context = await newContext(browser, { viewport: { width: 1000, height: 625 }, deviceScaleFactor: 1.6, locale: 'en-AU', timezoneId: 'Australia/Sydney' });
+        await context.clock.setFixedTime(NOW);
+        const page = await context.newPage();
+        page.on('pageerror', e => console.log('PAGEERROR', 'weather', e.message));
+        const id = 'weather.forecast_home', clear = data.states[id];
+        data.states[id] = { state: 'snowy', attributes: { ...clear.attributes, temperature: -1.5 } };
+        await mount(page, null, 'sigenergy-flow-scene');
+        data.states[id] = clear;
+        await page.evaluate(pad => document.body.style.setProperty('--pad', `${pad}px`), 11);
+        await page.waitForTimeout(1500);
+        const height = Math.ceil(await page.evaluate(() => document.querySelector('sigenergy-flow-scene').getBoundingClientRect().bottom + 11));
+        await page.screenshot({ path: `${out}/desktop-weather-snowy.png`, clip: { x: 0, y: 0, width: 1000, height } });
         await context.close();
     }
     await browser.close();

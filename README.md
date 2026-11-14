@@ -11,6 +11,7 @@
 A standalone Home Assistant Lovelace card that recreates the SigenCloud / mySigen power-flow dashboard for a Sigenergy installation (solar, SigenStor battery, Sigen Gateway, grid, and optional AC/DC EV chargers).
 
 - Live power flow over a photo of the house, with day and night versions, following Home Assistant's light or dark mode.
+- The scene changes with the weather forecast: cloud, rain, snow and more (see [Weather](#weather)).
 - Readings for solar, home, SigenStor (with charge level and remaining time), grid and the AC and DC chargers, plus the current weather.
 - One date and range picker at the top (Day, Week, Month, Year, Lifetime) for the energy totals, the power or energy chart and the energy flow diagram.
 - Tap a reading for its details: PV strings, grid phases, home power usage, battery history, the solar forecast.
@@ -99,6 +100,7 @@ Between sunset and sunrise (or with `style: night`) the card switches to the nig
 
 - Animated power flow between the solar panels, SigenStor, gateway, home and grid, drawn over a photo of the house. Each highlight moves in the direction power is flowing, faster at higher power, and stops when idle.
 - Day and night photos: the daytime photo between sunrise and sunset, the night photo otherwise; force either with the `style` option. The colours follow Home Assistant's light or dark mode; force either with `theme`.
+- The photo follows the weather: cloud, fog, rain, storms, hail, snow or wind, from Home Assistant's forecast entity (see [Weather](#weather)).
 - The current weather at the top left, as in Sigenergy's app: an icon for the condition (with a moon instead of the sun after sunset) and the temperature, from Home Assistant's forecast entity. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with battery state of charge), grid, and the AC and DC chargers when present.
 - The battery's remaining time under SigenStor at the current power, with the SOC it counts to (e.g. "Discharging (3h20m to 20%)"): while charging, to its charge cut-off SOC; while discharging, to its Backup SOC on grid, where the battery stops discharging, and to its discharge cut-off SOC off grid (see `battery_remaining_target`). While idle, it is how long the battery would run the home in a power cut, down to its discharge cut-off SOC: the home's consumption plus the inverters' and system's own base load, which the card learns (and keeps in the browser) while the battery alone supplies the home, typically at night. Idle shows no time until it has been learnt. Without the cut-off and backup SOC entities, it counts to 100% and 0%. Sigenergy Local Modbus disables them by default: enable **Charge Cut-Off SOC**, **Discharge Cut-Off SOC** and **ESS Backup State of Charge** (sigenergy2mqtt enables its own).
@@ -189,6 +191,7 @@ All options are optional.
 | `car` | none | Name of a different car for the garage, from the card's `cars/` folder, or an entity whose state is that name (see [Changing the car](#changing-the-car)). |
 | `car_image` | none | URL of your own car overlay, instead of `car`. |
 | `car_image_night` | `car_image` | The same car at night. |
+| `weather_scene` | `true` | Show the photo of the current weather instead of the clear day or night (see [Weather](#weather)). |
 | `garage` | `auto` | `double` adds a second bay on the left for a second car, when the card is wide enough to show it (see [Double garage](#double-garage)); `auto` does while both the AC and DC chargers are there; `single` never does. |
 | `car_shown_2`, `car_2`, `car_image_2`, `car_image_night_2` | as the first car's | The second car, the DC charger's in the double garage, with the same options as `car_shown`, `car`, `car_image` and `car_image_night`. Without `car_2` or `car_image_2`, it is the same car as the first. |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
@@ -642,12 +645,33 @@ The double garage only shows when the card is wide enough to show the new bay. O
 
 The new bay and roof are an overlay that `tools/make-garage.py` makes from the card's own photos, loaded from GitHub like the cars. If it can't load, the card shows the single garage.
 
+## Weather
+
+The scene shows the `weather` entity's condition (cloud, fog, rain, storms, hail, snow or wind), by day and at night. `weather_scene: false` keeps the clear photos.
+
+It uses Home Assistant's forecast entity, `weather.forecast_home` (made by the Met.no integration that Home Assistant sets up for your home), else `weather.home`. To use another weather integration's entity:
+
+```yaml
+entities:
+  weather: weather.my_station
+```
+
+![Snowy weather](docs/screenshots/desktop-weather-snowy.png)
+
+The photos are loaded from GitHub like the cars.
+
 ## Changing the artwork
 
 The scene photos `images/house_day.png` and `images/house_night.png` show the house without a car charger. `images/garage_day.png` and `images/garage_night.png` are the same photos with the car removed, in the first photo's frame (1676 pixels wide); the tool keeps only the garage's inside from them, cut at the pillar the photos keep, and the card draws that patch over the car to hide it. The charger on the garage wall is a separate transparent image of the same size, `images/charger_day.png` and `images/charger_night.png`; the card draws it only when an AC or DC charger is present. `images/charger_day_plugged.png` and `images/charger_night_plugged.png` show it plugged into the car, and `images/charger_day_led.png` and `images/charger_night_led.png` its light's glow while charging; `tools/make-plugged.py` makes them from the other two (it paints out the connector, turns the light green and draws the cable into the dark under the car's front). `tools/embed-artwork.py` places each photo in the card's coordinates (a scale and offset measured against the first photo, kept in the tool), adds a short band above and below for the readings, scales each charger to the wall position, and embeds the result in the card. After changing any of them, regenerate the embedded copy (requires [Pillow](https://python-pillow.org) 11.3 or later, for AVIF, and [NumPy](https://numpy.org)); if a new photo is framed differently, update its entry in `REGISTRATION` first:
 
 ```sh
 python3 tools/embed-artwork.py
+```
+
+The weather photos are made from the renders in `images/weather/` (`<condition>.jpg`, `<condition>-empty.jpg` without the car, and `<condition>-night.jpg`):
+
+```sh
+python3 tools/make-weather.py [condition ...]
 ```
 
 ## Utilities

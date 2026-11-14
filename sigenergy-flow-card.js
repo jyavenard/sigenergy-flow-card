@@ -35,6 +35,13 @@ const GARAGE_URL = 'https://raw.githubusercontent.com/jyavenard/sigenergy-flow-c
 // Where the double garage's overlay goes, in ARTWORK's coordinates, and the transform (an SVG matrix, in the same
 // coordinates) that moves a car from the existing bay into the new one.
 const DOUBLE_GARAGE = { at: [245, 68], size: [319, 402], car: [0.80792, -0.01126, 0, 0.89884, -67.32, 19.243] };
+// The weather conditions with photos of their own (tools/make-weather.py), from GitHub: by day <condition>, at night
+// <condition>-night, each as <scene>.avif, the empty garage's patch <scene>-garage.avif (at WEATHER_GARAGE, in
+// ARTWORK's coordinates), the double garage's overlay <scene>-double.avif and the photo's car, for its new bay,
+// <scene>-car.avif.
+const WEATHER_URL = 'https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/weather/';
+const WEATHER_SCENES = new Set(['partlycloudy', 'cloudy', 'fog', 'rainy', 'pouring', 'lightning', 'lightning-rainy', 'hail', 'snowy', 'snowy-rainy', 'windy', 'windy-variant']);
+const WEATHER_GARAGE = { at: [425, 239], size: [201, 190] };
 // The two cars and their options: the AC charger's (the garage's, in the double garage's new bay) and the DC charger's
 // (in the double garage's existing bay).
 const CARS = [
@@ -533,6 +540,7 @@ class SigenergyFlowCard extends HTMLElement {
         if (config.battery_remaining_target !== undefined && !['auto', 'backup_soc', 'discharge_cut_off_soc'].includes(config.battery_remaining_target))
             throw new Error(`Unknown battery_remaining_target "${config.battery_remaining_target}". Valid values: auto, backup_soc, discharge_cut_off_soc`);
         if (config.home_includes_ac_charger !== undefined && typeof config.home_includes_ac_charger !== 'boolean') throw new Error('home_includes_ac_charger must be true or false');
+        if (config.weather_scene !== undefined && typeof config.weather_scene !== 'boolean') throw new Error('weather_scene must be true or false');
         if (config.home_entities !== undefined && config.home_entities !== false && config.home_entities !== null && !Array.isArray(config.home_entities)) throw new Error('home_entities must be a list of entities or false');
         this.config = {
             pv_strings: ['PV1', 'PV2', 'PV3', 'PV4'],
@@ -544,6 +552,7 @@ class SigenergyFlowCard extends HTMLElement {
             home_includes_ac_charger: false,
             battery_remaining_target: 'auto',
             garage: 'auto',
+            weather_scene: true,
             car_shown: 'auto',
             car: null,
             car_image: null,
@@ -1067,12 +1076,13 @@ class SigenergyFlowCard extends HTMLElement {
     }
     // The cars in the garage: [_carWanted] (from _update) says which are there. With the double garage and room for it
     // (_fitScene), each has its bay; otherwise the single bay shows the first car there. A car with an image of its own
-    // is drawn over the empty garage; without one, the existing bay shows the photo's car, the new bay a copy of it.
+    // is drawn over the empty garage; without one, the existing bay shows the photo's car, the new bay a copy of it. A
+    // weather photo ([_scene]) has its own double garage and copy of its car.
     _showCars() {
         const wanted = this._carWanted;
         if (!wanted || !this._id('carArt')) return;
         const day = this._isDay(), time = day ? 'day' : 'night', ok = href => href && !this._failed.has(href);
-        const garage = this._doubleGarage ? `${GARAGE_URL}double-${time}.avif` : null;
+        const scene = this._scene, garage = !this._doubleGarage ? null : scene ? `${WEATHER_URL}${scene}-double.avif` : `${GARAGE_URL}double-${time}.avif`;
         // Only fetched once it fits, so a phone, which always shows the single garage, never loads it.
         const double = this._doubleFits && ok(garage) && this._loaded.has(garage);
         // The double garage has the DC charger's car in the existing bay and the AC charger's in the new one.
@@ -1088,7 +1098,7 @@ class SigenergyFlowCard extends HTMLElement {
         draw('carArt', own, right !== null && ok(own));
         this._id('garageArt').setAttribute('display', right !== null && !ok(own) ? 'none' : 'inline');
         let second = left === null ? null : this._carHref(left, day);
-        if (left !== null && !ok(second)) second = `${GARAGE_URL}car-${time}.avif`;
+        if (left !== null && !ok(second)) second = [scene && `${WEATHER_URL}${scene}-car.avif`, `${GARAGE_URL}car-${time}.avif`].find(ok);
         draw('carArt2', second, left !== null && ok(second));
         // The wallbox on the garage wall: with the double garage, the existing bay's is the DC charger's and the new bay's
         // the AC charger's. Its cable runs to the bay's car while that car is plugged in.
@@ -1151,15 +1161,41 @@ class SigenergyFlowCard extends HTMLElement {
         const day = this._isDay();
         this.toggleAttribute('day', day);
         this.toggleAttribute('light', this._isLight());
-        const file = day ? 'house_day.png' : 'house_night.png';
         if (!this._shown.has('scene')) return;
+        const weather = this._weatherScene(day);
+        if (!weather || this._loadWeather(weather)) this._scene = weather;
+        const file = this._scene ?? (day ? 'house_day.png' : 'house_night.png');
         this._showCars();
         if (this._sceneFile === file) return;
         this._sceneFile = file;
-        const garage = ARTWORK[day ? 'garage_day.png' : 'garage_night.png'];
+        const garage = this._scene ? { ...WEATHER_GARAGE, href: `${WEATHER_URL}${this._scene}-garage.avif` } : ARTWORK[day ? 'garage_day.png' : 'garage_night.png'];
         for (const [name, value] of Object.entries({ href: garage.href, x: garage.at[0], y: PHOTO.top + garage.at[1], width: garage.size[0], height: garage.size[1] }))
             this._id('garageArt').setAttribute(name, value);
-        for (const photo of this.root.querySelectorAll('.photo')) photo.setAttribute('href', ARTWORK[file].href);
+        const href = this._scene ? `${WEATHER_URL}${this._scene}.avif` : ARTWORK[file].href;
+        for (const photo of this.root.querySelectorAll('.photo')) photo.setAttribute('href', href);
+    }
+    // The weather photo the scene shows (weather_scene), or null for the card's own.
+    _weatherScene(day) {
+        if (!this.config.weather_scene) return null;
+        const condition = this._hass?.states[this._ent('weather')]?.state;
+        return !WEATHER_SCENES.has(condition) ? null : day ? condition : `${condition}-night`;
+    }
+    // Whether [scene]'s photo and garage patch have loaded. Until they have, the scene keeps the photo it shows, so
+    // the two change together; a scene whose images fail to load keeps it too.
+    _loadWeather(scene) {
+        this._weatherLoads ??= new Map();
+        const state = this._weatherLoads.get(scene);
+        if (state) return state === 'loaded';
+        this._weatherLoads.set(scene, 'loading');
+        const image = src => new Promise((resolve, reject) => Object.assign(new Image(), { onload: resolve, onerror: () => reject(src), src }));
+        Promise.all([`${scene}.avif`, `${scene}-garage.avif`].map(file => image(WEATHER_URL + file))).then(() => 'loaded', src => {
+            console.warn(`sigenergy-flow-card: image not found: ${src}`);
+            return 'failed';
+        }).then(result => {
+            this._weatherLoads.set(scene, result);
+            if (result === 'loaded' && this._hass) this._updateScene();
+        });
+        return false;
     }
     // The weather entity's condition as an icon, and its current temperature.
     _updateWeather() {
