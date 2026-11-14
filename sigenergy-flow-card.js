@@ -55,7 +55,7 @@ const gridPhaseEntities = (inverter, plant) => Object.fromEntries(GRID_PHASES.fl
 // positive while importing.
 const GRID_KINDS = ['voltage', 'current', 'power', 'active_power'];
 const GRID_UNITS = { voltage: 'V', current: 'A', power: 'kVA', active_power: 'kW', power_factor: '' };
-const GRID_NAMES = { voltage: 'voltage', current: 'current', power: 'power', active_power: 'grid power' };
+const GRID_HEADS = { voltage: ['Inverter', 'voltage'], current: ['Inverter', 'current'], power: ['Inverter', 'power'], active_power: ['Grid', 'power'] };
 
 // Default entities for each `entities:` key in the card config, in priority order.
 // Plant sensors are the primary source (they combine every inverter and battery);
@@ -678,10 +678,10 @@ class SigenergyFlowCard extends HTMLElement {
             gridDialog: `
     <dialog id="gridDialog" aria-labelledby="gridTitle"><div class="dlg">
       ${head('grid', 'Grid')}
-      <section class="panel"><h3>Grid real time info</h3><div class="pv-wrap"><table class="pv-table">
-        <thead><tr><th></th>${GRID_KINDS.map(kind => `<th data-column="${kind}">${{ voltage: 'Voltage', current: 'Current', power: 'Power', active_power: 'Grid' }[kind]}<br>(${GRID_UNITS[kind]})</th>`).join('')}</tr></thead>
+      <section class="panel"><h3>Real time info</h3><div class="pv-wrap"><table class="pv-table">
+        <thead><tr><th></th>${GRID_KINDS.map(kind => `<th data-column="${kind}">${GRID_HEADS[kind][0]}<br>${GRID_HEADS[kind][1]} (${GRID_UNITS[kind]})</th>`).join('')}</tr></thead>
         <tbody>${GRID_PHASES.map(phase => `<tr id="gridRow_${phase}"><th scope="row">Phase ${phase.toUpperCase()}</th>${GRID_KINDS.map(kind => `<td class="pick" data-column="${kind}"><button id="grid_${phase}_${kind}" data-phase="${phase}" data-kind="${kind}">—</button></td>`).join('')}</tr>`).join('')}</tbody>
-      </table></div><div class="muted" id="gridNote">Grid: the grid sensor's active power, positive while importing.</div><button class="gridpf" id="gridPf" data-kind="power_factor">Power factor <span id="gridPfValue">—</span></button></section>
+      </table></div><div class="muted" id="gridNote"><span id="gridNoteInverter">Inverter: the first inverter's readings at its AC terminals.</span> <span id="gridNoteGrid">Grid: the grid sensor's active power, positive while importing.</span></div><button class="gridpf" id="gridPf" data-kind="power_factor">Inverter power factor <span id="gridPfValue">—</span></button></section>
       <section class="panel"><div class="charthead"><h3 id="gridChartTitle"></h3><span class="muted" id="gridChartStatus"></span></div>
       <div class="chart-wrap"><svg id="gridChart"></svg><div class="tip" id="gridChartTip" hidden></div></div></section>
     </div></dialog>`,
@@ -1516,11 +1516,13 @@ class SigenergyFlowCard extends HTMLElement {
         if (!this._hass || !this._id('gridDialog')?.open) return;
         const phases = Math.max(1, this._gridPhases()), pick = this._gridPick;
         // A column shows when any phase has its entities.
-        for (const kind of GRID_KINDS) {
-            const shown = GRID_PHASES.slice(0, phases).some(phase => this._gridAvailable(phase, kind));
-            for (const el of this._id('gridDialog').querySelectorAll(`[data-column="${kind}"]`)) el.hidden = !shown;
-            if (kind === 'active_power') this._id('gridNote').hidden = !shown;
-        }
+        const shown = Object.fromEntries(GRID_KINDS.map(kind => [kind, GRID_PHASES.slice(0, phases).some(phase => this._gridAvailable(phase, kind))]));
+        for (const kind of GRID_KINDS)
+            for (const el of this._id('gridDialog').querySelectorAll(`[data-column="${kind}"]`)) el.hidden = !shown[kind];
+        const inverter = shown.voltage || shown.current || shown.power || this._has(this._ent('grid_power_factor'));
+        this._id('gridNoteInverter').hidden = !inverter;
+        this._id('gridNoteGrid').hidden = !shown.active_power;
+        this._id('gridNote').hidden = !inverter && !shown.active_power;
         GRID_PHASES.forEach((phase, i) => {
             this._id(`gridRow_${phase}`).hidden = i >= phases;
             for (const kind of GRID_KINDS) {
@@ -1548,7 +1550,7 @@ class SigenergyFlowCard extends HTMLElement {
             }
         }
         const { phase, kind } = this._gridPick, ids = this._gridIds(phase, kind), unit = GRID_UNITS[kind];
-        const name = kind === 'power_factor' ? 'Power factor' : `Phase ${phase.toUpperCase()} ${GRID_NAMES[kind]}`;
+        const name = kind === 'power_factor' ? 'Inverter power factor' : `Phase ${phase.toUpperCase()} ${GRID_HEADS[kind].join(' ').toLowerCase()}`;
         this._text('gridChartTitle', `${name}${unit ? ` (${unit})` : ''}`);
         if (!ids.every(id => this._has(id))) {
             this._id('gridChart').replaceChildren();
