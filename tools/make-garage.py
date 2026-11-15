@@ -44,7 +44,10 @@ K, RIDGE, CAP = 1.05, 33, 41
 EDGE, SHIFT = 550, 161                  # the roof's left edge (in u) and how far it moves: over the new bay's left wall
 BAND_U, BAND_V = (561, 88), (42, 12)    # plain tiles under the ridge: 8 columns (11 each) by one row (12)
 PANEL_U, PITCH, ADDED = 566, 43, 4      # the panels' left column, the columns' pitch (in u), and the columns added
-PANEL_TOP, PANEL_TAPER = 61, 0.0314     # the panels' level top edge; how much shorter each column further left is
+REPEAT = 2                              # how many of the existing columns, from the left, the added ones repeat
+PANEL_TOP = 61                          # the panels' level top edge
+# The panels' bottom edge: the first row below them.
+panel_bottom = lambda x: 158.4 + 0.047 * (x - 446)
 # Where the patch differs from the photo by more than this, it is kept.
 DIFF = 6
 
@@ -167,12 +170,14 @@ def roof(image, src, day, time, matrix):
         tiles = (tiles - d.mean(0)) / d.std(0) * n.std(0) + n.mean(0)
     w = field * np.clip((EDGE + 12 - u) / 6, 0, 1)
     out = out * (1 - w[..., None]) + tiles * w[..., None]
-    # Panels: the existing left column (with the tiles above it) repeated further left. Their top edge is level, but
-    # their rows' frame drops to the right: each column further left is a little shorter, from its top.
+    # Panels: the existing left columns (with the tiles above them) repeated further left, REPEAT at a time. Their top
+    # edge is level, but their bottom edge drops to the right: each copy is scaled from its top to the bottom edge's line.
     for k in range(1, ADDED + 1):
         strip = (u >= PANEL_U - k * PITCH) & (u < PANEL_U - (k - 1) * PITCH) & (ys >= CAP) & (ys < eave)
-        f = 1 - PANEL_TAPER * k
-        moved = bilinear(src, xs + k * PITCH, np.where(ys >= PANEL_TOP, PANEL_TOP + (ys - PANEL_TOP) / f, ys))
+        j = -k % REPEAT
+        x = xs + (k + j) * PITCH
+        f = (panel_bottom(xs) - PANEL_TOP) / (panel_bottom(x) - PANEL_TOP)
+        moved = bilinear(src, x, np.where(ys >= PANEL_TOP, PANEL_TOP + (ys - PANEL_TOP) / f, ys))
         out[strip] = moved[strip]
     # The ridge cap, continued along its row.
     ridge = (xs >= EDGE - SHIFT - 2) & (xs < EDGE + 6) & (ys >= RIDGE - 3) & (ys < CAP)
