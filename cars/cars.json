@@ -1,9 +1,11 @@
 [
   {"id": "byd-atto3-orange", "model": "BYD Atto 3", "colour": "Orange"},
+  {"id": "byd-seal-indigo-grey", "model": "BYD Seal", "colour": "Indigo Grey"},
   {"id": "lotus-eletre-red", "model": "Lotus Eletre", "colour": "Red"},
   {"id": "mg-zsev-diamond-red", "model": "MG ZS EV Excite", "colour": "Diamond Red"},
   {"id": "mg4-camden-grey", "model": "MG4", "colour": "Camden Grey"},
   {"id": "mg4-urban-stone-green", "model": "MG4 Urban", "colour": "Stone Green"},
+  {"id": "peugeot-e3008-ingaro-blue", "model": "Peugeot E-3008", "colour": "Ingaro Blue"},
   {"id": "taycan-dolomite-grey", "model": "Porsche Taycan", "colour": "Dolomite Grey"},
   {"id": "model-3-stealth-grey", "model": "Tesla Model 3", "colour": "Stealth Grey"},
   {"id": "model-y-glacier-blue", "model": "Tesla Model Y", "colour": "Glacier Blue"},
