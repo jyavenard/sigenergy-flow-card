@@ -2123,13 +2123,15 @@ class SigenergyFlowCard extends HTMLElement {
           , rangeEntity = e('ac_charger_vehicle_range') ?? (this.config.entities?.ac_charger_vehicle_range === undefined ? this.config.ac_charger_range : null);
         const car = carEntity ? n(carEntity) : null
           , range = rangeEntity ? n(rangeEntity) : null
+          // The range in the entity's own unit (km, mi), as Home Assistant reports it; km for one without a unit.
+          , rangeUnit = (rangeEntity && this._hass.states[rangeEntity]?.attributes?.unit_of_measurement) || 'km'
           , dcsoc = n(e('dc_charger_vehicle_soc'));
         // Sigenergy Local Modbus 2.0 stores keys (charging, not_connected) that Home Assistant labels in the user's language;
         // otherwise the state is already the label.
         const acEntity = this._hass.states[e('ac_charger_state')], acRaw = acEntity?.state
           , acLabel = acEntity && this._hass.formatEntityState ? this._hass.formatEntityState(acEntity) : acRaw
           , acState = acRaw && !['unknown', 'unavailable'].includes(acRaw) ? (acLabel && acLabel !== acRaw ? acLabel : acRaw.split('-')[0]) : '';
-        const carText = !carEntity ? '' : car === null ? 'Vehicle SOC unavailable' : `${car.toFixed(0)}%${range === null ? '' : ` · ${range.toFixed(0)} km`}`;
+        const carText = !carEntity ? '' : car === null ? 'Vehicle SOC unavailable' : `${car.toFixed(0)}%${range === null ? '' : ` · ${range.toFixed(0)} ${rangeUnit}`}`;
         this._parts('acSoc', [acState, carText]);
         // The inverter reports 0% with no DC vehicle attached; a genuine 0% while charging is still shown.
         // Negative DC power is the vehicle supplying the house.
