@@ -603,6 +603,7 @@ car: input_select.garage_car
 While the entity is unknown or unavailable, or its state isn't a car's name, the card shows the built-in car.
 
 <!-- cars: generated from cars/cars.json by tools/make-car.py -->
+- `audi-q4-etron-black`: Audi Q4 e-tron, Black
 - `byd-atto3-orange`: BYD Atto 3, Orange
 - `lotus-eletre-red`: Lotus Eletre, Red
 - `mg-zsev-diamond-red`: MG ZS EV Excite, Diamond Red
@@ -611,6 +612,7 @@ While the entity is unknown or unavailable, or its state isn't a car's name, the
 - `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
 - `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
 - `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
+- `model-y-stealth-grey`: Tesla Model Y, Stealth Grey
 - `volvo-ex90-black`: Volvo EX90, Black
 <!-- end cars -->
 
