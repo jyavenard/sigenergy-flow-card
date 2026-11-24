@@ -314,6 +314,7 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `grid_phase_a_voltage`, `grid_phase_b_voltage`, `grid_phase_c_voltage` | `sensor.sigen_inverter_phase_a_voltage`, `…_b_…`, `…_c_…` | The inverter's voltage on each phase, shown when GRID is tapped; phase detection; GRID voltage. Disabled by default in the Sigenergy integration. |
 | `grid_phase_a_current`, `grid_phase_b_current`, `grid_phase_c_current` | `sensor.sigen_inverter_phase_a_current`, `…_b_…`, `…_c_…` | The inverter's current on each phase and, with the voltage, its apparent power, shown when GRID is tapped. Disabled by default in the Sigenergy integration. |
 | `grid_power_factor` | `sensor.sigen_inverter_power_factor` | The inverter's power factor, shown when GRID is tapped. Disabled by default in the Sigenergy integration. |
+| `grid_import_price`, `grid_export_price` | the Energy dashboard's | Your electricity retailer's buy and sell prices, shown under GRID while importing or exporting; `false` hides them (see [Electricity prices](#electricity-prices)) |
 | `grid_phase_a_active_power`, `grid_phase_b_active_power`, `grid_phase_c_active_power` | `sensor.sigen_plant_grid_phase_a_active_power`, `…_b_…`, `…_c_…` | The grid sensor's power on each phase (positive while importing), shown when GRID is tapped; phase detection. Disabled by default in the Sigenergy integration. |
 | `ac_charger_power` | `sensor.sigen_ac_charger_charging_power` | AC charger value, chart; the AC charger only appears if this exists |
 | `ac_charger_state` | `sensor.sigen_ac_charger_system_state` | AC charger state text |
@@ -412,6 +413,7 @@ sigenergy_backend: sigenergy2mqtt
 | `grid_phase_a_voltage`, `…_b_…`, `…_c_…` | `sensor.sigen_0_inverter_1_phase_a_voltage`, `…_b_…`, `…_c_…` |
 | `grid_phase_a_current`, `…_b_…`, `…_c_…` | `sensor.sigen_0_inverter_1_phase_a_current`, `…_b_…`, `…_c_…` |
 | `grid_power_factor` | `sensor.sigen_0_inverter_1_power_factor` |
+| `grid_import_price`, `grid_export_price` | the Energy dashboard's |
 | `grid_phase_a_active_power`, `…_b_…`, `…_c_…` | `sensor.sigen_0_plant_grid_phase_a_active_power`, `…_b_…`, `…_c_…` |
 | `ac_charger_power` | `sensor.sigen_0_ac_charger_1_charging_power`, fallback `sensor.sigen_0_ac_charger_2_charging_power`, then `sensor.sigen_0_ac_charger_1_rated_charging_power`, then `sensor.sigen_0_ac_charger_2_rated_charging_power` |
 | `ac_charger_state` | `sensor.sigen_0_ac_charger_1_running_state`, fallback `sensor.sigen_0_ac_charger_2_running_state` |
@@ -554,6 +556,20 @@ Tapping **GRID** shows, for each phase, the inverter's voltage, current and appa
 The phases shown are those whose voltage or grid power isn't 0 (a single-phase system can have phase B and C entities reading 0), or `grid_phases` when set. Without any phase entity, GRID can't be tapped.
 
 With `show_grid_voltage: true`, **GRID (231V)** shows the phases' average voltage, or the `grid_voltage` entity when set. In the narrow portrait layout, the voltage wraps below GRID.
+
+### Electricity prices
+
+GRID shows the current electricity price beside the direction: the buy price while importing, e.g. **Importing · 28.1¢/kWh**, and the sell price while exporting, e.g. **Exporting · 6.5¢/kWh**; nothing while idle.
+
+By default the prices are the Energy dashboard's (Settings → Dashboards → Energy → the grid connection's **Cost tracking** and **Grid compensation**): an entity with the current price, or a static price in Home Assistant's currency. With several grid connections, one per tariff (e.g. peak and off-peak utility meters), the price is the connection whose meter is the tariff collecting now (`status: collecting`); when that can't be told, none shows. To use other sensors, such as a dynamic tariff's, or to hide the prices, set the keys:
+
+```yaml
+entities:
+  grid_import_price: sensor.amber_general_price   # or false to hide it
+  grid_export_price: sensor.amber_feed_in_price
+```
+
+A price per kWh in dollars (`$/kWh`, `AUD/kWh`, `USD/kWh`, `NZD/kWh`…), euros, pounds or Scandinavian crowns shows in cents (¢, c), pence (p) or øre/öre, e.g. **6.5¢/kWh**; any other price shows with the entity's own unit (e.g. `c/kWh` as it is). The card shows the sensor's value as it is, so a negative price (paying to import, or to export) shows with its sign.
 
 ### AC and DC chargers
 

@@ -92,6 +92,10 @@ const DEFAULT_ENTITIES = {
     grid_voltage: [],
     ...gridPhaseEntities(phase => `sensor.sigen_inverter_phase_${phase}`, phase => `sensor.sigen_plant_grid_phase_${phase}`),
     grid_power_factor: ['sensor.sigen_inverter_power_factor'],
+    // An electricity retailer's buy and sell prices (e.g. Amber's), shown beside Importing or Exporting; without them, the
+    // Energy dashboard's (see _gridPrice).
+    grid_import_price: [],
+    grid_export_price: [],
     ac_charger_power: ['sensor.sigen_ac_charger_charging_power'],
     ac_charger_state: ['sensor.sigen_ac_charger_system_state'],
     ac_charger_total_energy: ['sensor.sigen_ac_charger_total_energy_consumed'],
@@ -164,6 +168,8 @@ const SIGENERGY2MQTT_ENTITIES = {
     grid_voltage: [],
     ...gridPhaseEntities(phase => `sensor.sigen_0_inverter_1_phase_${phase}`, phase => `sensor.sigen_0_plant_grid_phase_${phase}`),
     grid_power_factor: ['sensor.sigen_0_inverter_1_power_factor'],
+    grid_import_price: [],
+    grid_export_price: [],
     ac_charger_power: ['sensor.sigen_0_ac_charger_1_charging_power', 'sensor.sigen_0_ac_charger_2_charging_power', 'sensor.sigen_0_ac_charger_1_rated_charging_power', 'sensor.sigen_0_ac_charger_2_rated_charging_power'],
     ac_charger_state: ['sensor.sigen_0_ac_charger_1_running_state', 'sensor.sigen_0_ac_charger_2_running_state'],
     ac_charger_total_energy: ['sensor.sigen_0_ac_charger_1_total_energy_consumed', 'sensor.sigen_0_ac_charger_2_total_energy_consumed'],
@@ -228,6 +234,8 @@ const BACKENDS = {
     sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, homeBalance: true, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}`,
         acCharger: { power: /^sensor\.sigen_0_ac_charger_(\d+)_(?:rated_)?charging_power$/, prefix: 'sensor.sigen_0_ac_charger_', state: 'running_state' } },
 };
+// The hundredth of a currency that electricity prices are quoted in, by the unit's currency part.
+const PRICE_CENTS = { '$': '¢', AUD: '¢', USD: '¢', NZD: '¢', CAD: '¢', SGD: '¢', HKD: '¢', EUR: 'c', '€': 'c', GBP: 'p', '£': 'p', NOK: 'øre', SEK: 'öre', DKK: 'øre' };
 const AC_CHARGER_1 = new Set(['ac_charger_power', 'ac_charger_state', 'ac_charger_total_energy']);
 const AC_CHARGER_2 = { ac_charger_power_2: 'power', ac_charger_state_2: 'state', ac_charger_total_energy_2: 'total_energy_consumed' };
 const AC_CHARGER_2_KEYS = new Set([...Object.keys(AC_CHARGER_2), 'ac_charger_vehicle_soc_2', 'ac_charger_vehicle_range_2']);
@@ -1375,6 +1383,29 @@ class SigenergyFlowCard extends HTMLElement {
     _setText(el, v) {
         if (el.textContent !== String(v)) el.textContent = v;
     }
+    // GRID's price for [side] ('import' or 'export'): grid_<side>_price's state when set (false hides it), else the Energy
+    // dashboard's grid connection price: the only one with a price, or the one whose meter is the utility meter tariff
+    // collecting now; nothing when that can't be told.
+    _gridPrice(side) {
+        const set = this.config.entities?.[`grid_${side}_price`];
+        if (set !== undefined) return set ? this._price(set) : '';
+        const prices = this._energyPrices?.[side] ?? [], collecting = prices.filter(price => this._hass.states[price.meter]?.attributes?.status === 'collecting');
+        const price = prices.length === 1 ? prices[0] : collecting.length === 1 ? collecting[0] : null;
+        if (!price) return '';
+        return price.entity ? this._price(price.entity) : this._priceText(price.number, `${this._hass.config?.currency ?? ''}/kWh`);
+    }
+    _price(id) {
+        return this._priceText(this._num(id), String(this._hass.states[id]?.attributes?.unit_of_measurement ?? ''));
+    }
+    // A price: per kWh in a currency with a known hundredth (PRICE_CENTS), in that; else with its own [unit].
+    _priceText(v, unit) {
+        if (v === null || v === undefined || !Number.isFinite(v)) return '';
+        unit = unit.trim();
+        const [money, per] = unit.split('/').map(part => part.trim());
+        const number = n => n.toFixed(1).replace('-', '\u2212'), cents = PRICE_CENTS[money?.toUpperCase()];
+        if (per?.toLowerCase() !== 'kwh' || !cents) return `${number(v)}${unit === '¢/kWh' ? '¢/kWh' : unit ? ` ${unit}` : ''}`;
+        return `${number(v * 100)}${cents === '¢' ? '' : ' '}${cents}/kWh`;
+    }
     // Value in kW or kWh when the entity reports W, Wh, MW or MWh.
     _scaled(id) {
         const v = this._num(id);
@@ -1517,14 +1548,21 @@ class SigenergyFlowCard extends HTMLElement {
     // The Energy dashboard's preferences: its individual devices, for HOME when home_entities is left out, and the solar
     // forecast it uses, for the Solar forecast tile.
     async _loadEnergyDevices() {
-        const home = this._shown.has('scene') && this.config.home_entities?.length === 0;
-        if (!home && !this._shown.has('tiles') || typeof this._hass?.callWS !== 'function') return;
+        if (!this._shown.has('scene') && !this._shown.has('tiles') || typeof this._hass?.callWS !== 'function') return;
         this._energyDevicesAt = Date.now();
         const forecast = this._ent('solar_forecast_today');
         try {
             const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
             this._energyDevices = prefs?.device_consumption ?? [];
             this._forecastEntries = new Set((prefs?.energy_sources ?? []).flatMap(source => source.type === 'solar' ? source.config_entry_solar_forecast ?? [] : []));
+            // Each grid connection's import and export price, with its meter; before Home Assistant's unified grid
+            // connections, a grid source listed its meters in flow_from and flow_to.
+            const grids = (prefs?.energy_sources ?? []).filter(source => source.type === 'grid');
+            const priced = (meter, entity, number) => entity || Number.isFinite(number) ? [{ meter, entity, number }] : [];
+            this._energyPrices = {
+                import: grids.flatMap(g => g.flow_from ? g.flow_from.flatMap(f => priced(f.stat_energy_from, f.entity_energy_price, f.number_energy_price)) : priced(g.stat_energy_from, g.entity_energy_price, g.number_energy_price)),
+                export: grids.flatMap(g => g.flow_to ? g.flow_to.flatMap(f => priced(f.stat_energy_to, f.entity_energy_price, f.number_energy_price)) : priced(g.stat_energy_to, g.entity_energy_price_export, g.number_energy_price_export)),
+            };
         } catch {
             this._energyDevices ??= [];
         }
@@ -2247,7 +2285,9 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('battStatus', remaining ? `${battStatus} (${remaining})` : battStatus);
         }
         this._text('grid', this._power(grid));
-        this._text('gridStatus', grid === null ? '' : grid > 0.025 ? 'Importing' : grid < -.025 ? 'Exporting' : 'Idle');
+        const gridWord = grid === null ? '' : grid > 0.025 ? 'Importing' : grid < -.025 ? 'Exporting' : 'Idle'
+          , price = grid > 0.025 ? this._gridPrice('import') : grid < -.025 ? this._gridPrice('export') : '';
+        this._text('gridStatus', price ? `${gridWord} · ${price}` : gridWord);
         const phases = this._gridPhases();
         this._id('gridButton').disabled = !phases;
         this._id('gridMore').hidden = !phases;
