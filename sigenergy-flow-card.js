@@ -1131,20 +1131,22 @@ class SigenergyFlowCard extends HTMLElement {
             : { minWidth: '', marginLeft: '' }));
         if (inRow) Object.assign(chargers.style, { top: `${lower.offsetTop + drop}px`, left: `${(xs[0] / SCENE.width * 100).toFixed(3)}%`, transform: '', minHeight: '' });
         else if (double) chargers.style.transform = lower.style.transform;
-        // With the charger readings in the row, every leader there ends at the same level, below the lowest reading
-        // (the charger readings' longest form).
+        // With the charger readings in the row, _chargerLeaders ends every leader there at the same level.
         const lowerLeaders = [...this.root.querySelectorAll('.lowerLeader')], ends = lowerLeaders.map(leader => +leader.dataset.d.match(/V([\d.]+)/)[1] + drop / scale);
-        this._rowEnd = inRow ? Math.max(...ends, (lower.offsetTop + drop) / scale + row.height) : null;
-        lowerLeaders.forEach((leader, i) => leader.setAttribute('d', leader.dataset.d.replace(/V([\d.]+)/, `V${(this._rowEnd ?? ends[i]).toFixed(1)}`)));
+        this._rowEnds = inRow ? ends : null;
+        lowerLeaders.forEach((leader, i) => leader.setAttribute('d', leader.dataset.d.replace(/V([\d.]+)/, `V${ends[i].toFixed(1)}`)));
         this._chargerLeaders();
     }
     // A leader runs from each wallbox shown down its reading's left edge, in place of the reading's own line: straight
     // down past the box's bottom-left corner when the reading starts under it, else across from its nearer side, then
     // down (or up, to a reading beside the garage), as in Sigenergy's app. With the double garage, the new bay's
-    // wallbox leads to the first reading and the existing bay's to the second.
+    // wallbox leads to the first reading and the existing bay's to the second. With the readings in SigenStor and
+    // GRID's row, every leader there ends at the same level, below the lowest reading as it reads now.
     _chargerLeaders() {
         const plane = this._id('plane'), chargers = this._id('chargers'), scale = plane.offsetWidth / SCENE.width, origin = plane.getBoundingClientRect();
         const nodes = [...chargers.children].filter(node => !node.hidden), double = plane.classList.contains('double');
+        const end = this._rowEnds && scale > 0 ? Math.max(...this._rowEnds, ...nodes.map(node => (node.getBoundingClientRect().bottom - origin.top) / scale)) : null;
+        if (end !== null) for (const leader of this.root.querySelectorAll('.lowerLeader')) leader.setAttribute('d', leader.dataset.d.replace(/V([\d.]+)/, `V${end.toFixed(1)}`));
         for (const node of chargers.children) node.classList.remove('led-by');
         for (const [id, art, bay, node] of [['chargerLeader', 'chargerArt', false, nodes[double ? 1 : 0]], ['chargerLeader2', 'chargerArt2', true, double ? nodes[0] : null]]) {
             const leader = this._id(id), shown = !!node && scale > 0 && this._id(art).getAttribute('display') === 'inline';
@@ -1152,7 +1154,7 @@ class SigenergyFlowCard extends HTMLElement {
             if (!shown) continue;
             node.classList.add('led-by');
             const rect = node.getBoundingClientRect(), box = this._wallbox(bay), x = (rect.left - origin.left + .5) / scale;
-            const [top, bottom] = [rect.top, this._rowEnd === null || this._rowEnd === undefined ? rect.bottom : null].map(y => (y === null ? this._rowEnd : (y - origin.top) / scale).toFixed(1));
+            const [top, bottom] = [(rect.top - origin.top) / scale, end ?? (rect.bottom - origin.top) / scale].map(y => y.toFixed(1));
             const edge = x < box.left - 4 ? box.left : x > box.right + 4 ? box.right : null;
             leader.setAttribute('d', edge === null ? `M${x.toFixed(1)} ${box.foot.toFixed(1)} V${bottom}` : `M${edge.toFixed(1)} ${box.side.toFixed(1)} H${x.toFixed(1)} V${top} V${bottom}`);
         }
