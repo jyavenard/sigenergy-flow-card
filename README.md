@@ -571,6 +571,8 @@ Each line is hidden when its entities do not exist.
 
 The DC charger's vehicle state of charge is hidden while the charger is idle and reports 0%.
 
+The charger readings sit in the bottom row, level with SigenStor and GRID, with a line from the charger on the garage wall, when they fit there as they would read while charging (with the vehicle's SOC and range); the row rises a little to make room if needed, and doesn't change as the charger's state does. Otherwise (e.g. two chargers in the single garage) they stand at the left of the garage.
+
 #### Two AC chargers
 
 A second Sigenergy AC charger shows as **AC CHARGER 2**, beside **AC CHARGER 1**, and takes the double garage's other bay. The integrations number it by its Modbus address, so the card looks for it: with Sigenergy Local Modbus, `sensor.sigen_ac_charger_<number>_charging_power` (the first charger has no number); with sigenergy2mqtt, `sensor.sigen_0_ac_charger_<number>_charging_power` other than the first charger's. Its state and energy consumed are the same charger's `system_state` (sigenergy2mqtt: `running_state`) and `total_energy_consumed`. It is only looked for while `ac_charger_power` is left at its default; otherwise, or to pick another, set the `_2` keys:
@@ -659,7 +661,7 @@ car_2: input_select.second_car
 car_shown_2: binary_sensor.second_car_home
 ```
 
-The double garage only shows when the card is wide enough to show the new bay. On a phone in portrait, the card keeps the single garage, with whichever car is charging (the AC charger's when both are). With the double garage, the charger readings move onto the driveway, each under its car.
+The double garage only shows when the card is wide enough to show the new bay. On a phone in portrait, the card keeps the single garage, with whichever car is charging (the AC charger's when both are). With the double garage, the charger readings move onto the driveway, each under its car, level with SigenStor and GRID.
 
 The new bay and roof are an overlay that `tools/make-garage.py` makes from the card's own photos, loaded from GitHub like the cars. If it can't load, the card shows the single garage.
 

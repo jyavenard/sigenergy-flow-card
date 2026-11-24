@@ -34,6 +34,8 @@ const CARS_URL = 'https://raw.githubusercontent.com/jyavenard/sigenergy-flow-car
 const GARAGE_URL = 'https://raw.githubusercontent.com/jyavenard/sigenergy-flow-card/refs/heads/main/garage/';
 // Where the double garage's overlay goes, in ARTWORK's coordinates, and the transform (an SVG matrix, in the same
 // coordinates) that moves a car from the existing bay into the new one.
+// Where the wallbox's white box is in its overlay, as fractions of the overlay's width and height.
+const WALLBOX = { left: .17, right: .955, top: .02, bottom: .433 };
 const DOUBLE_GARAGE = { at: [245, 68], size: [319, 402], car: [0.80792, -0.01126, 0, 0.89884, -67.32, 19.243] };
 // The weather conditions with photos of their own (tools/make-weather.py), from GitHub: by day <condition>, at night
 // <condition>-night, each as <scene>.avif, the empty garage's patch <scene>-garage.avif (at WEATHER_GARAGE, in
@@ -269,12 +271,13 @@ const GATEWAY_ENDS = { inverterFlow: 'end', homeFlow: 'start', gridFlow: 'start'
 const PULSE = { speed: [110, 65], length: 130 };
 const LEADERS = ['M820 18 V200', 'M1110 18 V227', 'M712 498 V641', 'M1030 526 V641'];
 // Reading positions: [x, y, edge], where y is the reading's top or bottom edge. [lower] places the
-// SigenStor and GRID readings: the row's left edge, each reading's left edge, and the row's bottom edge.
-// [chargers] is the left edge of the charger readings, which are centred vertically: [wide, narrow].
+// SigenStor and GRID readings: the row's left edge, each reading's left edge, and the row's bottom edge; [rise] is how far
+// it may rise to make room for the charger readings, keeping SigenStor's text clear of the grid flow.
+// [chargers] is the left edge of the charger readings: [wide, narrow].
 const READINGS = {
     pv: [832, 16, 'top'],
     home: [1122, 16, 'top'],
-    lower: { left: 724, columns: [724, 1030], bottom: 628, start: 563 },
+    lower: { left: 724, columns: [724, 1042], bottom: 628, start: 563, rise: 30 },
     chargers: [170, 410],
 };
 
@@ -670,6 +673,7 @@ class SigenergyFlowCard extends HTMLElement {
           <rect x="0" y="${FADE.bottomStart}" width="${PHOTO.width}" height="${SCENE.height - FADE.bottomStart + PHOTO.bleed}" class="fadeRect" fill="url(#fadeBottom)"/>
           <rect x="0" y="${-PHOTO.bleed}" width="520" height="${SCENE.height + 2 * PHOTO.bleed}" fill="url(#fadeLeft)"/>
           ${LEADERS.map((d, i) => battery || i !== 2 ? `<path class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>` : '').join('')}
+          <path id="chargerLeader" class="leader" display="none"/><path id="chargerLeader2" class="leader" display="none"/>
           ${flows}
         </svg>
         <div class="node weather" id="weather" hidden><button id="weatherButton" title="Show the weather forecast"><span id="weatherIcon"></span><strong id="weatherTemp"></strong></button></div>
@@ -800,6 +804,9 @@ class SigenergyFlowCard extends HTMLElement {
       .node.weather button{display:flex;align-items:center;gap:calc(10px * var(--s))}.weather svg{width:clamp(30px,calc(58px * var(--s)),62px);height:clamp(30px,calc(58px * var(--s)),62px);overflow:visible}
       .sidecol{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:flex;flex-direction:column;justify-content:space-between;gap:max(14px,calc(24px * var(--s)));min-height:calc(184px * var(--s))}
       .double #chargers{flex-direction:row;top:auto;bottom:${((SCENE.height - READINGS.lower.bottom) / SCENE.height * 100).toFixed(3)}%;transform:none;min-height:0;gap:max(14px,calc(40px * var(--s)))}
+      #chargers.inrow .node{box-sizing:border-box}.sidecol .node.led-by{border-left-color:transparent}#chargers.inrow{flex-direction:row;bottom:auto;transform:none;min-height:0;justify-content:flex-start;align-items:flex-start;gap:max(14px,calc(40px * var(--s)))}
+      .compact:not(.narrow) #chargers.inrow .node em span{display:inline}.compact:not(.narrow) #chargers.inrow .node em span+span::before{content:' · '}
+      .narrow #chargers.inrow .node{max-width:calc(${READINGS.lower.left - 24 - READINGS.chargers[1]}px * var(--s))}
       .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}.lower>.node:first-child{min-width:0;padding-right:calc(12px * var(--s))}.lower>.node:first-child em{white-space:normal}
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
       .node button{all:unset;cursor:pointer;display:block}.node button[disabled]{cursor:default}.nobreak{white-space:nowrap}.narrow #gridButton small{white-space:normal}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
@@ -1000,14 +1007,50 @@ class SigenergyFlowCard extends HTMLElement {
         el.style.whiteSpace = '';
         el.classList.toggle('stack', width > room * scale);
     }
+    // The charger readings in the bottom row with each one's longest readings ([_chargerWorst]), in scene units: their
+    // height, each one's width and the gap between them.
+    _chargersInRow(left, scale) {
+        const chargers = this._id('chargers'), probe = chargers.cloneNode(true);
+        probe.classList.add('inrow');
+        Object.assign(probe.style, { visibility: 'hidden', left, top: '0px', transform: '', minHeight: '' });
+        for (const [id, parts] of Object.entries(this._chargerWorst ?? {}))
+            probe.querySelector(`#${id}`)?.replaceChildren(...parts.filter(Boolean).map(text => Object.assign(document.createElement('span'), { textContent: text })));
+        const nodes = [...probe.children].filter(node => !node.hidden);
+        for (const node of nodes) Object.assign(node.style, { minWidth: '', marginLeft: '' });
+        chargers.after(probe);
+        const row = { height: probe.offsetHeight / scale, widths: nodes.map(node => Math.max(node.getBoundingClientRect().width, node.scrollWidth + node.clientLeft) / scale), gap: parseFloat(getComputedStyle(probe).columnGap) / scale };
+        probe.remove();
+        return nodes.length ? row : null;
+    }
+    // A wallbox's white box in scene units (its bottom-left corner [x, foot], its edges, and the height [side] a leader
+    // leaves it at): the existing bay's, or with [bay] the double garage's new bay's.
+    _wallbox(bay) {
+        const art = ARTWORK['charger_day.png'], [a, b, c, d, e, f] = DOUBLE_GARAGE.car;
+        const at = (u, v) => {
+            const x = art.at[0] + art.size[0] * u, y = art.at[1] + art.size[1] * v;
+            return bay ? [a * x + c * y + e, PHOTO.top + b * x + d * y + f] : [x, PHOTO.top + y];
+        };
+        const corner = at(WALLBOX.left, WALLBOX.bottom), side = at(WALLBOX.left, (WALLBOX.top + WALLBOX.bottom) / 2);
+        return { x: corner[0], foot: corner[1], left: side[0], right: at(WALLBOX.right, WALLBOX.bottom)[0], side: side[1] };
+    }
+    // Where each reading starts in the row (scene units): as close as it fits to the line down from its wallbox's corner (the
+    // new bay's for the first with the double garage, else the existing bay's; a reading without one follows the one
+    // before), clear of the others and as far from SigenStor's leader as each label is from its own line, from [base]; null when they don't fit.
+    _rowLayout({ widths, gap }, base, double) {
+        const targets = (double ? [this._wallbox(true), this._wallbox(false)] : [this._wallbox(false)]).map(box => box.x);
+        const limit = READINGS.lower.left - 24, xs = [];
+        widths.forEach((w, i) => xs.push(targets[i] ?? xs[i - 1] + widths[i - 1] + gap));
+        for (let i = xs.length - 1; i >= 0; i--) xs[i] = Math.min(xs[i], (i === xs.length - 1 ? limit : xs[i + 1] - gap) - widths[i]);
+        for (let i = 0; i < xs.length; i++) xs[i] = Math.max(xs[i], i ? xs[i - 1] + widths[i - 1] + gap : base);
+        return xs[xs.length - 1] + widths[widths.length - 1] <= limit ? xs : null;
+    }
     _singleCharger() {
         return ['acNode', 'ac2Node', 'dcNode'].filter(id => !this._id(id).hidden).length === 1;
     }
     // With one charger its readings are level with the charger on the garage wall; otherwise they are
-    // centred vertically.
-    // With the double garage, they stand side by side on the driveway instead, each under its car (AC left, the other right),
-    // in line with SigenStor and GRID.
-    _alignChargers(narrow) {
+    // centred vertically. With the double garage, they stand side by side on the driveway instead, each under its car
+    // (AC left, the other right). _fitScene moves them into SigenStor and GRID's row when they fit there.
+    _alignChargers() {
         const chargers = this._id('chargers');
         if (!this._singleCharger() || this._id('plane').classList.contains('double')) {
             Object.assign(chargers.style, { top: '', transform: '', minHeight: '' });
@@ -1015,7 +1058,6 @@ class SigenergyFlowCard extends HTMLElement {
         }
         const art = ARTWORK['charger_day.png'];
         Object.assign(chargers.style, { top: `${(PHOTO.top + art.at[1] + art.size[1] / 2) / SCENE.height * 100}%`, transform: '', minHeight: '0' });
-        if (narrow) chargers.style.left = `${(art.at[0] + art.size[0] + 14) / SCENE.width * 100}%`;
     }
     // The scene is shown at its preferred scale with the sides cropped; once the visible width reaches
     // the protected range, the whole scene scales down instead, so the house always stays in view.
@@ -1058,15 +1100,54 @@ class SigenergyFlowCard extends HTMLElement {
         const chargers = this._id('chargers');
         chargers.style.left = `${(READINGS.chargers[narrow ? 1 : 0] / SCENE.width * 100).toFixed(3)}%`;
         this._stackLifetime(narrow, scale);
-        this._alignChargers(narrow);
+        this._alignChargers();
         // When the scene is taller than the photo, the SigenStor and GRID row starts at [lower.start], as long
         // as it keeps clear of the scene's bottom edge.
         const lower = this.root.querySelector('.lower'), planeHeight = SCENE.height * scale, spare = (height - planeHeight) / 2;
-        const drop = narrow || spare <= 0 ? 0 : Math.max(0, Math.min(READINGS.lower.start * scale - lower.offsetTop, planeHeight + spare - 12 - lower.offsetTop - lower.offsetHeight));
+        const limit = planeHeight + spare - 12, double = plane.classList.contains('double');
+        const dropFor = tall => narrow || spare <= 0 ? 0 : Math.max(0, Math.min(READINGS.lower.start * scale - lower.offsetTop, limit - lower.offsetTop - tall));
+        // The charger readings join the row, their tops level with SigenStor's, when their longest form fits above the
+        // scene's bottom edge; the row rises for it by up to [lower.rise].
+        const rowLeft = `${(READINGS.chargers[narrow ? 1 : 0] / SCENE.width * 100).toFixed(3)}%`;
+        const row = this._chargersInRow(rowLeft, scale), xs = row && this._rowLayout(row, READINGS.chargers[narrow ? 1 : 0], double);
+        const tall = Math.max(lower.offsetHeight, (row?.height ?? 0) * scale);
+        const rowDrop = !xs ? 0 : Math.min(narrow || spare <= 0 ? 0 : Math.max(0, READINGS.lower.start * scale - lower.offsetTop), limit - lower.offsetTop - tall);
+        const inRow = !!xs && rowDrop >= -READINGS.lower.rise * scale;
+        const drop = inRow ? rowDrop : dropFor(lower.offsetHeight);
         lower.style.transform = drop ? `translateY(${drop}px)` : '';
-        if (plane.classList.contains('double')) chargers.style.transform = lower.style.transform;
-        for (const leader of this.root.querySelectorAll('.lowerLeader'))
-            leader.setAttribute('d', leader.dataset.d.replace(/V([\d.]+)/, (_, end) => `V${+end + drop / scale}`));
+        chargers.classList.toggle('inrow', inRow);
+        // Each reading keeps its longest width, so the next one doesn't move with its text.
+        const nodes = [...chargers.children].filter(node => !node.hidden);
+        nodes.forEach((node, i) => Object.assign(node.style, inRow
+            ? { minWidth: `${row.widths[i] * scale}px`, marginLeft: i ? `${(xs[i] - xs[i - 1] - row.widths[i - 1] - row.gap) * scale}px` : '' }
+            : { minWidth: '', marginLeft: '' }));
+        if (inRow) Object.assign(chargers.style, { top: `${lower.offsetTop + drop}px`, left: `${(xs[0] / SCENE.width * 100).toFixed(3)}%`, transform: '', minHeight: '' });
+        else if (double) chargers.style.transform = lower.style.transform;
+        // With the charger readings in the row, every leader there ends at the same level, below the lowest reading
+        // (the charger readings' longest form).
+        const lowerLeaders = [...this.root.querySelectorAll('.lowerLeader')], ends = lowerLeaders.map(leader => +leader.dataset.d.match(/V([\d.]+)/)[1] + drop / scale);
+        this._rowEnd = inRow ? Math.max(...ends, (lower.offsetTop + drop) / scale + row.height) : null;
+        lowerLeaders.forEach((leader, i) => leader.setAttribute('d', leader.dataset.d.replace(/V([\d.]+)/, `V${(this._rowEnd ?? ends[i]).toFixed(1)}`)));
+        this._chargerLeaders();
+    }
+    // A leader runs from each wallbox shown down its reading's left edge, in place of the reading's own line: straight
+    // down past the box's bottom-left corner when the reading starts under it, else across from its nearer side, then
+    // down (or up, to a reading beside the garage), as in Sigenergy's app. With the double garage, the new bay's
+    // wallbox leads to the first reading and the existing bay's to the second.
+    _chargerLeaders() {
+        const plane = this._id('plane'), chargers = this._id('chargers'), scale = plane.offsetWidth / SCENE.width, origin = plane.getBoundingClientRect();
+        const nodes = [...chargers.children].filter(node => !node.hidden), double = plane.classList.contains('double');
+        for (const node of chargers.children) node.classList.remove('led-by');
+        for (const [id, art, bay, node] of [['chargerLeader', 'chargerArt', false, nodes[double ? 1 : 0]], ['chargerLeader2', 'chargerArt2', true, double ? nodes[0] : null]]) {
+            const leader = this._id(id), shown = !!node && scale > 0 && this._id(art).getAttribute('display') === 'inline';
+            leader.setAttribute('display', shown ? 'inline' : 'none');
+            if (!shown) continue;
+            node.classList.add('led-by');
+            const rect = node.getBoundingClientRect(), box = this._wallbox(bay), x = (rect.left - origin.left + .5) / scale;
+            const [top, bottom] = [rect.top, this._rowEnd === null || this._rowEnd === undefined ? rect.bottom : null].map(y => (y === null ? this._rowEnd : (y - origin.top) / scale).toFixed(1));
+            const edge = x < box.left - 4 ? box.left : x > box.right + 4 ? box.right : null;
+            leader.setAttribute('d', edge === null ? `M${x.toFixed(1)} ${box.foot.toFixed(1)} V${bottom}` : `M${edge.toFixed(1)} ${box.side.toFixed(1)} H${x.toFixed(1)} V${top} V${bottom}`);
+        }
     }
     // Home Assistant's time zone, or the browser's when it is missing or unknown to the browser.
     get _zone() {
@@ -1140,6 +1221,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._id('plane').classList.toggle('double', double);
             this._fitScene();
         }
+        this._chargerLeaders();
     }
     // A wallbox's overlay for the time of day, with its cable hanging or plugged into the car.
     _chargerArt(id, plugged, time) {
@@ -2184,6 +2266,10 @@ class SigenergyFlowCard extends HTMLElement {
           , rangeEntity = e('ac_charger_vehicle_range') ?? (this.config.entities?.ac_charger_vehicle_range === undefined ? this.config.ac_charger_range : null);
         // Sigenergy Local Modbus 2.0 stores keys (charging, not_connected) that Home Assistant labels in the user's language;
         // otherwise the state is already the label.
+        // Each charger's readings while it charges, with its vehicle's SOC and range, and its longest state so far: what the
+        // bottom row must fit (_chargersInRow).
+        const worst = {}, seen = this._statesSeen ??= {};
+        const longest = (id, state) => seen[id] = [seen[id] ?? 'Charging', state].filter(Boolean).reduce((a, b) => b.length > a.length ? b : a);
         const acReadings = (id, suffix, carEntity, rangeEntity) => {
             const entity = this._hass.states[e(`ac_charger_state${suffix}`)], raw = entity?.state
               , label = entity && this._hass.formatEntityState ? this._hass.formatEntityState(entity) : raw
@@ -2191,6 +2277,7 @@ class SigenergyFlowCard extends HTMLElement {
             const car = carEntity ? n(carEntity) : null, range = rangeEntity ? n(rangeEntity) : null
               , unit = this._hass.states[rangeEntity]?.attributes?.unit_of_measurement || 'km';
             this._parts(`${id}Soc`, [state, !carEntity ? '' : car === null ? 'Vehicle SOC unavailable' : `${car.toFixed(0)}%${range === null ? '' : ` · ${range.toFixed(0)} ${unit}`}`]);
+            worst[`${id}Soc`] = [longest(id, state), carEntity ? `100%${rangeEntity ? ` · 888 ${unit}` : ''}` : ''];
             const total = kw(`ac_charger_total_energy${suffix}`);
             this._text(`${id}Total`, !this.config.show_lifetime || total === null ? '' : `${this._kwh(total)} consumed`);
         };
@@ -2202,6 +2289,13 @@ class SigenergyFlowCard extends HTMLElement {
         const dcState = dc === null ? '' : dc > 0.025 ? 'Charging' : dc < -0.025 ? 'Discharging' : '';
         const dcSocText = dcsoc === null || (dcsoc === 0 && !dcState) ? '' : `Vehicle SOC ${dcsoc.toFixed(0)}%`;
         this._parts('dcSoc', [dcState, dcSocText]);
+        worst.dcSoc = ['Discharging', this._has(e('dc_charger_vehicle_soc')) ? 'Vehicle SOC 100%' : ''];
+        const worstKey = JSON.stringify(worst);
+        if (worstKey !== this._worstKey) {
+            this._worstKey = worstKey;
+            this._chargerWorst = worst;
+            this._fitScene();
+        }
         // SigenStor's AC output: solar less battery charging (positive battery power) less DC charging.
         const inverter = pv !== null && bat !== null ? pv - bat - (dc ?? 0) : home !== null && grid !== null ? home - grid : null;
         this._flow('solarFlow', pv);
