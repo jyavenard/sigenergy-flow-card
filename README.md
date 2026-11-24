@@ -186,14 +186,14 @@ All options are optional.
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
 | `battery_remaining_target` | `auto` | The SOC the battery's remaining time counts down to while discharging: `auto` the Backup SOC on grid and the discharge cut-off SOC off grid (by `grid_status`; on grid without it); `backup_soc` always the Backup SOC (also for the idle power-cut estimate); `discharge_cut_off_soc` always the discharge cut-off SOC. |
-| `home_includes_ac_charger` | `false` | `home_power` includes the AC charger, e.g. a third-party one: HOME, its chart line and its forecast deduct the charger's power (see [A third-party charger](#a-third-party-charger)). |
+| `home_includes_ac_charger` | `false` | `home_power` includes the AC charger (and the second one, if any), e.g. a third-party one: HOME, its chart line and its forecast deduct the charger's power (see [A third-party charger](#a-third-party-charger)). |
 | `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never, or a `binary_sensor` entity: while it is on, or a `device_tracker`: while it is home (see [AC and DC chargers](#ac-and-dc-chargers)). |
 | `car` | none | Name of a different car for the garage, from the card's `cars/` folder, or an entity whose state is that name (see [Changing the car](#changing-the-car)). |
 | `car_image` | none | URL of your own car overlay, instead of `car`. |
 | `car_image_night` | `car_image` | The same car at night. |
 | `weather_scene` | `true` | Show the photo of the current weather instead of the clear day or night (see [Weather](#weather)). |
-| `garage` | `auto` | `double` adds a second bay on the left for a second car, when the card is wide enough to show it (see [Double garage](#double-garage)); `auto` does while both the AC and DC chargers are there; `single` never does. |
-| `car_shown_2`, `car_2`, `car_image_2`, `car_image_night_2` | as the first car's | The second car, the DC charger's in the double garage, with the same options as `car_shown`, `car`, `car_image` and `car_image_night`. Without `car_2` or `car_image_2`, it is the same car as the first. |
+| `garage` | `auto` | `double` adds a second bay on the left for a second car, when the card is wide enough to show it (see [Double garage](#double-garage)); `auto` does while there are two chargers (AC and DC, or two AC); `single` never does. |
+| `car_shown_2`, `car_2`, `car_image_2`, `car_image_night_2` | as the first car's | The second car, the second AC charger's (else the DC charger's) in the double garage, with the same options as `car_shown`, `car`, `car_image` and `car_image_night`. Without `car_2` or `car_image_2`, it is the same car as the first. |
 | `grid_phases` | detected | The number of phases (1, 2 or 3) shown in the grid details, when detection gets it wrong. |
 | `show_energy_statistics` | `true` | Show the **Energy statistics** panel (see [Energy statistics](#energy-statistics)). |
 | `show_forecast` | `true` | Draw the dashed solar and home forecast: for the rest of the day on the Power metrics chart, and as dashed bars in the current week or month (see [Forecast](#forecast)). |
@@ -320,6 +320,8 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `ac_charger_total_energy` | `sensor.sigen_ac_charger_total_energy_consumed` | AC charger energy consumed |
 | `ac_charger_vehicle_soc` | none | Vehicle battery level on the AC charger |
 | `ac_charger_vehicle_range` | none | Vehicle range on the AC charger |
+| `ac_charger_power_2`, `ac_charger_state_2`, `ac_charger_total_energy_2` | found (see [Two AC chargers](#two-ac-chargers)) | A second AC charger's power, state and energy consumed |
+| `ac_charger_vehicle_soc_2`, `ac_charger_vehicle_range_2` | none | Vehicle battery level and range on the second AC charger |
 | `dc_charger_power` | `sensor.sigen_inverter_dc_charger_output_power` | DC charger value, chart; the DC charger only appears if this exists |
 | `dc_charger_state` | `sensor.sigen_inverter_dc_charger_running_state` | DC charger state: a vehicle shows in the garage while it is connected (Occupied, Preparing, Charging, Scheduled, Ended or Discharging) |
 | `dc_charger_vehicle_soc` | `sensor.sigen_inverter_dc_charger_vehicle_soc` | Vehicle battery level on the DC charger; above 0 while a vehicle is plugged in, which shows it in the garage |
@@ -416,6 +418,8 @@ sigenergy_backend: sigenergy2mqtt
 | `ac_charger_total_energy` | `sensor.sigen_0_ac_charger_1_total_energy_consumed`, fallback `sensor.sigen_0_ac_charger_2_total_energy_consumed` |
 | `ac_charger_vehicle_soc` | none |
 | `ac_charger_vehicle_range` | none |
+| `ac_charger_power_2`, `ac_charger_state_2`, `ac_charger_total_energy_2` | found (see [Two AC chargers](#two-ac-chargers)) |
+| `ac_charger_vehicle_soc_2`, `ac_charger_vehicle_range_2` | none |
 | `dc_charger_power` | `sensor.sigen_0_dc_charger_1_output_power` |
 | `dc_charger_state` | `sensor.sigen_0_dc_charger_1_running_state` |
 | `dc_charger_vehicle_soc` | `sensor.sigen_0_dc_charger_1_vehicle_soc` |
@@ -567,6 +571,20 @@ Each line is hidden when its entities do not exist.
 
 The DC charger's vehicle state of charge is hidden while the charger is idle and reports 0%.
 
+#### Two AC chargers
+
+A second Sigenergy AC charger shows as **AC CHARGER 2**, beside **AC CHARGER 1**, and takes the double garage's other bay. The integrations number it by its Modbus address, so the card looks for it: with Sigenergy Local Modbus, `sensor.sigen_ac_charger_<number>_charging_power` (the first charger has no number); with sigenergy2mqtt, `sensor.sigen_0_ac_charger_<number>_charging_power` other than the first charger's. Its state and energy consumed are the same charger's `system_state` (sigenergy2mqtt: `running_state`) and `total_energy_consumed`. It is only looked for while `ac_charger_power` is left at its default; otherwise, or to pick another, set the `_2` keys:
+
+```yaml
+entities:
+  ac_charger_power_2: sensor.sigen_ac_charger_3_charging_power
+  ac_charger_state_2: sensor.sigen_ac_charger_3_system_state
+  ac_charger_total_energy_2: sensor.sigen_ac_charger_3_total_energy_consumed
+  ac_charger_vehicle_soc_2: sensor.second_car_battery_level
+```
+
+The Power metrics' EVAC line, HOME's balance and `home_includes_ac_charger` use both chargers' power. When `stat_evac_charge` falls back to the first charger's own energy consumed, Energy statistics and Energy metrics add the second's; the plant's EVAC counter is taken as covering both. With two AC chargers and a DC charger, all three readings show, but the garage holds the two AC chargers' cars.
+
 #### A third-party charger
 
 A charger from another brand can take the AC charger's place: point the AC charger's keys at its entities. Sigenergy doesn't know about it, so its home consumption (`sensor.sigen_plant_consumed_power`) includes the charger's power; `home_includes_ac_charger: true` deducts it from HOME, the Power metrics' Home line and the home's forecast. Energy statistics and Energy metrics need nothing: their Load is what is left once the other flows, the charger included, are counted.
@@ -628,11 +646,11 @@ Made a car that isn't listed? Please share it so others can use it too: open a p
 
 ## Double garage
 
-With both an AC and a DC charger (or `garage: double`), the garage has two bays, each with its charger on the wall: the DC charger's car in the existing bay and the AC charger's in a new bay on its left, under the main roof lengthened over it with more solar panels.
+With two chargers, an AC and a DC charger or two AC chargers (or `garage: double`), the garage has two bays, each with its charger on the wall: the second charger's car (the second AC charger's, else the DC charger's) in the existing bay and the AC charger's in a new bay on its left, under the main roof lengthened over it with more solar panels.
 
 ![Double garage](docs/screenshots/desktop-double-garage.png)
 
-Each car shows as the single garage's does with `car_shown: auto`: the first while a vehicle is connected to the AC charger, the AC charger draws power or `car_charging` says so; the second while a vehicle is connected to the DC charger, it charges or discharges, or `car_charging_2` says so. `car_shown_2`, `car_2`, `car_image_2` and `car_image_night_2` work as the first car's options, so either car can follow an entity:
+Each car shows as the single garage's does with `car_shown: auto`: the first while a vehicle is connected to the AC charger, the AC charger draws power or `car_charging` says so; the second while a vehicle is connected to the second AC charger or it draws power, or, with the DC charger, while a vehicle is connected to it, it charges or discharges; or while `car_charging_2` says so. `car_shown_2`, `car_2`, `car_image_2` and `car_image_night_2` work as the first car's options, so either car can follow an entity:
 
 ```yaml
 garage: double

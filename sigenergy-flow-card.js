@@ -95,6 +95,12 @@ const DEFAULT_ENTITIES = {
     ac_charger_total_energy: ['sensor.sigen_ac_charger_total_energy_consumed'],
     ac_charger_vehicle_soc: [],
     ac_charger_vehicle_range: [],
+    // A second AC charger: its power, state and total are found among the integration's entities (see _acCharger2).
+    ac_charger_power_2: [],
+    ac_charger_state_2: [],
+    ac_charger_total_energy_2: [],
+    ac_charger_vehicle_soc_2: [],
+    ac_charger_vehicle_range_2: [],
     dc_charger_power: ['sensor.sigen_inverter_dc_charger_output_power'],
     dc_charger_state: ['sensor.sigen_inverter_dc_charger_running_state'],
     dc_charger_vehicle_soc: ['sensor.sigen_inverter_dc_charger_vehicle_soc'],
@@ -161,6 +167,11 @@ const SIGENERGY2MQTT_ENTITIES = {
     ac_charger_total_energy: ['sensor.sigen_0_ac_charger_1_total_energy_consumed', 'sensor.sigen_0_ac_charger_2_total_energy_consumed'],
     ac_charger_vehicle_soc: [],
     ac_charger_vehicle_range: [],
+    ac_charger_power_2: [],
+    ac_charger_state_2: [],
+    ac_charger_total_energy_2: [],
+    ac_charger_vehicle_soc_2: [],
+    ac_charger_vehicle_range_2: [],
     dc_charger_power: ['sensor.sigen_0_dc_charger_1_output_power'],
     dc_charger_state: ['sensor.sigen_0_dc_charger_1_running_state'],
     dc_charger_vehicle_soc: ['sensor.sigen_0_dc_charger_1_vehicle_soc'],
@@ -207,10 +218,17 @@ const OVERHEAD_KEY = 'sigenergy-flow-card-battery-overhead';
 const BATTERY_KEYS = new Set(['battery_power', 'battery_soc', 'battery_capacity', 'battery_charge_cut_off_soc', 'battery_discharge_cut_off_soc',
     'battery_backup_soc', 'daily_battery_charge_energy', 'daily_battery_discharge_energy', 'stat_battery_charge', 'stat_battery_discharge']);
 // Default entities and PV string entity for each `sigenergy_backend`; [homeBalance] computes HOME when its entity is missing.
+// [acCharger] matches a numbered AC charger's power entity (the number is its Modbus address, or Sigenergy Local Modbus's
+// count when added by hand); its other entities share the [prefix] and number.
 const BACKENDS = {
-    sigenergy_local_modbus: { entities: DEFAULT_ENTITIES, pvString: (n, key) => `sensor.sigen_inverter_pv${n}_${key}` },
-    sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, homeBalance: true, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}` },
+    sigenergy_local_modbus: { entities: DEFAULT_ENTITIES, pvString: (n, key) => `sensor.sigen_inverter_pv${n}_${key}`,
+        acCharger: { power: /^sensor\.sigen_ac_charger_(\d+)_charging_power$/, prefix: 'sensor.sigen_ac_charger_', state: 'system_state' } },
+    sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, homeBalance: true, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}`,
+        acCharger: { power: /^sensor\.sigen_0_ac_charger_(\d+)_(?:rated_)?charging_power$/, prefix: 'sensor.sigen_0_ac_charger_', state: 'running_state' } },
 };
+const AC_CHARGER_1 = new Set(['ac_charger_power', 'ac_charger_state', 'ac_charger_total_energy']);
+const AC_CHARGER_2 = { ac_charger_power_2: 'power', ac_charger_state_2: 'state', ac_charger_total_energy_2: 'total_energy_consumed' };
+const AC_CHARGER_2_KEYS = new Set([...Object.keys(AC_CHARGER_2), 'ac_charger_vehicle_soc_2', 'ac_charger_vehicle_range_2']);
 // The solar keys (pv_power, daily_pv_energy, stat_pv) are all PV, the third-party inverter's included. These defaults
 // leave the third-party inverter out, so its energy is added to them (see _pvSources).
 const SIGEN_ONLY_PV = new Set([
@@ -577,6 +595,7 @@ class SigenergyFlowCard extends HTMLElement {
             sigenergy_backend: backend,
         };
         this._backend = BACKENDS[backend];
+        this._acFound = null;
         this._shown = new Set(this.constructor.parts);
         // Each string is a name, which reads the backend's pattern (sensor.sigen_inverter_pv<n>_* for Sigenergy Local
         // Modbus, sensor.sigen_0_inverter_1_pv<n>_* for sigenergy2mqtt), or an object
@@ -594,6 +613,8 @@ class SigenergyFlowCard extends HTMLElement {
     set hass(hass) {
         const previous = this._hass;
         this._hass = hass;
+        const count = hass.entities ? 0 : Object.keys(hass.states).length;
+        if (hass.entities !== previous?.entities || count !== this._stateCount) { this._stateCount = count; this._acFound = null; }
         if (!this.root)
             return;
         this._update();
@@ -659,7 +680,8 @@ class SigenergyFlowCard extends HTMLElement {
           <div class="node"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
         </div>
         <div class="sidecol" id="chargers">
-          <div class="node" id="acNode"><strong id="ac">—</strong><small>AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
+          <div class="node" id="acNode"><strong id="ac">—</strong><small id="acName">AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
+          <div class="node" id="ac2Node" hidden><strong id="ac2">—</strong><small>AC CHARGER 2</small><em id="ac2Soc"></em><em id="ac2Total"></em></div>
           <div class="node" id="dcNode"><button id="dcButton" title="Adjust DC charging power limit"><strong id="dc">—</strong><small>DC CHARGER<span id="dcGear"> ⚙</span></small><em id="dcSoc"></em><em id="dcLifetime" class="lifetime stack"></em></button></div>
         </div>
       </div></section>`;
@@ -966,7 +988,7 @@ class SigenergyFlowCard extends HTMLElement {
     // The lifetime parts (charged, discharged) share a line when it fits beside the garage, else stack;
     // with a single charger the line must also stop short of the charger on the garage wall.
     _stackLifetime(narrow, scale) {
-        const art = ARTWORK['charger_day.png'], single = this._id('acNode').hidden !== this._id('dcNode').hidden;
+        const art = ARTWORK['charger_day.png'], single = this._singleCharger();
         const double = this._id('plane').classList.contains('double');
         const room = narrow ? 230 : double ? (READINGS.lower.left - READINGS.chargers[0]) / 2 - 40 : single ? art.at[0] - READINGS.chargers[0] - 8 : 420;
         const el = this._id('dcLifetime');
@@ -978,13 +1000,16 @@ class SigenergyFlowCard extends HTMLElement {
         el.style.whiteSpace = '';
         el.classList.toggle('stack', width > room * scale);
     }
+    _singleCharger() {
+        return ['acNode', 'ac2Node', 'dcNode'].filter(id => !this._id(id).hidden).length === 1;
+    }
     // With one charger its readings are level with the charger on the garage wall; otherwise they are
     // centred vertically.
-    // With the double garage, they stand side by side on the driveway instead, each under its car (AC left, DC right),
+    // With the double garage, they stand side by side on the driveway instead, each under its car (AC left, the other right),
     // in line with SigenStor and GRID.
     _alignChargers(narrow) {
-        const chargers = this._id('chargers'), ac = this._id('acNode'), dc = this._id('dcNode');
-        if (ac.hidden === dc.hidden || this._id('plane').classList.contains('double')) {
+        const chargers = this._id('chargers');
+        if (!this._singleCharger() || this._id('plane').classList.contains('double')) {
             Object.assign(chargers.style, { top: '', transform: '', minHeight: '' });
             return;
         }
@@ -1085,7 +1110,7 @@ class SigenergyFlowCard extends HTMLElement {
         const scene = this._scene, garage = !this._doubleGarage ? null : scene ? `${WEATHER_URL}${scene}-double.avif` : `${GARAGE_URL}double-${time}.avif`;
         // Only fetched once it fits, so a phone, which always shows the single garage, never loads it.
         const double = this._doubleFits && ok(garage) && this._loaded.has(garage);
-        // The double garage has the DC charger's car in the existing bay and the AC charger's in the new one.
+        // The double garage has the second charger's car (AC or DC) in the existing bay and the AC charger's in the new one.
         const right = double ? (wanted[1] ? 1 : null) : wanted[0] ? 0 : wanted[1] ? 1 : null;
         const left = double && wanted[0] ? 0 : null;
         const draw = (id, href, shown) => {
@@ -1100,12 +1125,12 @@ class SigenergyFlowCard extends HTMLElement {
         let second = left === null ? null : this._carHref(left, day);
         if (left !== null && !ok(second)) second = [scene && `${WEATHER_URL}${scene}-car.avif`, `${GARAGE_URL}car-${time}.avif`].find(ok);
         draw('carArt2', second, left !== null && ok(second));
-        // The wallbox on the garage wall: with the double garage, the existing bay's is the DC charger's and the new bay's
-        // the AC charger's. Its cable runs to the bay's car while that car is plugged in.
-        const { ac, dc } = this._chargers ?? {}, plugged = this._plugged ?? [];
+        // The wallbox on the garage wall: with the double garage, the existing bay's is the second charger's and the new
+        // bay's the AC charger's. Its cable runs to the bay's car while that car is plugged in.
+        const { ac, ac2, dc } = this._chargers ?? {}, plugged = this._plugged ?? [];
         this._chargerArt('chargerArt', right !== null && plugged[right], time);
         this._chargerArt('chargerArt2', left !== null && plugged[left], time);
-        this._id('chargerArt').setAttribute('display', double ? (dc ? 'inline' : 'none') : ac || dc ? 'inline' : 'none');
+        this._id('chargerArt').setAttribute('display', double ? (ac2 || dc ? 'inline' : 'none') : ac || dc ? 'inline' : 'none');
         this._id('chargerArt2').setAttribute('display', double && ac ? 'inline' : 'none');
         const now = this._chargingNow ?? [];
         this._ledArt('ledArt', this._id('chargerArt').getAttribute('display') === 'inline' && right !== null && plugged[right] && now[right], time);
@@ -1220,16 +1245,35 @@ class SigenergyFlowCard extends HTMLElement {
     _has(id) {
         return !!id && !!this._hass?.states[id];
     }
+    // An entity that exists and isn't an orphan whose state Home Assistant restored.
+    _live(id) {
+        return this._has(id) && !this._hass.states[id].attributes?.restored;
+    }
     // Entity for an `entities:` key: the configured one, else the first available default; null when disabled or for
     // the battery's keys without a battery.
     _ent(key) {
         if (!this.config.battery_present && BATTERY_KEYS.has(key)) return null;
+        if (AC_CHARGER_2_KEYS.has(key) && !this._has(this._ent('ac_charger_power'))) return null;
         const set = this.config.entities?.[key];
         if (set === false || set === null) return null;
         if (set) return set;
         if (key === 'solar_forecast_today' && this._forecastToday()) return this._forecastToday();
+        if (key in AC_CHARGER_2) return this._acCharger2(AC_CHARGER_2[key]);
         const ids = this._backend.entities[key];
+        // sigenergy2mqtt's first AC charger is the first that exists, available or not, so the two never swap.
+        if (AC_CHARGER_1.has(key)) return ids.find(id => this._live(id)) ?? ids[0] ?? null;
         return ids.find(id => !['unknown', 'unavailable', undefined].includes(this._hass?.states[id]?.state)) ?? ids[0] ?? null;
+    }
+    // The second Sigenergy AC charger's [part] entity (power, state or total_energy_consumed): the lowest-numbered one
+    // besides the first, while ac_charger_power is left at its default.
+    _acCharger2(part) {
+        const scan = this._backend.acCharger, first = this._ent('ac_charger_power');
+        if (this.config.entities?.ac_charger_power !== undefined) return null;
+        this._acFound ??= Object.keys(this._hass.entities ?? this._hass.states).map(power => ({ power, n: Number(scan.power.exec(power)?.[1]) }))
+            .filter(found => Number.isFinite(found.n)).sort((a, b) => a.n - b.n);
+        const own = Number(scan.power.exec(first)?.[1]), found = this._acFound.find(charger => charger.n !== own && this._live(charger.power));
+        if (!found) return null;
+        return part === 'power' ? found.power : `${scan.prefix}${found.n}_${part === 'state' ? scan.state : part}`;
     }
     _num(id) {
         const s = id ? this._hass?.states[id]?.state : undefined;
@@ -1322,21 +1366,26 @@ class SigenergyFlowCard extends HTMLElement {
     _homeFromBalance() {
         return !!this._backend.homeBalance && this.config.entities?.home_power === undefined && !this._has(this._ent('home_power'));
     }
-    // With home_includes_ac_charger, home_power includes the AC charger (e.g. a third-party one, which Sigenergy counts
-    // as part of the home): HOME is home_power less the charger's power. The balance never includes it.
+    // With home_includes_ac_charger, home_power includes the AC chargers (e.g. third-party ones, which Sigenergy counts
+    // as part of the home): HOME is home_power less their power. The balance never includes them.
     _homeLessCharger() {
         return !!this.config.home_includes_ac_charger && !this._homeFromBalance() && this._has(this._ent('ac_charger_power'));
+    }
+    // The AC chargers' power in kW, or null without a reading.
+    _acPower() {
+        const [one, two] = ['ac_charger_power', 'ac_charger_power_2'].map(key => this._scaled(this._ent(key)));
+        return one === null && two === null ? null : (one ?? 0) + (two ?? 0);
     }
     // Home consumption in kW.
     _homePower() {
         if (!this._homeFromBalance()) {
             const home = this._scaled(this._ent('home_power'));
-            return home === null || !this._homeLessCharger() ? home : Math.max(0, home - Math.max(0, this._scaled(this._ent('ac_charger_power')) ?? 0));
+            return home === null || !this._homeLessCharger() ? home : Math.max(0, home - Math.max(0, this._acPower() ?? 0));
         }
         const kw = key => this._scaled(this._ent(key));
         const pv = kw('pv_power'), bat = this.config.battery_present ? kw('battery_power') : 0, imp = kw('grid_import_power'), exp = kw('grid_export_power');
         if (pv === null || bat === null || (imp === null && exp === null)) return null;
-        return Math.max(0, pv + (imp ?? 0) - (exp ?? 0) - bat * this._batterySign() - (kw('ac_charger_power') ?? 0) - (kw('dc_charger_power') ?? 0));
+        return Math.max(0, pv + (imp ?? 0) - (exp ?? 0) - bat * this._batterySign() - (this._acPower() ?? 0) - (kw('dc_charger_power') ?? 0));
     }
     _updateHome() {
         if (!this._hass || !this._id('homeDialog')?.open) return;
@@ -1376,7 +1425,7 @@ class SigenergyFlowCard extends HTMLElement {
         const list = this.config.home_entities;
         if (!Array.isArray(list)) return [];
         if (list.length) return list;
-        const chargers = new Set([this._ent('ac_charger_power'), this._ent('dc_charger_power')]);
+        const chargers = new Set(['ac_charger_power', 'ac_charger_power_2', 'dc_charger_power'].map(key => this._ent(key)));
         const devices = (this._energyDevices ?? []).filter(d => typeof d.stat_rate === 'string' && !chargers.has(d.stat_rate));
         const rates = new Map(devices.map(d => [d.stat_consumption, d.stat_rate]));
         return devices.map(d => ({ entity: d.stat_rate, name: d.name, parent: rates.get(d.included_in_stat) ?? null }));
@@ -1509,6 +1558,13 @@ class SigenergyFlowCard extends HTMLElement {
         if (statistics && !(third && this._has(third)) && thirdKey === 'third_party_pv_lifetime_energy' && this.config.entities?.[thirdKey] === undefined)
             third = this._ent('third_party_pv_daily_energy');
         return third && this._has(third) ? [id, third] : [id];
+    }
+    // The EVAC's lifetime counters: stat_evac_charge, plus the second AC charger's total when stat_evac_charge is left at
+    // a default that is the first charger's own total rather than the plant's.
+    _evacSources() {
+        const id = this._ent('stat_evac_charge'), second = this._ent('ac_charger_total_energy_2');
+        if (!id) return [];
+        return this.config.entities?.stat_evac_charge === undefined && id === this._ent('ac_charger_total_energy') && this._has(second) && second !== id ? [id, second] : [id];
     }
     // The solar total of [key], in kW or kWh; null without its own entity's value.
     _pvTotal(key, thirdKey) {
@@ -2056,16 +2112,20 @@ class SigenergyFlowCard extends HTMLElement {
         const imp = kw('grid_import_power')
           , exp = kw('grid_export_power');
         const ac = kw('ac_charger_power')
+          , ac2 = kw('ac_charger_power_2')
           , dc = kw('dc_charger_power');
-        const hasAc = this._has(e('ac_charger_power')), hasDc = this._has(e('dc_charger_power'));
+        const hasAc = this._has(e('ac_charger_power')), hasAc2 = this._has(e('ac_charger_power_2')), hasDc = this._has(e('dc_charger_power'));
         this._id('dcGear').hidden = !this._has(e('dc_charger_limit'));
         this._id('acNode').hidden = !hasAc;
+        this._id('ac2Node').hidden = !hasAc2;
         this._id('dcNode').hidden = !hasDc;
-        this._chargers = { ac: hasAc, dc: hasDc };
+        this._text('acName', hasAc2 ? 'AC CHARGER 1' : 'AC CHARGER');
+        this._chargers = { ac: hasAc, ac2: hasAc2, dc: hasDc };
         // With car_shown: auto, the garage patch hides the car unless a vehicle is connected to the AC charger, a charger
         // has power (either way for DC: the car may supply the house) or car_charging says so. With the double garage, the
-        // first car is the AC charger's and the second the DC charger's (or car_charging_2's). car_shown(_2) true or false
-        // overrides it, and so does a binary_sensor while it is on or off, or a device_tracker while it is home or elsewhere.
+        // first car is the AC charger's and the second the second AC charger's, else the DC charger's (or car_charging_2's).
+        // car_shown(_2) true or false overrides it, and so does a binary_sensor while it is on or off, or a device_tracker
+        // while it is home or elsewhere.
         const reads = key => this._hass.states[e(key)]?.state?.toLowerCase()
           , charging = key => ['on', 'charging', 'true'].includes(reads(key)) || Number(reads(key)) > 0
           , forced = key => {
@@ -2077,19 +2137,21 @@ class SigenergyFlowCard extends HTMLElement {
           , acCar = AC_CONNECTED.has(reads('ac_charger_state')) || ac > 0.025
           // The DC charger reads the vehicle's SOC for as long as its gun is in, charging or not (0 without a vehicle).
           , dcCar = DC_CONNECTED.has(dcStateKey(reads('dc_charger_state'))) || Math.abs(dc ?? 0) > 0.025 || n(e('dc_charger_vehicle_soc')) > 0
-          , { garage } = this.config, double = garage === 'double' || (garage === 'auto' && hasAc && hasDc);
-        // `garage: auto` is the double garage while both chargers are there, a bay for each one's car.
+          , car2 = hasAc2 ? AC_CONNECTED.has(reads('ac_charger_state_2')) || ac2 > 0.025 : dcCar
+          , { garage } = this.config, double = garage === 'double' || (garage === 'auto' && hasAc && (hasAc2 || hasDc));
+        // `garage: auto` is the double garage while there are two chargers, a bay for each one's car.
         this._doubleGarage = double;
         this._carWanted = [
-            forced('car_shown') ?? (acCar || (!double && dcCar) || charging('car_charging')),
-            double && (forced('car_shown_2') ?? (dcCar || charging('car_charging_2'))),
+            forced('car_shown') ?? (acCar || (!double && car2) || charging('car_charging')),
+            double && (forced('car_shown_2') ?? (car2 || charging('car_charging_2'))),
         ];
         // Each car's charger shows its cable plugged in while the vehicle is connected or charging, if the car is shown.
-        this._plugged = [acCar || (!double && dcCar) || charging('car_charging'), double && (dcCar || charging('car_charging_2'))];
+        this._plugged = [acCar || (!double && car2) || charging('car_charging'), double && (car2 || charging('car_charging_2'))];
         // Its light glows, pulsing, while the charger has power (either way for DC) or reads Charging (or Discharging).
         const acOn = ac > 0.025 || reads('ac_charger_state') === 'charging'
-          , dcOn = Math.abs(dc ?? 0) > 0.025 || ['charging', 'discharging'].includes(dcStateKey(reads('dc_charger_state')));
-        this._chargingNow = [acOn || (!double && dcOn), double && dcOn];
+          , on2 = hasAc2 ? ac2 > 0.025 || reads('ac_charger_state_2') === 'charging'
+              : Math.abs(dc ?? 0) > 0.025 || ['charging', 'discharging'].includes(dcStateKey(reads('dc_charger_state')));
+        this._chargingNow = [acOn || (!double && on2), double && on2];
         this._showCars();
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
         this._text('pv', this._power(pv));
@@ -2098,7 +2160,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._text('battery', this._power(bat));
             this._text('soc', soc === null ? '—' : `${soc.toFixed(1)}%`);
             const battStatus = bat === null ? '' : bat > 0.025 ? 'Charging' : bat < -.025 ? 'Discharging' : 'Idle', remaining = this._batteryRemaining(bat, soc, home);
-            this._learnOverhead(pv, imp, exp, bat, ac, dc, home);
+            this._learnOverhead(pv, imp, exp, bat, this._acPower(), dc, home);
             // The bracket stays on one line: a narrow column wraps before it.
             this._text('battStatus', remaining ? `${battStatus} (${remaining})` : battStatus);
         }
@@ -2113,25 +2175,28 @@ class SigenergyFlowCard extends HTMLElement {
         this._text('gridLabel', this.config.show_grid_voltage ? this._gridLabel(phases) : '');
         const phase = this._hass.states[e('phase_mode')]?.state;
         this._text('phaseMode', !this.config.show_phase_mode ? '' : phase === 'on' ? 'Power Per Phase Mode' : phase === 'off' ? 'Total Power Mode' : '');
-        const acTotal = kw('ac_charger_total_energy');
-        this._text('acTotal', !this.config.show_lifetime || acTotal === null ? '' : `${this._kwh(acTotal)} consumed`);
         this._parts('dcLifetime', !this.config.show_lifetime ? [] : this._lifetime(kw('dc_charger_lifetime_charged_energy'), kw('dc_charger_lifetime_discharged_energy')));
         this._text('ac', this._power(ac));
+        this._text('ac2', this._power(ac2));
         this._text('dc', this._power(dc));
         // ac_charger_soc / ac_charger_range at the top level are the original keys and still work.
         const carEntity = e('ac_charger_vehicle_soc') ?? (this.config.entities?.ac_charger_vehicle_soc === undefined ? this.config.ac_charger_soc : null)
           , rangeEntity = e('ac_charger_vehicle_range') ?? (this.config.entities?.ac_charger_vehicle_range === undefined ? this.config.ac_charger_range : null);
-        const car = carEntity ? n(carEntity) : null
-          , range = rangeEntity ? n(rangeEntity) : null
-          , dcsoc = n(e('dc_charger_vehicle_soc'));
         // Sigenergy Local Modbus 2.0 stores keys (charging, not_connected) that Home Assistant labels in the user's language;
         // otherwise the state is already the label.
-        const acEntity = this._hass.states[e('ac_charger_state')], acRaw = acEntity?.state
-          , acLabel = acEntity && this._hass.formatEntityState ? this._hass.formatEntityState(acEntity) : acRaw
-          , acState = acRaw && !['unknown', 'unavailable'].includes(acRaw) ? (acLabel && acLabel !== acRaw ? acLabel : acRaw.split('-')[0]) : '';
-        const rangeUnit = this._hass.states[rangeEntity]?.attributes?.unit_of_measurement || 'km';
-        const carText = !carEntity ? '' : car === null ? 'Vehicle SOC unavailable' : `${car.toFixed(0)}%${range === null ? '' : ` · ${range.toFixed(0)} ${rangeUnit}`}`;
-        this._parts('acSoc', [acState, carText]);
+        const acReadings = (id, suffix, carEntity, rangeEntity) => {
+            const entity = this._hass.states[e(`ac_charger_state${suffix}`)], raw = entity?.state
+              , label = entity && this._hass.formatEntityState ? this._hass.formatEntityState(entity) : raw
+              , state = raw && !['unknown', 'unavailable'].includes(raw) ? (label && label !== raw ? label : raw.split('-')[0]) : '';
+            const car = carEntity ? n(carEntity) : null, range = rangeEntity ? n(rangeEntity) : null
+              , unit = this._hass.states[rangeEntity]?.attributes?.unit_of_measurement || 'km';
+            this._parts(`${id}Soc`, [state, !carEntity ? '' : car === null ? 'Vehicle SOC unavailable' : `${car.toFixed(0)}%${range === null ? '' : ` · ${range.toFixed(0)} ${unit}`}`]);
+            const total = kw(`ac_charger_total_energy${suffix}`);
+            this._text(`${id}Total`, !this.config.show_lifetime || total === null ? '' : `${this._kwh(total)} consumed`);
+        };
+        acReadings('ac', '', carEntity, rangeEntity);
+        acReadings('ac2', '_2', e('ac_charger_vehicle_soc_2'), e('ac_charger_vehicle_range_2'));
+        const dcsoc = n(e('dc_charger_vehicle_soc'));
         // The inverter reports 0% with no DC vehicle attached; a genuine 0% while charging is still shown.
         // Negative DC power is the vehicle supplying the house.
         const dcState = dc === null ? '' : dc > 0.025 ? 'Charging' : dc < -0.025 ? 'Discharging' : '';
@@ -2477,7 +2542,7 @@ class SigenergyFlowCard extends HTMLElement {
         const pick = defs => defs.map(def => {
             if (!def.key) return 'residual';
             // Solar without its own counter would be the third-party inverter's alone, so it is left out instead.
-            const ids = def.third ? this._pvSources(def.key, def.third, true) : [this._ent(def.key)];
+            const ids = def.third ? this._pvSources(def.key, def.third, true) : def.key === 'stat_evac_charge' ? this._evacSources() : [this._ent(def.key)];
             return this._has(ids[0]) ? [...new Set(ids.filter(id => this._has(id)))] : null;
         });
         const sourceIds = pick(STAT_SOURCES), sinkIds = pick(STAT_SINKS);
@@ -2795,9 +2860,8 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('legendPower').hidden = false;
         this._id('legendBars').hidden = true;
         const balance = this._homeFromBalance();
-        const specs = CHART_SERIES.map(s => ({ ...s, id: this._ent(s.key) }))
-            .filter(s => s.id && (!s.optional || this._has(s.id)) && !(balance && s.key === 'home_power'));
-        const ids = specs.map(s => s.id);
+        const specs = this._chartSpecs().filter(s => !(balance && s.key === 'home_power'));
+        const ids = [...specs.map(s => s.id), ...specs.map(s => s.also).filter(Boolean)];
         this._text('chartTitle', past ? 'Power metrics' : 'Power metrics · Today');
         try {
             const [from, to] = past ? [past.start, past.end] : [];
@@ -2819,6 +2883,12 @@ class SigenergyFlowCard extends HTMLElement {
         }
         this._id('chartBusy').hidden = true;
         this._updateSunTimes();
+    }
+    // The power metrics' series: EVAC sums the second AC charger's power, [also], into the first's.
+    _chartSpecs() {
+        const second = this._ent('ac_charger_power_2');
+        return CHART_SERIES.map(s => ({ ...s, id: this._ent(s.key), ...(s.key === 'ac_charger_power' && this._has(second) ? { also: second } : {}) }))
+            .filter(s => s.id && (!s.optional || this._has(s.id)));
     }
     _series(data, ids) {
         const rows = new Map((data || []).filter(a => a?.length).map(a => [a[0].entity_id, a]));
@@ -2842,6 +2912,13 @@ class SigenergyFlowCard extends HTMLElement {
             name: specs[i].name,
             note: notes[specs[i].name]
         };
+        });
+        specs.forEach((spec, i) => {
+            if (!spec.also) return;
+            const [extra] = this._series(data, [spec.also]), k = this._chartFactor({ ...spec, id: spec.also }), own = series[i].points;
+            if (!extra.length) return;
+            const times = [...new Set([...own, ...extra].map(p => p.t))].sort((a, b) => a - b);
+            series[i].points = times.map(t => ({ t, v: (this._valueAt(own, t) ?? 0) + (this._valueAt(extra, t) ?? 0) * k }));
         });
         // With home_includes_ac_charger, Home is the home series less the AC charger's, at each of their times.
         if (this._homeLessCharger()) {
@@ -2931,10 +3008,11 @@ class SigenergyFlowCard extends HTMLElement {
         }
         const spec = key => ({ ...CHART_SERIES.find(s => s.key === key), id: this._ent(key) });
         const specs = ['pv_power', 'home_power'].map(spec).filter(spec => this._has(spec.id));
-        // With home_includes_ac_charger, the home's averages less the AC charger's.
-        const charger = this._homeLessCharger() && specs.some(spec => spec.key === 'home_power') ? spec('ac_charger_power') : null;
+        // With home_includes_ac_charger, the home's averages less the AC chargers'.
+        const acSpecs = [spec('ac_charger_power'), { ...spec('ac_charger_power'), id: this._ent('ac_charger_power_2') }].filter(spec => this._has(spec.id));
+        const chargers = this._homeLessCharger() && specs.some(spec => spec.key === 'home_power') ? acSpecs : [];
         // Without a home entity, the home's forecast is the balance of the other flows' averages.
-        const parts = this._homeFromBalance() ? ['pv_power', 'grid_import_power', 'grid_export_power', 'battery_power', 'ac_charger_power', 'dc_charger_power'].map(spec).filter(spec => this._has(spec.id)) : [];
+        const parts = this._homeFromBalance() ? [...['pv_power', 'grid_import_power', 'grid_export_power', 'battery_power', 'dc_charger_power'].map(spec).filter(spec => this._has(spec.id)), ...acSpecs] : [];
         // Today's points from now on, starting with the value at now so the line joins the recorded one.
         const ahead = points => {
             const at = this._valueAt(points, now), rest = points.filter(p => p.t > now && p.t <= end);
@@ -2957,7 +3035,7 @@ class SigenergyFlowCard extends HTMLElement {
             }
         }
         let history = {}, slot = 300e3;
-        const ids = [...new Set([...specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power')), ...parts.map(spec => spec.id), ...(charger ? [charger.id] : [])])];
+        const ids = [...new Set([...specs.map(spec => spec.id).filter((id, i) => !(solar && specs[i].key === 'pv_power')), ...parts.map(spec => spec.id), ...chargers.map(spec => spec.id)])];
         if (ids.length) {
             const from = zoneDate(zone, day.y, day.m, day.d - 7);
             const fetch = period => this._statistics(ids, from, today, period, ['mean']).catch(() => ({}));
@@ -2982,8 +3060,9 @@ class SigenergyFlowCard extends HTMLElement {
                 .map(([minute, [total, count]]) => ({ t: zoneDate(zone, day.y, day.m, day.d, Math.floor(minute / 60)).getTime() + (minute % 60) * 60e3 + slot / 2, v: total / count }));
         };
         let homeDay = specs.some(spec => spec.key === 'home_power') ? profile(spec('home_power')) : [];
-        if (charger) {
-            const ev = new Map(profile(charger).map(p => [p.t, p.v]));
+        if (chargers.length) {
+            const ev = new Map();
+            for (const charger of chargers) for (const p of profile(charger)) ev.set(p.t, (ev.get(p.t) ?? 0) + p.v);
             homeDay = homeDay.map(p => ({ t: p.t, v: Math.min(0, p.v - Math.min(0, ev.get(p.t) ?? 0)) }));
         }
         let series = specs.map(spec => {
@@ -3024,8 +3103,9 @@ class SigenergyFlowCard extends HTMLElement {
                 if (home !== null) live.series[i].points.push({ t, v: -home });
                 return;
             }
-            const v = this._num(spec.id);
-            if (v !== null) live.series[i].points.push({ t, v: v * this._chartFactor(spec) });
+            const v = this._num(spec.id), extra = spec.also ? this._num(spec.also) : null;
+            if (v !== null || extra !== null)
+                live.series[i].points.push({ t, v: (v ?? 0) * this._chartFactor(spec) + (extra === null ? 0 : extra * this._chartFactor({ ...spec, id: spec.also })) });
         });
         const home = live.home && this._homePower();
         if (home !== null && home !== undefined && live.home) live.home.points.push({ t, v: -home });
