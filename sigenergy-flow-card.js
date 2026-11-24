@@ -2136,7 +2136,7 @@ class SigenergyFlowCard extends HTMLElement {
           }
           , acCar = AC_CONNECTED.has(reads('ac_charger_state')) || ac > 0.025
           // The DC charger reads the vehicle's SOC for as long as its gun is in, charging or not (0 without a vehicle).
-          , dcCar = DC_CONNECTED.has(dcStateKey(reads('dc_charger_state'))) || Math.abs(dc ?? 0) > 0.025 || n(e('dc_charger_vehicle_soc')) > 0
+          , dcCar = hasDc && (DC_CONNECTED.has(dcStateKey(reads('dc_charger_state'))) || Math.abs(dc ?? 0) > 0.025 || n(e('dc_charger_vehicle_soc')) > 0)
           , car2 = hasAc2 ? AC_CONNECTED.has(reads('ac_charger_state_2')) || ac2 > 0.025 : dcCar
           , { garage } = this.config, double = garage === 'double' || (garage === 'auto' && hasAc && (hasAc2 || hasDc));
         // `garage: auto` is the double garage while there are two chargers, a bay for each one's car.
@@ -2150,7 +2150,7 @@ class SigenergyFlowCard extends HTMLElement {
         // Its light glows, pulsing, while the charger has power (either way for DC) or reads Charging (or Discharging).
         const acOn = ac > 0.025 || reads('ac_charger_state') === 'charging'
           , on2 = hasAc2 ? ac2 > 0.025 || reads('ac_charger_state_2') === 'charging'
-              : Math.abs(dc ?? 0) > 0.025 || ['charging', 'discharging'].includes(dcStateKey(reads('dc_charger_state')));
+              : hasDc && (Math.abs(dc ?? 0) > 0.025 || ['charging', 'discharging'].includes(dcStateKey(reads('dc_charger_state'))));
         this._chargingNow = [acOn || (!double && on2), double && on2];
         this._showCars();
         const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
