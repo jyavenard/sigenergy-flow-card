@@ -2,6 +2,16 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v80
+
+- The SigenStor dialog shows two battery round trip calculations:
+  1. **(AC)** is what you get back for what you put in, inverter included. It is lower than the DC figure, mostly because of the inverter's own consumption. That weighs most on a low-power discharge at night. Hours without the inverter's statistics are left out and marked ⚠.
+  2. **(DC)** is the battery alone, as v79 showed it. It is typically in the high 90s.
+- The dialog's summary shows the inverter's AC output, and where its intake comes from: solar DC, the battery, a car on the DC charger (V2X), or AC drawn. Several can feed it at once.
+- The summary and the efficiency beside SigenStor show the current readings, like the battery's power. They were 5-minute means. The chart still shows 5-minute means, as its heading says.
+- The chart's tip shows the 5-minute period under the pointer, e.g. 11:30–11:35. It used to show an interpolated value for every minute. It also lists the intake's solar DC and the car's V2X. A negative loss, when readings are briefly out of step, is labelled.
+- The chart's tip no longer shows a value in a gap or after a line ends. Overnight, it kept showing the strings' last few watts and the efficiency's last value.
+
 ## v79
 
 - Tapping SigenStor opens a **SigenStor** dialog ([#28](https://github.com/jyavenard/sigenergy-flow-card/issues/28)). It shows the battery's power and state of charge, the inverter's intake, loss and efficiency, and the battery's round trip over the last 30 days (from the lifetime counters, less the energy it gained; days without statistics are left out and marked ⚠). Its chart draws the last 24 hours as 5-minute means: the inverter's intake, its AC power (output, or drawn from the house and grid), the battery, the DC charger when it ran, the loss, and the efficiency on a right-hand axis; at any time the intake is the AC output plus what charges the battery and the vehicle plus the loss. Today's state of charge chart, which the percentage beside SigenStor used to open on its own, follows.
