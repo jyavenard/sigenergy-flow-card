@@ -1445,9 +1445,9 @@ class SigenergyFlowCard extends HTMLElement {
     // cut-off SOC; while discharging, to its Backup SOC on grid (where it stops then) and to its discharge cut-off SOC off
     // grid (battery_remaining_target: auto), or always to one of them. While idle, it is how long the battery would run
     // the home in a power cut, down to its discharge cut-off SOC (its Backup SOC with backup_soc): the home's consumption
-    // plus the base load learnt by _learnOverhead, and nothing until it has been learnt. Empty when unknown, at the limit
-    // or 100 hours or more. Without the cut-off
-    // entities, it counts to 100% and 0%; without the backup one, to the discharge cut-off.
+    // plus the base load learnt by _learnOverhead, and nothing until it has been learnt. Empty when unknown or at the
+    // limit; "over 99h" from 100 hours. Without the cut-off entities, it counts to 100% and 0%; without the backup one,
+    // to the discharge cut-off. No-break spaces keep it on one line.
     _batteryRemaining(bat, soc, home) {
         const cap = this._scaled(this._ent('battery_capacity'));
         if (bat === null || soc === null || cap === null) return '';
@@ -1461,7 +1461,9 @@ class SigenergyFlowCard extends HTMLElement {
         const reserve = backup !== null && backup > cutOff && (mode === 'backup_soc' || (mode === 'auto' && !idle && !offGrid));
         const target = charging ? level('battery_charge_cut_off_soc') ?? 100 : reserve ? backup : cutOff;
         const minutes = Math.round((charging ? target - soc : soc - target) / 100 * cap / power * 60);
-        return minutes > 0 && minutes < 6000 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m to\u00A0${+target.toFixed(1)}%` : '';
+        if (!(minutes > 0)) return '';
+        const time = minutes < 6000 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m` : 'over\u00A099h';
+        return `${time}\u00A0to\u00A0${+target.toFixed(1)}%`;
     }
     // While the battery alone supplies the home (discharging, with no solar, grid or charger flow), what it supplies
     // beyond the home's consumption is the base load of the inverters and the system. A running average of it, in kW, is

@@ -120,6 +120,7 @@ Under SigenStor, the card shows how long the battery lasts at the current power,
 - While charging, it counts to the charge cut-off SOC.
 - While discharging on grid, it counts to the Backup SOC, where the battery stops discharging.
 - While discharging off grid, it counts to the discharge cut-off SOC. `battery_remaining_target` changes this.
+- From 100 hours, it shows "over 99h".
 - While idle, it shows how long the battery would run the home in a power cut, down to the discharge cut-off SOC. That is the home's consumption plus the system's own base load. The card learns the base load while the battery alone supplies the home, typically at night, and keeps it in the browser. Until it has learnt it, idle shows no time.
 - Without the cut-off and backup SOC entities, it counts to 100% and 0%. Sigenergy Local Modbus disables them by default. Enable **Charge Cut-Off SOC**, **Discharge Cut-Off SOC** and **ESS Backup State of Charge**. sigenergy2mqtt enables its own.
 
