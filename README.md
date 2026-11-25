@@ -54,6 +54,10 @@ Tapping the stored energy under **Battery level**:
 
 ![Desktop battery energy](docs/screenshots/desktop-energy.png)
 
+Tapping **SigenStor**:
+
+![Desktop SigenStor details](docs/screenshots/desktop-battery.png)
+
 ### iPhone (portrait)
 
 <table>
@@ -65,6 +69,7 @@ Tapping the stored energy under **Battery level**:
     <th>GRID</th>
     <th>HOME</th>
     <th>Battery energy</th>
+    <th>SigenStor</th>
   </tr>
   <tr>
     <td><img src="docs/screenshots/iphone-main.png" alt="iPhone main view" width="200"></td>
@@ -74,6 +79,7 @@ Tapping the stored energy under **Battery level**:
     <td valign="top"><img src="docs/screenshots/iphone-grid.png" alt="iPhone grid details" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-home.png" alt="iPhone home power usage" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-energy.png" alt="iPhone battery energy" width="200"></td>
+    <td valign="top"><img src="docs/screenshots/iphone-battery.png" alt="iPhone SigenStor details" width="200"></td>
   </tr>
 </table>
 
@@ -109,6 +115,7 @@ Between sunset and sunrise (or with `style: night`) the card switches to the nig
 - Power metrics chart of the day, its time axis running from midnight to midnight as in Sigenergy's app and its lines up to now, with sunrise and sunset times for your Home Assistant location. As in Sigenergy's app, power supplied (solar, battery discharging, grid import) is plotted above zero and power consumed (home, battery charging, grid export, EV charging) below. Hover (or tap) the chart to see every value at that time. The rest of the day shows a dashed solar and home forecast (see [Forecast](#forecast)). A previous day shows its recorded history, midnight to midnight, without the forecast; beyond the recorder's history (10 days by default), the hourly averages from the long-term statistics, marked **Hourly averages**.
 - For a week, month, year or the lifetime, the chart becomes **Energy metrics**: a bar per day, month or year, with the energy supplied (solar, battery discharged, EVDC discharged, imported) stacked above zero and consumed (battery charged, EVDC charged, exported, load, EVAC charged) below, from the same lifetime counters as the Energy statistics diagram. Hover (or tap) a bar for its figures. In the current week or month, dashed bars add the solar and home forecast: the rest of today on today's bar, and the days ahead that Home Assistant's solar forecast covers (Forecast.Solar gives tomorrow), each with the home's average day over the last 7 days. Sigenergy's app also forecasts the battery and grid; Home Assistant has no such forecast, so the card doesn't show one. `show_forecast: false` hides them.
 - Tap **SOLAR** for per-string PV details (voltage, current, power, today's and lifetime production) and a chart of each string's power today. The strings' lifetime energy is counted by the integration from their power and can miss production; the **Total** is the inverter's own counter, and a note shows when the strings don't add up to it.
+- Tap **SigenStor** for the battery's power, the inverter's loss and efficiency over the last 24 hours, the battery's round trip and its state of charge today (see [Inverter efficiency](#inverter-efficiency)).
 - Tap **HOME** for a live breakdown of power usage across the entities you list, sorted from highest to lowest.
 - Tap **DC CHARGER** to adjust the DC charger's maximum charging power.
 - The **Energy statistics** diagram of where the period's energy came from and went (see [Energy statistics](#energy-statistics)).
@@ -185,6 +192,7 @@ All options are optional.
 | `name` | `My Home` | Second part of the heading (your home's name). An empty value hides that part. |
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
+| `show_inverter_efficiency` | `false` | Show the inverter's efficiency beside SigenStor's power, e.g. **553 W (η 68%)** (see [Inverter efficiency](#inverter-efficiency)). |
 | `battery_remaining_target` | `auto` | The SOC the battery's remaining time counts down to while discharging: `auto` the Backup SOC on grid and the discharge cut-off SOC off grid (by `grid_status`; on grid without it); `backup_soc` always the Backup SOC (also for the idle power-cut estimate); `discharge_cut_off_soc` always the discharge cut-off SOC. |
 | `home_includes_ac_charger` | `false` | `home_power` includes the AC charger (and the second one, if any), e.g. a third-party one: HOME, its chart line and its forecast deduct the charger's power (see [A third-party charger](#a-third-party-charger)). |
 | `car_shown` | `auto` | Show the car in the garage: `auto` while it charges, `true` always, `false` never, or a `binary_sensor` entity: while it is on, or a `device_tracker`: while it is home (see [AC and DC chargers](#ac-and-dc-chargers)). |
@@ -336,6 +344,8 @@ Power values can be in W, kW or MW and energy values in Wh, kWh or MWh; the card
 | `third_party_pv_power` | `sensor.sigen_plant_third_party_pv_power` | PV Strings **Third-party PV** row and chart line |
 | `third_party_pv_daily_energy` | `sensor.sigen_plant_daily_third_party_inverter_energy` | PV Strings **Third-party PV** row (Today); added to a Sigenergy-only `daily_pv_energy` default |
 | `third_party_pv_lifetime_energy` | `sensor.sigen_plant_total_generation_of_third_party_inverter` | PV Strings **Third-party PV** row (Lifetime); added to a Sigenergy-only `stat_pv` default |
+| `inverter_active_power` | `sensor.sigen_inverter_active_power` | The first inverter's AC power, for its loss and efficiency (see [Inverter efficiency](#inverter-efficiency)) |
+| `inverter_loss_power` | none (computed) | The first inverter's loss, when an entity gives it; otherwise the card computes it |
 | `daily_pv_energy` | `sensor.sigen_plant_daily_pv_energy`, fallback `sensor.sigen_inverter_daily_pv_energy` (the Sigenergy PV, plus `third_party_pv_daily_energy`) | Solar produced tile, PV Strings **Total** (Today): all PV, the third-party inverter's included |
 | `daily_grid_import_energy` | `sensor.sigen_plant_daily_grid_import_energy` | Grid imported tile |
 | `daily_grid_export_energy` | `sensor.sigen_plant_daily_grid_export_energy` | Grid exported tile |
@@ -435,6 +445,8 @@ sigenergy_backend: sigenergy2mqtt
 | `third_party_pv_power` | `sensor.sigen_0_third_party_pv_power` |
 | `third_party_pv_daily_energy` | none |
 | `third_party_pv_lifetime_energy` | `sensor.sigen_0_third_party_pv_lifetime_production`, fallback `sensor.sigen_0_si_total_third_party_pv_generation` |
+| `inverter_active_power` | `sensor.sigen_0_inverter_1_active_power` |
+| `inverter_loss_power` | `sensor.sigen_0_inverter_1_self_consumed_power` |
 | `daily_pv_energy` | `sensor.sigen_0_total_daily_pv_energy`, fallback `sensor.sigen_0_daily_pv_energy`, then `sensor.sigen_0_inverter_1_daily_pv_energy` |
 | `daily_grid_import_energy` | `sensor.sigen_0_grid_sensor_daily_import_energy` |
 | `daily_grid_export_energy` | `sensor.sigen_0_grid_sensor_daily_export_energy` |
@@ -556,6 +568,18 @@ Tapping **GRID** shows, for each phase, the inverter's voltage, current and appa
 The phases shown are those whose voltage or grid power isn't 0 (a single-phase system can have phase B and C entities reading 0), or `grid_phases` when set. Without any phase entity, GRID can't be tapped.
 
 With `show_grid_voltage: true`, **GRID (231V)** shows the phases' average voltage, or the `grid_voltage` entity when set. In the narrow portrait layout, the voltage wraps below GRID.
+
+### Inverter efficiency
+
+Tapping **SigenStor** shows the battery's power, its state of charge, the inverter's intake, loss and efficiency, and the battery's round trip. The chart draws the last 24 hours as 5-minute means: the inverter's intake, its AC power (positive while it feeds the house and grid, negative while it draws from them), the battery and, when it ran, the DC charger (discharging above zero), and the loss, in kW on the left axis; and its efficiency, in % on the right axis. At any time, the intake is the AC output plus what charges the battery and the vehicle plus the loss.
+
+The loss is what the first inverter takes in on its DC side, from its PV strings and the battery (and a vehicle on the DC charger), less what it delivers: its AC power, the battery's charge and the DC charger's. Its efficiency is what it delivers over what it takes in. Sigenergy's own PV power figures (`pv_power`, `pv_strings_power`, and the PV energy counters) are measured after conversion, so they carry no loss: the card takes the strings' power (voltage × current, the `pv_strings` entities) instead. The loss includes the inverter's own consumption (fans, electronics and lights), which is about constant, so the efficiency drops at low power: a fixed 200 W is a third of a 600 W discharge. The PV string and AC power readings aren't sampled together, so single readings disagree while the sun moves: the efficiency shown beside SigenStor (with `show_inverter_efficiency: true`) and in the dialog is a 5-minute mean, and the chart draws 5-minute means. It is hidden below 20 W.
+
+The **whole-system efficiency** compares the loss with all that the system takes in: the PV strings and any third-party inverter, grid import, and battery and vehicle discharge. The **battery round trip** is what the battery discharged over what it charged, less the energy it gained, over the last 30 days, from the lifetime counters (`stat_battery_charge`, `stat_battery_discharge`) and the state of charge's first and last hourly means. Days without statistics are left out and marked ⚠.
+
+sigenergy2mqtt publishes the loss itself (**Self-Consumed Power**), which the card uses. With Sigenergy Local Modbus, the card computes it from `sensor.sigen_inverter_active_power` and the PV string power entities.
+
+By default only the first inverter is covered: its PV strings are the ones the card lists. With several inverters, set `inverter_active_power` to the plant's active power (`sensor.sigen_plant_plant_active_power`, or sigenergy2mqtt's `sensor.sigen_0_plant_active_power`, which is disabled by default) and list every inverter's strings in `pv_strings` with their `power` entities; with sigenergy2mqtt, also set `inverter_loss_power` to its plant-level `sensor.sigen_0_self_consumed_power`. `battery_power` already covers every battery.
 
 ### Electricity prices
 

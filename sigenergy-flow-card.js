@@ -127,6 +127,10 @@ const DEFAULT_ENTITIES = {
     third_party_pv_power: ['sensor.sigen_plant_third_party_pv_power'],
     third_party_pv_daily_energy: ['sensor.sigen_plant_daily_third_party_inverter_energy'],
     third_party_pv_lifetime_energy: ['sensor.sigen_plant_total_generation_of_third_party_inverter'],
+    // The first inverter's AC power and loss, for its efficiency. The loss is computed from its PV strings, the battery
+    // and that AC power when no entity gives it.
+    inverter_active_power: ['sensor.sigen_inverter_active_power'],
+    inverter_loss_power: [],
     daily_pv_energy: ['sensor.sigen_plant_daily_pv_energy', 'sensor.sigen_inverter_daily_pv_energy'],
     daily_grid_import_energy: ['sensor.sigen_plant_daily_grid_import_energy'],
     daily_grid_export_energy: ['sensor.sigen_plant_daily_grid_export_energy'],
@@ -195,6 +199,8 @@ const SIGENERGY2MQTT_ENTITIES = {
     third_party_pv_power: ['sensor.sigen_0_third_party_pv_power'],
     third_party_pv_daily_energy: [],
     third_party_pv_lifetime_energy: ['sensor.sigen_0_third_party_pv_lifetime_production', 'sensor.sigen_0_si_total_third_party_pv_generation'],
+    inverter_active_power: ['sensor.sigen_0_inverter_1_active_power'],
+    inverter_loss_power: ['sensor.sigen_0_inverter_1_self_consumed_power'],
     daily_pv_energy: ['sensor.sigen_0_total_daily_pv_energy', 'sensor.sigen_0_daily_pv_energy', 'sensor.sigen_0_inverter_1_daily_pv_energy'],
     daily_grid_import_energy: ['sensor.sigen_0_grid_sensor_daily_import_energy'],
     daily_grid_export_energy: ['sensor.sigen_0_grid_sensor_daily_export_energy'],
@@ -313,7 +319,7 @@ const STYLES = {
         'node-fg': '#edf3f6', 'node-sub': '#d0dade', 'node-em': '#a5ecd9', 'node-shadow': '0 1px 2px #000,0 2px 10px #000c', 'leader': 'rgba(225,234,236,.55)',
         'wire-on': 'rgba(99,214,193,.85)', 'comet': '#8ff5e1',
         'c-solar': '#ead66c', 'c-battery': '#69d4d1', 'c-grid': '#8d8bff', 'c-ac': '#efa66a', 'c-dc': '#c28aff', 'c-home': '#c7d8df',
-        'sk-evdc': '#f0b44c', 'sk-evac': '#d9726a', 'sk-load': '#9a6cf0',
+        'sk-evdc': '#f0b44c', 'sk-evac': '#d9726a', 'sk-load': '#9a6cf0', 'c-loss': '#f07a7a', 'c-eff': '#e58bd0',
         'pv0': '#6bd36b', 'pv1': '#5fd4dc', 'pv2': '#6a78f0', 'pv3': '#a868f0', 'pv4': '#efa66a', 'pv5': '#ead66c', 'pv-third': '#c9ced6',
     },
     day: {
@@ -325,7 +331,7 @@ const STYLES = {
         'node-fg': '#fff', 'node-sub': '#f2f6f8', 'node-em': '#c4f6ea', 'node-shadow': '0 0 2px #000c,0 1px 3px #000,0 2px 10px #000d', 'leader': 'rgba(255,255,255,.7)',
         'wire-on': 'rgba(18,184,166,.9)', 'comet': '#5eead4',
         'c-solar': '#e2a900', 'c-battery': '#14b3ac', 'c-grid': '#6f6df2', 'c-ac': '#ea8a3c', 'c-dc': '#a35ff0', 'c-home': '#6b7f8c',
-        'sk-evdc': '#e39a1b', 'sk-evac': '#d4584f', 'sk-load': '#7f4ee0',
+        'sk-evdc': '#e39a1b', 'sk-evac': '#d4584f', 'sk-load': '#7f4ee0', 'c-loss': '#d9483f', 'c-eff': '#c2479f',
         'pv0': '#3fb83f', 'pv1': '#14b5c0', 'pv2': '#5465e8', 'pv3': '#9b52e8', 'pv4': '#ea8a3c', 'pv5': '#e2a900', 'pv-third': '#7d8796',
     },
 };
@@ -570,6 +576,7 @@ class SigenergyFlowCard extends HTMLElement {
             throw new Error(`Unknown battery_remaining_target "${config.battery_remaining_target}". Valid values: auto, backup_soc, discharge_cut_off_soc`);
         if (config.home_includes_ac_charger !== undefined && typeof config.home_includes_ac_charger !== 'boolean') throw new Error('home_includes_ac_charger must be true or false');
         if (config.weather_scene !== undefined && typeof config.weather_scene !== 'boolean') throw new Error('weather_scene must be true or false');
+        if (config.show_inverter_efficiency !== undefined && typeof config.show_inverter_efficiency !== 'boolean') throw new Error('show_inverter_efficiency must be true or false');
         if (config.home_entities !== undefined && config.home_entities !== false && config.home_entities !== null && !Array.isArray(config.home_entities)) throw new Error('home_entities must be a list of entities or false');
         this.config = {
             pv_strings: ['PV1', 'PV2', 'PV3', 'PV4'],
@@ -578,6 +585,7 @@ class SigenergyFlowCard extends HTMLElement {
             show_lifetime: true,
             show_phase_mode: false,
             show_grid_voltage: false,
+            show_inverter_efficiency: false,
             home_includes_ac_charger: false,
             battery_remaining_target: 'auto',
             garage: 'auto',
@@ -688,7 +696,7 @@ class SigenergyFlowCard extends HTMLElement {
         <div class="node lead" style="${placeAt(READINGS.pv)}"><button id="pvButton" title="Show PV string details"><strong id="pv">—</strong><small>SOLAR ›</small></button></div>
         <div class="node lead" style="${placeAt(READINGS.home)}"><button id="homeButton" title="Show home power usage" disabled><strong id="home">—</strong><small>HOME<span id="homeMore" hidden> ›</span></small></button></div>
         <div class="lower" style="${lowerStyle}">
-          ${battery ? '<div class="node"><strong id="battery">—</strong><small>SigenStor · <button id="socButton" title="Show battery level history"><span id="soc">—</span></button></small><em id="battStatus"></em></div>' : ''}
+          ${battery ? '<div class="node"><button id="batteryButton" title="Show SigenStor details"><strong><span id="battery">—</span><span class="eff" id="batteryEff" hidden></span></strong><small>SigenStor · <span id="soc">—</span> ›</small></button><em id="battStatus"></em></div>' : ''}
           <div class="node"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
         </div>
         <div class="sidecol" id="chargers">
@@ -735,10 +743,21 @@ class SigenergyFlowCard extends HTMLElement {
       <section class="panel"><div class="charthead"><h3>Stored energy (kWh) · Today</h3><span class="muted" id="energyChartStatus"></span></div>
       <div class="chart-wrap"><svg id="energyChart"></svg><div class="tip" id="energyChartTip" hidden></div></div></section>
     </div></dialog>`,
-            socDialog: `
-    <dialog id="socDialog" aria-labelledby="socTitle"><div class="dlg">
-      ${head('soc', 'Battery level')}
-      <section class="panel"><div class="home-total"><span>State of charge</span><b id="socNow">—</b></div></section>
+            batteryDialog: `
+    <dialog id="batteryDialog" aria-labelledby="batteryTitle"><div class="dlg">
+      ${head('battery', 'SigenStor')}
+      <section class="panel"><div class="home-total"><span>Battery power</span><b id="batteryNow">—</b></div>
+      <div class="effrows"><div><span>State of charge</span><b id="socNow">—</b></div>
+      <div id="invIntakeRow"><span>Inverter intake</span><b id="invIntakeNow">—</b></div>
+      <div id="invLossRow"><span>Inverter loss</span><b id="invLossNow">—</b></div>
+      <div id="invEffRow"><span>Inverter efficiency</span><b id="invEffNow">—</b></div>
+      <div id="sysEffRow"><span>Whole-system efficiency</span><b id="sysEffNow">—</b></div>
+      <div id="tripRow"><span id="tripLabel">Battery round trip</span><b id="tripNow">—</b></div></div>
+      <div class="muted" id="invNote">The first inverter. Its intake (the PV strings, the battery, or AC drawn to charge) goes to its AC output, the battery and the DC charger; the rest is its loss. 5-minute means.</div>
+      <div class="muted" id="tripGap" hidden></div></section>
+      <section class="panel" id="invPanel"><div class="charthead"><h3>Inverter</h3><span class="muted" id="invChartStatus"></span></div>
+      <div class="legend"><span><i class="dot" style="background:var(--c-solar)"></i>Intake (kW)</span><span><i class="dot" style="background:var(--c-home)"></i>AC (kW)</span><span><i class="dot" style="background:var(--c-battery)"></i>Battery (kW)</span><span id="invLegendDc" hidden><i class="dot" style="background:var(--c-dc)"></i>EVDC (kW)</span><span><i class="dot" style="background:var(--c-loss)"></i>Loss (kW)</span><span><i class="dot" style="background:var(--c-eff)"></i>Efficiency (%)</span></div>
+      <div class="chart-wrap"><svg id="invChart"></svg><div class="tip" id="invChartTip" hidden></div></div></section>
       <section class="panel"><div class="charthead"><h3>State of charge (%) · Today</h3><span class="muted" id="socChartStatus"></span></div>
       <div class="chart-wrap"><svg id="socChart"></svg><div class="tip" id="socChartTip" hidden></div></div></section>
     </div></dialog>`,
@@ -775,7 +794,7 @@ class SigenergyFlowCard extends HTMLElement {
             metrics: () => header(`<span id="heading"></span><span id="chartTitle"${this.config.title ? ' hidden' : ''}>Power metrics · Today</span>${more}`, '<div class="sub" id="chartStatus">Loading history…</div>') + metrics,
             sankey: () => header(`<span id="heading"></span>${more}<button class="gap" id="statGap" title="Missing data" hidden>⚠</button>`, '<div class="sub" id="statStatus">Loading…</div>') + sankey,
         }[part]();
-        const dialogIds = !solo ? Object.keys(dialogs) : { scene: ['pvDialog', 'gridDialog', 'socDialog', 'homeDialog'], battery: ['energyDialog'], tiles: ['forecastDialog'] }[part] ?? [];
+        const dialogIds = !solo ? Object.keys(dialogs) : { scene: ['pvDialog', 'gridDialog', 'batteryDialog', 'homeDialog'], battery: ['energyDialog'], tiles: ['forecastDialog'] }[part] ?? [];
         this.shadowRoot.innerHTML = `<style>
       :host{display:block;color:var(--fg);font-family:Roboto,Arial,sans-serif;${styleVars('night')}}
       :host([light]){${styleVars('day')}}
@@ -817,7 +836,7 @@ class SigenergyFlowCard extends HTMLElement {
       .narrow #chargers.inrow .node{max-width:calc(${READINGS.lower.left - 24 - READINGS.chargers[1]}px * var(--s))}
       .lower{position:absolute;z-index:2;display:grid;align-items:start}.lower .node{position:static}.lower>.node:first-child{min-width:0;padding-right:calc(12px * var(--s))}.lower>.node:first-child em{white-space:normal}
       .sidecol .node{position:static;border-left:1px solid var(--leader);padding-left:max(6px,calc(10px * var(--s)))}
-      .node button{all:unset;cursor:pointer;display:block}.node button[disabled]{cursor:default}.nobreak{white-space:nowrap}.narrow #gridButton small{white-space:normal}.node small button{display:inline}.node button:focus-visible{outline:2px solid #71d3d1}
+      .node button{all:unset;cursor:pointer;display:block}.node button[disabled]{cursor:default}.nobreak{white-space:nowrap}.narrow #gridButton small{white-space:normal}.node strong .eff{font-size:.55em;font-weight:500;margin-left:.35em}.node button:focus-visible{outline:2px solid #71d3d1}
       .sidebar{display:flex;flex-direction:column;gap:12px}.panel{background:var(--panel);border:1px solid var(--panel-line);border-radius:12px;padding:13px}
       .panel h3{margin:0 0 11px;font-size:14px;font-weight:600;color:var(--heading)}
       /* Each row of tiles is five tracks: space, label, value, notes, space, then the gap to the next row. The tiles share
@@ -841,7 +860,7 @@ class SigenergyFlowCard extends HTMLElement {
       .statpanel pre{user-select:text;-webkit-user-select:text;white-space:pre-wrap;font-family:inherit;font-size:12px;margin:10px 0 0}
       .statcards{display:flex;flex-wrap:wrap;gap:9px}.statcard{flex:1 1 140px;box-sizing:border-box;background:var(--tile);border-radius:10px;padding:10px 12px}.statcard b{font-size:18px;display:block}.statcard span{font-size:13px;color:var(--tile-sub);display:block}
       .chartpanel{margin-top:14px}.charthead{display:flex;justify-content:space-between;align-items:center}.legend{font-size:11px;color:var(--legend)}
-      .legend span{margin-right:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.dash{display:inline-block;width:14px;border-top:2px dashed var(--legend);vertical-align:middle;margin-right:4px}
+      .legend span{margin-right:12px}#invPanel .legend span{white-space:nowrap}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.dash{display:inline-block;width:14px;border-top:2px dashed var(--legend);vertical-align:middle;margin-right:4px}
       .sun-times{display:flex;justify-content:space-between;gap:12px;margin-top:10px;padding:10px 15px;border-radius:24px;background:var(--pill);color:var(--pill-fg);font-size:12px}
       #chart,#pvChart{width:100%;height:170px;display:block;touch-action:pan-y}.muted{color:var(--muted);font-size:12px}
       .chart-wrap{position:relative}.gap{all:unset;cursor:pointer;color:#e0a030;margin-left:4px}.gap[hidden]{display:none}.note{position:fixed;z-index:20;max-width:270px;background:var(--tip);color:inherit;border:1px solid var(--tip-line);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.45;box-shadow:0 6px 18px var(--tip-shadow)}.note[hidden]{display:none}.tip .gaptip{color:#d08a16;white-space:normal;max-width:250px}.busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}.busy[hidden]{display:none}.busy::after{content:'';width:22px;height:22px;border:2.5px solid var(--grid);border-top-color:var(--axis);border-radius:50%;animation:busy .8s linear infinite}@keyframes busy{to{transform:rotate(360deg)}}.led{animation:led 1.8s ease-in-out infinite}@keyframes led{0%,100%{opacity:.35}50%{opacity:1}}@media (prefers-reduced-motion:reduce){.led{animation:none}}
@@ -873,6 +892,7 @@ class SigenergyFlowCard extends HTMLElement {
       .homewarn{color:#d08a16;font-size:12px;margin-top:6px}.homewarn[hidden]{display:none}
       .load.other{cursor:default;background:transparent;border:1px dashed var(--other-line)}.load.other .bar i{background:var(--other-fill)}
       .home-total{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--icon)}.home-total b{font-size:22px;color:var(--fg)}
+      .effrows{display:grid;gap:6px;margin:10px 0 8px}.effrows>div{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--icon)}.effrows b{color:var(--fg);font-weight:600}
       .frame{container-type:inline-size}
       @container (max-width:800px){.layout{grid-template-columns:1fr}}
       @container (max-width:680px){.header{grid-template-areas:'title stamp' 'bar bar'}.statbar{justify-content:space-between;margin-top:8px}}
@@ -920,7 +940,7 @@ class SigenergyFlowCard extends HTMLElement {
             ['gridButton', 'gridDialog', () => { this._updateGrid(); this._loadGridHistory(); }],
             ['homeButton', 'homeDialog', () => this._updateHome()],
             ['capacity', 'energyDialog', () => { this._updateEnergy(); this._loadEnergyHistory(); }],
-            ['socButton', 'socDialog', () => { this._updateSoc(); this._loadSocHistory(); }],
+            ['batteryButton', 'batteryDialog', () => { this._updateBatteryDialog(); this._loadInverterHistory(); this._loadSocHistory(); this._loadRoundTrip(); }],
             ['forecastStat', 'forecastDialog', () => { this._updateForecastDialog(); this._loadForecastChart(); }],
         ]) if (this._id(id)) this._id(button)?.addEventListener('click', () => { this._id(id).showModal(); show(); });
         for (const d of this.root.querySelectorAll('dialog')) {
@@ -969,7 +989,7 @@ class SigenergyFlowCard extends HTMLElement {
             this.dispatchEvent(new CustomEvent('hass-action', { bubbles: true, composed: true, detail: { config: { entity: tap.entity, tap_action: tap }, action: 'tap' } }));
         });
         this._observeCharts();
-        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['forecastChart', 'forecastChartTip']]) {
+        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['invChart', 'invChartTip'], ['forecastChart', 'forecastChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
             if (!svg) continue;
             const show = e => this._hoverChart(svg, box, e);
@@ -988,7 +1008,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartObserver = new ResizeObserver(entries => {
             for (const entry of entries) (entry.target._redraw ?? entry.target.fit)?.();
         });
-        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'forecastChart', 'statChart']) if (this._id(id)) this._chartObserver.observe(this._id(id));
+        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'invChart', 'forecastChart', 'statChart']) if (this._id(id)) this._chartObserver.observe(this._id(id));
         const scene = this._id('scene'), sidebar = this.root.querySelector('.sidebar');
         if (!scene) return;
         scene.fit = () => this._fitScene();
@@ -1501,6 +1521,89 @@ class SigenergyFlowCard extends HTMLElement {
         const pv = kw('pv_power'), bat = this.config.battery_present ? kw('battery_power') : 0, imp = kw('grid_import_power'), exp = kw('grid_export_power');
         if (pv === null || bat === null || (imp === null && exp === null)) return null;
         return Math.max(0, pv + (imp ?? 0) - (exp ?? 0) - bat * this._batterySign() - (this._acPower() ?? 0) - (kw('dc_charger_power') ?? 0));
+    }
+    // The first inverter's readings in kW: its PV strings' DC power, the battery and the DC charger (positive while
+    // charging) and its AC power (positive while feeding the AC side). [read] gives an entity's value in kW, by default
+    // its current one.
+    _inverterReadings(read = id => this._scaled(id)) {
+        const value = key => { const id = this._ent(key); return this._has(id) ? read(id) : null; };
+        const fitted = this._pv.filter(pv => PV_KEYS.some(key => this._has(pv[key])));
+        const strings = fitted.map(pv => this._has(pv.power) ? read(pv.power) : null);
+        const bat = this.config.battery_present ? value('battery_power') : 0;
+        return {
+            pv: fitted.length && !strings.includes(null) ? strings.reduce((a, b) => a + b, 0) : null,
+            bat: bat === null ? null : bat * this._batterySign(),
+            dc: value('dc_charger_power') ?? 0,
+            ac: value('inverter_active_power'),
+            loss: value('inverter_loss_power'),
+            third: value('third_party_pv_power') ?? 0,
+            imp: value('grid_import_power') ?? 0,
+            exp: value('grid_export_power') ?? 0,
+        };
+    }
+    // The inverter's loss and intake (the loss plus what it delivers to the AC side, the battery and the DC charger),
+    // and the whole system's intake: DC and third-party PV, grid import, battery and vehicle discharge.
+    _inverterFlows(r) {
+        if (r.bat === null || r.ac === null) return null;
+        const loss = r.loss ?? (r.pv === null ? null : r.pv - r.bat - r.dc - r.ac);
+        if (loss === null) return null;
+        const system = r.pv === null ? null : r.pv + r.third + Math.max(0, r.imp - r.exp) + Math.max(0, -r.bat) + Math.max(0, -r.dc);
+        return { loss, input: loss + Math.max(0, r.ac) + Math.max(0, r.bat) + Math.max(0, r.dc), system };
+    }
+    // Efficiencies from summed flows; none below 20 W of intake or with a negative loss.
+    _efficiencies({ loss, input, system }) {
+        const of = total => total === null || total < .02 || loss < 0 ? null : 1 - loss / total;
+        return { loss, input, eff: of(input), sysEff: of(system) };
+    }
+    // The inverter's flows averaged over the last 5 minutes, each reading held until the next: single readings disagree
+    // while the sun moves, as the inverter doesn't sample its registers together.
+    _inverterMean() {
+        const now = Date.now(), flows = this._inverterFlows(this._inverterReadings());
+        const samples = this._invSamples = (this._invSamples ?? []).filter(s => now - s.t < 300e3);
+        if (!flows) return null;
+        if (now - (samples.at(-1)?.t ?? 0) < 1e3) samples.pop();
+        samples.push({ t: now, ...flows });
+        const sum = { loss: 0, input: 0, system: 0, time: 0 };
+        samples.forEach((s, i) => {
+            const dt = i + 1 < samples.length ? samples[i + 1].t - s.t : 1e3;
+            sum.loss += s.loss * dt;
+            sum.input += s.input * dt;
+            sum.system = sum.system === null || s.system === null ? null : sum.system + s.system * dt;
+            sum.time += dt;
+        });
+        return this._efficiencies({ loss: sum.loss / sum.time, input: sum.input / sum.time, system: sum.system === null ? null : sum.system / sum.time });
+    }
+    // The inverter's flows, AC power, battery and DC charger by [size] from [start] to [end], from recorded states each
+    // held until the next.
+    _inverterBuckets(data, ids, start, end, size = 300e3) {
+        const points = new Map(this._series(data, ids).map((p, i) => [ids[i], p])), at = new Map(ids.map(id => [id, -1]));
+        const read = id => { const i = at.get(id) ?? -1; return i < 0 ? null : points.get(id)[i].v * this._factor(id); };
+        const times = [...new Set([...points.values()].flatMap(p => p.map(q => q.t)))].filter(t => t < end).sort((a, b) => a - b);
+        const buckets = [];
+        times.forEach((t, k) => {
+            for (const [id, p] of points) {
+                let i = at.get(id);
+                while (i + 1 < p.length && p[i + 1].t <= t) i++;
+                at.set(id, i);
+            }
+            const r = this._inverterReadings(read), flows = this._inverterFlows(r);
+            if (!flows) return;
+            for (let a = Math.max(t, start), b = Math.min(times[k + 1] ?? end, end); a < b;) {
+                const n = Math.floor((a - start) / size), edge = Math.min(b, start + (n + 1) * size), dt = edge - a;
+                const bucket = buckets[n] ??= { loss: 0, input: 0, system: 0, ac: 0, bat: 0, dc: 0, time: 0 };
+                bucket.ac += r.ac * dt;
+                bucket.bat += r.bat * dt;
+                bucket.dc += r.dc * dt;
+                bucket.loss += flows.loss * dt;
+                bucket.input += flows.input * dt;
+                bucket.system = bucket.system === null || flows.system === null ? null : bucket.system + flows.system * dt;
+                bucket.time += dt;
+                a = edge;
+            }
+        });
+        return Array.from(buckets, (b, n) => b && b.time > size / 2
+            ? { t: start + (n + .5) * size, ac: b.ac / b.time, bat: b.bat / b.time, dc: b.dc / b.time, ...this._efficiencies({ loss: b.loss / b.time, input: b.input / b.time, system: b.system === null ? null : b.system / b.time }) }
+            : null);
     }
     _updateHome() {
         if (!this._hass || !this._id('homeDialog')?.open) return;
@@ -2026,10 +2129,92 @@ class SigenergyFlowCard extends HTMLElement {
         }
         this._updateForecastTile();
     }
-    _updateSoc() {
-        if (!this._hass || !this._id('socDialog')?.open) return;
-        const soc = this._num(this._socEntity);
+    _updateBatteryDialog() {
+        if (!this._hass || !this._id('batteryDialog')?.open) return;
+        const soc = this._num(this._socEntity), raw = this._scaled(this._ent('battery_power')), bat = raw === null ? null : raw * this._batterySign();
         this._text('socNow', soc === null ? '—' : `${soc.toFixed(1)}%`);
+        this._text('batteryNow', bat === null ? '—' : `${this._power(bat)} ${bat > .025 ? 'charging' : bat < -.025 ? 'discharging' : 'idle'}`);
+        const mean = this._invMean, percent = v => v === null ? '—' : `${(v * 100).toFixed(1)}%`;
+        this._id('invIntakeRow').hidden = this._id('invLossRow').hidden = this._id('invEffRow').hidden = this._id('invNote').hidden = !mean;
+        this._id('sysEffRow').hidden = !mean || mean.sysEff === null;
+        if (mean) {
+            this._text('invIntakeNow', this._power(mean.input));
+            this._text('invLossNow', `${mean.loss < 0 ? '−' : ''}${this._power(mean.loss)}`);
+            this._text('invEffNow', percent(mean.eff));
+            this._text('sysEffNow', percent(mean.sysEff));
+        }
+        const trip = this._roundTrip;
+        this._id('tripRow').hidden = !trip;
+        this._text('tripNow', trip ? percent(trip.value) : '—');
+        this._text('tripLabel', trip ? `Battery round trip · last ${trip.days} day${trip.days === 1 ? '' : 's'}` : 'Battery round trip');
+        this._id('tripGap').hidden = !trip?.missing;
+        this._text('tripGap', trip?.missing ? `⚠ No data recorded on ${trip.missing} of ${trip.days} days: the round trip leaves them out.` : '');
+    }
+    // The inverter's last 24 hours as 5-minute means: its intake, AC power, battery and DC charger (discharge positive, as in
+    // Power metrics), loss, and efficiency on a right-hand axis.
+    async _loadInverterHistory() {
+        if (!this._hass) return;
+        const svg = this._id('invChart'), request = svg._request = (svg._request ?? 0) + 1, size = 300e3;
+        const batId = this.config.battery_present && this._has(this._ent('battery_power')) ? this._ent('battery_power') : null;
+        const keys = ['battery_power', 'dc_charger_power', 'inverter_active_power', 'inverter_loss_power', 'third_party_pv_power', 'grid_import_power', 'grid_export_power'];
+        const ids = [...new Set([...this._pv.map(pv => pv.power), ...keys.map(key => this._ent(key))].filter(id => this._has(id)))];
+        if (!ids.length) return this._text('invChartStatus', 'No inverter entities found');
+        this._text('invChartStatus', 'Loading history…');
+        try {
+            const end = Date.now(), { start, data } = await this._history(ids, new Date(end - 24 * 3600e3));
+            if (request !== svg._request) return;
+            const buckets = this._inverterBuckets(data, ids, start, end, size);
+            const line = (key, scale) => {
+                const points = buckets.filter(b => b && b[key] !== null).map(b => ({ t: b.t, v: b[key] * scale }));
+                const breaks = points.slice(1).filter((p, i) => p.t - points[i].t > size * 1.5).map(p => ({ start: p.t - size, end: p.t - 1 }));
+                return { points, breaks };
+            };
+            // Intake = AC output + battery and vehicle charging + loss, each a 5-minute mean so the tip adds up. Without
+            // the loss, the battery's recorded power.
+            const flowing = buckets.some(Boolean), k = batId ? -this._factor(batId) * this._batterySign() : 0;
+            const charging = v => v > .005 ? 'discharging' : v < -.005 ? 'charging' : '';
+            const dcRan = buckets.some(b => b && Math.abs(b.dc) > .005);
+            this._id('invLegendDc').hidden = !dcRan;
+            const series = [
+                { ...line('input', 1), color: 'var(--c-solar)', name: 'Intake' },
+                { ...line('ac', 1), color: 'var(--c-home)', name: 'AC', note: v => v > .005 ? 'output' : v < -.005 ? 'drawn' : '' },
+                ...(batId ? [flowing ? { ...line('bat', -1), color: 'var(--c-battery)', name: 'Battery', note: charging }
+                    : { points: this._series(data, [batId])[0].map(p => ({ t: p.t, v: p.v * k })), color: 'var(--c-battery)', name: 'Battery', note: charging }] : []),
+                ...(dcRan ? [{ ...line('dc', -1), color: 'var(--c-dc)', name: 'EVDC', note: charging }] : []),
+                { ...line('loss', 1), color: 'var(--c-loss)', name: 'Loss' },
+                { ...line('eff', 100), color: 'var(--c-eff)', name: 'Efficiency', unit: '%', digits: 1, axis: 'right' },
+            ];
+            const hasData = this._showChart(svg, series, start, true, undefined, { end });
+            this._text('invChartStatus', !hasData ? 'No recorded inverter history' : series[series.length - 1].points.length ? 'Last 24 hours' : 'Last 24 hours · no loss: the inverter AC power or PV strings are missing');
+        } catch (e) {
+            if (request !== svg._request) return;
+            this._text('invChartStatus', 'History unavailable');
+        }
+    }
+    // The battery's round trip over the last 30 days, from the lifetime counters: what it discharged over what it
+    // charged less the energy it gained (from the SOC's first and last hourly means).
+    async _loadRoundTrip() {
+        const [chargeId, dischargeId] = ['stat_battery_charge', 'stat_battery_discharge'].map(key => this._ent(key)), cap = this._scaled(this._ent('battery_capacity'));
+        const request = this._tripRequest = (this._tripRequest ?? 0) + 1;
+        this._roundTrip = null;
+        if (!this._hass || !this.config.battery_present || !this._has(chargeId) || !this._has(dischargeId) || !cap || !this._socEntity) return this._updateBatteryDialog();
+        const end = zoneMidnight(Date.now(), this._zone), start = zoneMidnight(end.getTime() - 29.5 * 86400e3, this._zone);
+        try {
+            const [days, hours] = await Promise.all([this._statistics([chargeId, dischargeId], start, end, 'day', ['change']), this._statistics([this._socEntity], start, end, 'hour', ['mean'])]);
+            if (request !== this._tripRequest) return;
+            const at = row => typeof row.start === 'number' ? row.start : Date.parse(row.start);
+            // The days from the counters' first recorded one: days without a row from both after it are missing data, and
+            // left out of both sums.
+            const recorded = id => new Set((days[id] ?? []).map(at)), charges = recorded(chargeId), common = new Set([...charges].filter(t => recorded(dischargeId).has(t)));
+            const sum = id => (days[id] ?? []).filter(row => common.has(at(row))).reduce((total, row) => total + (row.change ?? 0), 0) * this._factor(id);
+            const both = common.size, first = Math.min(...charges, ...recorded(dischargeId)), count = Math.round((end - first) / 86400e3);
+            const soc = (hours[this._socEntity] ?? []).filter(row => row.mean !== null && row.mean !== undefined && at(row) >= first);
+            const charged = sum(chargeId) - (soc.length > 1 ? (soc.at(-1).mean - soc[0].mean) / 100 * cap : NaN);
+            this._roundTrip = charged > 0 && both ? { value: sum(dischargeId) / charged, missing: count - both, days: count } : null;
+        } catch (e) {
+            if (request !== this._tripRequest) return;
+        }
+        this._updateBatteryDialog();
     }
     async _loadSocHistory() {
         if (!this._hass) return;
@@ -2218,7 +2403,7 @@ class SigenergyFlowCard extends HTMLElement {
         }
         if (this._shown.has('tiles')) this._updateDaily();
         if (this._shown.has('battery') && this.config.battery_present) this._updateBattery();
-        this._updateSoc();
+        this._updateBatteryDialog();
         this._updateEnergy();
     }
     // The scene's readings and flows.
@@ -2278,8 +2463,12 @@ class SigenergyFlowCard extends HTMLElement {
         const grid = imp === null && exp === null ? null : (imp ?? 0) - (exp ?? 0);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));
+        const mean = this._invMean = this._inverterMean();
         if (this.config.battery_present) {
             this._text('battery', this._power(bat));
+            const eff = this.config.show_inverter_efficiency ? mean?.eff ?? null : null;
+            this._id('batteryEff').hidden = eff === null;
+            this._text('batteryEff', eff === null ? '' : `(η\u00A0${Math.round(eff * 100)}%)`);
             this._text('soc', soc === null ? '—' : `${soc.toFixed(1)}%`);
             const battStatus = bat === null ? '' : bat > 0.025 ? 'Charging' : bat < -.025 ? 'Discharging' : 'Idle', remaining = this._batteryRemaining(bat, soc, home);
             this._learnOverhead(pv, imp, exp, bat, this._acPower(), dc, home);
@@ -3272,27 +3461,41 @@ class SigenergyFlowCard extends HTMLElement {
             svg.append(el);
             return el;
         };
-        const values = series.filter(s => !s.tipOnly).flatMap(s => s.points.map(p => Math.abs(p.v)));
+        const drawn = series.filter(s => !s.tipOnly && s.axis !== 'right'), righted = series.filter(s => !s.tipOnly && s.axis === 'right' && s.points.length);
+        const values = drawn.flatMap(s => s.points.map(p => Math.abs(p.v)));
+        // Three labels a 1, 2, 2.5 or 5 × 10ⁿ step apart, spanning [least, most].
+        const span = (least, most) => {
+            const nice = v => { const e = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(m => m * e).find(m => m >= v * (1 - 1e-9)); };
+            let gap = nice(Math.max(most - least, Math.abs(most) * .02, 1e-3) * .6);
+            while (Math.floor(least / gap) * gap + 2 * gap < most) gap = nice(gap * 1.01);
+            const low = Math.floor(least / gap) * gap;
+            return { low, max: low + 2 * gap, places: [gap, low].reduce((d, v) => { while (d < 4 && Math.abs(Math.round(v * 10 ** d) - v * 10 ** d) > 1e-6) d++; return d; }, 0) };
+        };
         // A signed chart's limit is rounded up to a half, whole, 5, 10, 50… kW, as in Sigenergy's app, so the labels are exact.
         const peak = Math.max(1, ...values), step = 10 ** Math.floor(Math.log10(peak)) / 2;
         let max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.max(1, Math.ceil(Math.max(0, ...values))));
         let low = 0, places = null;
         if (window?.fit && values.length) {
-            // Three labels a 1, 2, 2.5 or 5 × 10ⁿ step apart, spanning the data.
-            const all = series.filter(s => !s.tipOnly).flatMap(s => s.points.map(p => p.v)), least = Math.min(...all), most = Math.max(...all);
-            const nice = v => { const e = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(m => m * e).find(m => m >= v * (1 - 1e-9)); };
-            let gap = nice(Math.max(most - least, Math.abs(most) * .02, 1e-3) * .6);
-            while (Math.floor(least / gap) * gap + 2 * gap < most) gap = nice(gap * 1.01);
-            low = Math.floor(least / gap) * gap;
-            max = low + 2 * gap;
-            places = [gap, low].reduce((d, v) => { while (d < 4 && Math.abs(Math.round(v * 10 ** d) - v * 10 ** d) > 1e-6) d++; return d; }, 0);
+            const all = drawn.flatMap(s => s.points.map(p => p.v));
+            ({ low, max, places } = span(Math.min(...all), Math.max(...all)));
         }
-        const left = 38, right = width - 12;
+        const left = 38, right = width - (righted.length ? 40 : 12);
         const x = t => left + (right - left) * (t - start) / Math.max(1, end - start);
         const y = signed ? v => 78 - 65 * v / max : v => 143 - 130 * (v - low) / (max - low);
         for (const v of signed ? [-max, 0, max] : [low, (low + max) / 2, max]) {
             add('line', { x1: left, y1: y(v), x2: right, y2: y(v), stroke: 'var(--grid)', 'stroke-dasharray': '3 5' });
             add('text', { x: 2, y: y(v) + 4, fill: 'var(--axis)', 'font-size': 10 }, v.toFixed(places ?? (max < 10 && v % 1 ? 1 : 0)));
+        }
+        // A right-hand axis, for series with [axis: 'right'], fitted to their data on the same three lines.
+        const upper = y(max), lower = signed ? y(-max) : y(low);
+        let yRight = null;
+        if (righted.length) {
+            // A percentage tops out at 100, its labels a tenth apart or more.
+            const all = righted.flatMap(s => s.points.map(p => p.v)), least = Math.min(...all);
+            const r = righted[0].unit === '%' ? { low: Math.min(80, Math.max(0, Math.floor(least / 10) * 10)), max: 100, places: 0 } : span(least, Math.max(...all));
+            yRight = v => lower - (lower - upper) * (v - r.low) / (r.max - r.low);
+            for (const v of [r.low, (r.low + r.max) / 2, r.max])
+                add('text', { x: width - 2, y: yRight(v) + 4, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'end' }, `${v.toFixed(r.places)}${righted[0].unit ?? ''}`);
         }
         const time = h => add('text', { x: x(hour(h)), y: 162, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'middle' }, `${String(zoneParts(hour(h), this._zone).h).padStart(2, '0')}:00`);
         // A window is labelled at every fourth hour of the clock within it.
@@ -3302,14 +3505,15 @@ class SigenergyFlowCard extends HTMLElement {
         const gaps = svg === this._id('chart') && this._chartLive ? this._gapsIn(start, end) : [];
         for (const g of gaps) {
             const a = x(Math.max(start, g.start)), b = x(Math.min(end, g.end));
-            add('rect', { x: a, y: y(max), width: Math.max(1, b - a), height: (signed ? y(-max) : y(low)) - y(max), fill: 'var(--grid)', opacity: .35 });
+            add('rect', { x: a, y: upper, width: Math.max(1, b - a), height: lower - upper, fill: 'var(--grid)', opacity: .35 });
             add('text', { x: (a + b) / 2, y: y(max) + 12, fill: '#e0a030', 'font-size': 11, 'text-anchor': 'middle' }, '⚠');
         }
         // A series' own breaks (hours its data leaves out) break its line too.
-        for (const { points, color, forecast, tipOnly, breaks = [] } of series) {
+        for (const { points, color, forecast, tipOnly, axis, breaks = [] } of series) {
             if (points.length < 2 || tipOnly)
                 continue;
-            const d = points.map((p, j) => `${j && ![...gaps, ...breaks].some(g => points[j - 1].t < g.end && p.t > g.start) ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+            const at = axis === 'right' ? yRight : y;
+            const d = points.map((p, j) => `${j && ![...gaps, ...breaks].some(g => points[j - 1].t < g.end && p.t > g.start) ? 'L' : 'M'}${x(p.t).toFixed(1)},${at(p.v).toFixed(1)}`).join(' ');
             add('path', { d, fill: 'none', stroke: color, 'stroke-width': forecast ? 1.4 : 1.7, 'stroke-linejoin': 'round', ...(forecast ? { 'stroke-dasharray': '5 4' } : {}) });
         }
         const cursor = add('g', { display: 'none' });
@@ -3326,7 +3530,7 @@ class SigenergyFlowCard extends HTMLElement {
             cursor.append(dot);
             return dot;
         });
-        svg._chart = { series, start, end, now, width, left, right, x, y, top: y(max), bottom: y(signed ? -max : low), cursor, line, dots, gaps };
+        svg._chart = { series, start, end, now, width, left, right, x, y, yRight, top: upper, bottom: lower, cursor, line, dots, gaps };
         if (svg._lastHover !== undefined) this._hoverAt(svg, svg._tip, svg._lastHover);
     }
     // Linear interpolation between recorded states, matching the drawn line.
@@ -3371,7 +3575,7 @@ class SigenergyFlowCard extends HTMLElement {
             chart.dots[i].setAttribute('display', v === null || s.tipOnly ? 'none' : 'inline');
             if (v === null) return;
             chart.dots[i].setAttribute('cx', px);
-            chart.dots[i].setAttribute('cy', chart.y(v));
+            chart.dots[i].setAttribute('cy', (s.axis === 'right' ? chart.yRight : chart.y)(v));
             const row = rows.get(s.name) ?? { ...s, v: 0 };
             row.v += v;
             rows.set(s.name, row);
