@@ -319,7 +319,7 @@ const STYLES = {
         'node-fg': '#edf3f6', 'node-sub': '#d0dade', 'node-em': '#a5ecd9', 'node-shadow': '0 1px 2px #000,0 2px 10px #000c', 'leader': 'rgba(225,234,236,.55)',
         'wire-on': 'rgba(99,214,193,.85)', 'comet': '#8ff5e1',
         'c-solar': '#ead66c', 'c-battery': '#69d4d1', 'c-grid': '#8d8bff', 'c-ac': '#efa66a', 'c-dc': '#c28aff', 'c-home': '#c7d8df',
-        'sk-evdc': '#f0b44c', 'sk-evac': '#d9726a', 'sk-load': '#9a6cf0', 'c-loss': '#f07a7a', 'c-eff': '#e58bd0',
+        'sk-evdc': '#f0b44c', 'sk-evac': '#d9726a', 'sk-load': '#9a6cf0', 'sk-idle': '#2f3843', 'c-loss': '#f07a7a', 'c-eff': '#e58bd0',
         'pv0': '#6bd36b', 'pv1': '#5fd4dc', 'pv2': '#6a78f0', 'pv3': '#a868f0', 'pv4': '#efa66a', 'pv5': '#ead66c', 'pv-third': '#c9ced6',
     },
     day: {
@@ -331,7 +331,7 @@ const STYLES = {
         'node-fg': '#fff', 'node-sub': '#f2f6f8', 'node-em': '#c4f6ea', 'node-shadow': '0 0 2px #000c,0 1px 3px #000,0 2px 10px #000d', 'leader': 'rgba(255,255,255,.7)',
         'wire-on': 'rgba(18,184,166,.9)', 'comet': '#5eead4',
         'c-solar': '#e2a900', 'c-battery': '#14b3ac', 'c-grid': '#6f6df2', 'c-ac': '#ea8a3c', 'c-dc': '#a35ff0', 'c-home': '#6b7f8c',
-        'sk-evdc': '#e39a1b', 'sk-evac': '#d4584f', 'sk-load': '#7f4ee0', 'c-loss': '#d9483f', 'c-eff': '#c2479f',
+        'sk-evdc': '#e39a1b', 'sk-evac': '#d4584f', 'sk-load': '#7f4ee0', 'sk-idle': '#edf2f7', 'c-loss': '#d9483f', 'c-eff': '#c2479f',
         'pv0': '#3fb83f', 'pv1': '#14b5c0', 'pv2': '#5465e8', 'pv3': '#9b52e8', 'pv4': '#ea8a3c', 'pv5': '#e2a900', 'pv-third': '#7d8796',
     },
 };
@@ -859,7 +859,7 @@ class SigenergyFlowCard extends HTMLElement {
       .statbar.fixed .statnav{background:none;padding:0}.statbar.fixed .statnav>span{min-width:0;color:var(--sub)}
       .statrange{appearance:none;-webkit-appearance:none;background:var(--tile);color:var(--fg);border:1px solid var(--panel-line);border-radius:10px;padding:7px 28px 7px 12px;font:inherit;font-size:14px;cursor:pointer}
       #statChart{width:100%;display:block}.skn{cursor:pointer;transition:opacity .2s}.skn:focus-visible{outline:none}.skn:focus-visible rect.skbox{stroke:#71d3d1;stroke-width:2}.skr{opacity:.5;transition:opacity .2s}.skr.on{opacity:.8}.skr.dim{opacity:.1}.skn.dim{opacity:.3}
-      .sktext{font-family:inherit;fill:#142024;pointer-events:none}.skpct{font-family:inherit;font-size:11px;fill:var(--fg);pointer-events:none;paint-order:stroke;stroke:var(--panel);stroke-width:3px}
+      .sktext{font-family:inherit;fill:#142024;pointer-events:none}.skpct{font-family:inherit;font-size:11px;fill:var(--fg);pointer-events:none;paint-order:stroke;stroke:var(--panel);stroke-width:3px}.skidle{fill:var(--muted)}
       .statsum{text-align:center;margin:12px 0 8px;padding:10px;border:1px solid var(--panel-line);border-radius:12px}.statsum b{font-size:24px}.statsum small{font-size:13px;color:var(--sub);margin-left:4px}.statsum div{color:var(--sub);font-size:14px;margin-top:2px}
       .statdata{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:8px;font-size:13px}.statdata button{all:unset;cursor:pointer;color:var(--c-battery)}.statdata a{color:var(--c-battery);cursor:pointer}
       .statpanel pre{user-select:text;-webkit-user-select:text;white-space:pre-wrap;font-family:inherit;font-size:12px;margin:10px 0 0}
@@ -3152,13 +3152,13 @@ class SigenergyFlowCard extends HTMLElement {
         const sum = list => list.reduce((a, node) => a + node.total, 0);
         const most = Math.max(sum(left), sum(right));
         if (!(most > 0)) return clear();
-        const kWh = v => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const kWh = v => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), counts = v => v >= .005;
         const width = Math.max(280, svg.clientWidth || 600), compact = width < 520;
         const nodeWidth = compact ? 78 : 124, gap = 8, scale = ((compact ? 300 : 330) - gap * (Math.max(left.length, right.length) - 1)) / most;
         const place = list => {
             let y = 0;
             for (const node of list) {
-                node.h = node.total > 0 ? Math.max(52, node.total * scale) : 22;
+                node.h = counts(node.total) ? Math.max(52, node.total * scale) : 22;
                 node.y = y;
                 y += node.h + gap;
             }
@@ -3170,7 +3170,7 @@ class SigenergyFlowCard extends HTMLElement {
         const used = new Map(), ribbons = [];
         for (const a of left) for (const b of right) {
             const value = flows[a.i][b.i];
-            if (!(value > 0)) continue;
+            if (!(value > 0) || !counts(a.total) || !counts(b.total)) continue;
             // Each end covers its node in proportion, so a node taller than its energy (minimum height) is still filled.
             const heightA = value / a.total * a.h, heightB = value / b.total * b.h, y0 = a.y + (used.get(a) ?? 0), y1 = b.y + (used.get(b) ?? 0);
             used.set(a, (used.get(a) ?? 0) + heightA);
@@ -3187,10 +3187,13 @@ class SigenergyFlowCard extends HTMLElement {
             // Opposite the selected node, a connected node shows just what it exchanged with the selection.
             const exchanged = selection && selection.side !== side && touched.has(node) ? (side === 'snk' ? flows[selection.index][node.i] : flows[node.i][selection.index]) : null;
             const value = kWh(exchanged ?? node.total), size = Math.min(15, (nodeWidth - 14) / (value.length * .6));
-            const text = (exchanged ?? node.total) > 0
+            const idle = !counts(node.total);
+            const text = idle
+                ? `<text class="sktext skidle" x="${x + 8}" y="${node.y + 15}" font-size="11" font-weight="700">${node.name}</text><text class="skpct skidle"${side === 'src' ? ` x="${xLeft + 6}"` : ` text-anchor="end" x="${xRight - 6}"`} y="${node.y + 15}">0 kWh</text>`
+                : counts(exchanged ?? node.total)
                 ? `<text class="sktext" x="${x + 8}" y="${node.y + 15}" font-size="11" font-weight="700">${node.name}</text><text class="sktext" x="${x + 8}" y="${node.y + 32}" font-size="${size.toFixed(1)}" font-weight="700">${value}</text><text class="sktext" x="${x + 8}" y="${node.y + 45}" font-size="11">kWh</text>${selection || node.h < 76 ? '' : `<text class="sktext" x="${x + 8}" y="${node.y + node.h - 8}" font-size="11">${(node.total / sum(list) * 100).toFixed(2)}%</text>`}`
                 : `<text class="sktext" x="${x + 8}" y="${node.y + 15}" font-size="${compact ? 10 : 11}" font-weight="700">${node.name} 0 kWh</text>`;
-            return `<g class="skn${dim}" data-side="${side}" data-index="${node.i}" tabindex="0" role="button" aria-pressed="${chosen}" aria-label="${node.name} ${value} kWh"><rect class="skbox" x="${x}" y="${node.y}" width="${nodeWidth}" height="${node.h}" rx="6" fill="${node.color}"${chosen ? ' stroke="var(--fg)" stroke-width="2"' : ''}/>${text}</g>`;
+            return `<g class="skn${dim}" data-side="${side}" data-index="${node.i}" tabindex="0" role="button" aria-pressed="${chosen}" aria-label="${node.name} ${value} kWh"><rect class="skbox" x="${x}" y="${node.y}" width="${nodeWidth}" height="${node.h}" rx="6" fill="${idle ? 'var(--sk-idle)' : node.color}"${chosen ? ' stroke="var(--fg)" stroke-width="2"' : ''}/>${text}</g>`;
         }).join('');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.style.height = `${height}px`;
@@ -3211,7 +3214,7 @@ class SigenergyFlowCard extends HTMLElement {
         summary.innerHTML = `<b>${kWh(chosen.total)}</b><small>kWh</small><div>${chosen.caption}</div>`;
         cards.innerHTML = others.map(other => {
             const value = selection.side === 'src' ? flows[chosen.i][other.i] : flows[other.i][chosen.i];
-            return value > 0 ? `<div class="statcard"><b>${(value / chosen.total * 100).toFixed(2)}%</b><span>${other.caption}</span><span>${kWh(value)} kWh</span></div>` : '';
+            return counts(value) ? `<div class="statcard"><b>${(value / chosen.total * 100).toFixed(2)}%</b><span>${other.caption}</span><span>${kWh(value)} kWh</span></div>` : '';
         }).join('');
     }
     // Power metrics show the day Energy shows: today live, or a past day from the recorder's history, else, beyond it,

@@ -586,6 +586,7 @@ The **Energy statistics** panel under the scene shows where energy came from and
 - Select a consumer to see its sources.
 - The percentages and kWh are also listed under the diagram.
 - Select it again to go back.
+- A source or consumer unused in the period is greyed out, with 0 kWh beside it, like the mySigen app does.
 
 **The split is an estimate.** Home Assistant only records totals (solar, grid, battery, load, chargers), not which source charged which consumer.
 
