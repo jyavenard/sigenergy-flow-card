@@ -2275,7 +2275,7 @@ class SigenergyFlowCard extends HTMLElement {
               : hasDc && (Math.abs(dc ?? 0) > 0.025 || ['charging', 'discharging'].includes(dcStateKey(reads('dc_charger_state'))));
         this._chargingNow = [acOn || (!double && on2), double && on2];
         this._showCars();
-        const grid = imp !== null && imp > 0 ? imp : exp !== null && exp > 0 ? -exp : imp ?? (exp === null ? null : -exp);
+        const grid = imp === null && exp === null ? null : (imp ?? 0) - (exp ?? 0);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));
         if (this.config.battery_present) {
