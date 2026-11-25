@@ -751,11 +751,14 @@ class SigenergyFlowCard extends HTMLElement {
       <section class="panel"><div class="home-total"><span>Battery power</span><b id="batteryNow">—</b></div>
       <div class="effrows"><div><span>State of charge</span><b id="socNow">—</b></div>
       <div id="invIntakeRow"><span>Inverter intake</span><b id="invIntakeNow">—</b></div>
+      <div class="from" id="invSources" hidden></div>
+      <div id="invAcRow"><span id="invAcLabel">Inverter AC output</span><b id="invAcNow">—</b></div>
       <div id="invLossRow"><span>Inverter loss</span><b id="invLossNow">—</b></div>
       <div id="invEffRow"><span>Inverter efficiency</span><b id="invEffNow">—</b></div>
       <div id="sysEffRow"><span>Whole-system efficiency</span><b id="sysEffNow">—</b></div>
-      <div id="tripRow"><span id="tripLabel">Battery round trip</span><b id="tripNow">—</b></div></div>
-      <div class="muted" id="invNote">The first inverter. Its intake (the PV strings, the battery, or AC drawn to charge) goes to its AC output, the battery and the DC charger; the rest is its loss. 5-minute means.</div>
+      <div id="tripAcRow"><span id="tripAcLabel">Battery round trip (AC)</span><b id="tripAcNow">—</b></div>
+      <div id="tripRow"><span id="tripLabel">Battery round trip (DC)</span><b id="tripNow">—</b></div></div>
+      <div class="muted" id="invNote">The first inverter. Its intake (the PV strings, the battery, a car on the DC charger, or AC drawn to charge) goes to its AC output, the battery and the DC charger; the rest is its loss.</div>
       <div class="muted" id="tripGap" hidden></div></section>
       <section class="panel" id="invPanel"><div class="charthead"><h3>Inverter</h3><span class="muted" id="invChartStatus"></span></div>
       <div class="legend"><span><i class="dot" style="background:var(--c-solar)"></i>Intake (kW)</span><span><i class="dot" style="background:var(--c-home)"></i>AC (kW)</span><span><i class="dot" style="background:var(--c-battery)"></i>Battery (kW)</span><span id="invLegendDc" hidden><i class="dot" style="background:var(--c-dc)"></i>EVDC (kW)</span><span><i class="dot" style="background:var(--c-loss)"></i>Loss (kW)</span><span><i class="dot" style="background:var(--c-eff)"></i>Efficiency (%)</span></div>
@@ -894,7 +897,7 @@ class SigenergyFlowCard extends HTMLElement {
       .homewarn{color:#d08a16;font-size:12px;margin-top:6px}.homewarn[hidden]{display:none}
       .load.other{cursor:default;background:transparent;border:1px dashed var(--other-line)}.load.other .bar i{background:var(--other-fill)}
       .home-total{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--icon)}.home-total b{font-size:22px;color:var(--fg)}
-      .effrows{display:grid;gap:6px;margin:10px 0 8px}.effrows>div{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--icon)}.effrows b{color:var(--fg);font-weight:600}
+      .effrows{display:grid;gap:6px;margin:10px 0 8px}.effrows>div{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--icon)}.effrows b{color:var(--fg);font-weight:600}.effrows>.from{display:block;margin-top:-4px;font-size:12px;color:var(--muted);text-align:right}
       .frame{container-type:inline-size}
       @container (max-width:800px){.layout{grid-template-columns:1fr}}
       @container (max-width:680px){.header{grid-template-areas:'title stamp' 'bar bar'}.statbar{justify-content:space-between;margin-top:8px}}
@@ -1557,23 +1560,10 @@ class SigenergyFlowCard extends HTMLElement {
         const of = total => total === null || total < .02 || loss < 0 ? null : 1 - loss / total;
         return { loss, input, eff: of(input), sysEff: of(system) };
     }
-    // The inverter's flows averaged over the last 5 minutes, each reading held until the next: single readings disagree
-    // while the sun moves, as the inverter doesn't sample its registers together.
-    _inverterMean() {
-        const now = Date.now(), flows = this._inverterFlows(this._inverterReadings());
-        const samples = this._invSamples = (this._invSamples ?? []).filter(s => now - s.t < 300e3);
-        if (!flows) return null;
-        if (now - (samples.at(-1)?.t ?? 0) < 1e3) samples.pop();
-        samples.push({ t: now, ...flows });
-        const sum = { loss: 0, input: 0, system: 0, time: 0 };
-        samples.forEach((s, i) => {
-            const dt = i + 1 < samples.length ? samples[i + 1].t - s.t : 1e3;
-            sum.loss += s.loss * dt;
-            sum.input += s.input * dt;
-            sum.system = sum.system === null || s.system === null ? null : sum.system + s.system * dt;
-            sum.time += dt;
-        });
-        return this._efficiencies({ loss: sum.loss / sum.time, input: sum.input / sum.time, system: sum.system === null ? null : sum.system / sum.time });
+    // The inverter's readings and flows now.
+    _inverterNow() {
+        const r = this._inverterReadings(), flows = this._inverterFlows(r);
+        return flows ? { ac: r.ac, pv: r.pv ?? 0, bat: r.bat, dc: r.dc, ...this._efficiencies(flows) } : null;
     }
     // The inverter's flows, AC power, battery and DC charger by [size] from [start] to [end], from recorded states each
     // held until the next.
@@ -1581,7 +1571,7 @@ class SigenergyFlowCard extends HTMLElement {
         const points = new Map(this._series(data, ids).map((p, i) => [ids[i], p])), at = new Map(ids.map(id => [id, -1]));
         const read = id => { const i = at.get(id) ?? -1; return i < 0 ? null : points.get(id)[i].v * this._factor(id); };
         const times = [...new Set([...points.values()].flatMap(p => p.map(q => q.t)))].filter(t => t < end).sort((a, b) => a - b);
-        const buckets = [];
+        const buckets = [], origin = Math.floor(start / size) * size;
         times.forEach((t, k) => {
             for (const [id, p] of points) {
                 let i = at.get(id);
@@ -1591,9 +1581,10 @@ class SigenergyFlowCard extends HTMLElement {
             const r = this._inverterReadings(read), flows = this._inverterFlows(r);
             if (!flows) return;
             for (let a = Math.max(t, start), b = Math.min(times[k + 1] ?? end, end); a < b;) {
-                const n = Math.floor((a - start) / size), edge = Math.min(b, start + (n + 1) * size), dt = edge - a;
-                const bucket = buckets[n] ??= { loss: 0, input: 0, system: 0, ac: 0, bat: 0, dc: 0, time: 0 };
+                const n = Math.floor((a - origin) / size), edge = Math.min(b, origin + (n + 1) * size), dt = edge - a;
+                const bucket = buckets[n] ??= { loss: 0, input: 0, system: 0, ac: 0, bat: 0, dc: 0, pv: 0, time: 0 };
                 bucket.ac += r.ac * dt;
+                bucket.pv = bucket.pv === null || r.pv === null ? null : bucket.pv + r.pv * dt;
                 bucket.bat += r.bat * dt;
                 bucket.dc += r.dc * dt;
                 bucket.loss += flows.loss * dt;
@@ -1603,8 +1594,8 @@ class SigenergyFlowCard extends HTMLElement {
                 a = edge;
             }
         });
-        return Array.from(buckets, (b, n) => b && b.time > size / 2
-            ? { t: start + (n + .5) * size, ac: b.ac / b.time, bat: b.bat / b.time, dc: b.dc / b.time, ...this._efficiencies({ loss: b.loss / b.time, input: b.input / b.time, system: b.system === null ? null : b.system / b.time }) }
+        return Array.from(buckets, (b, n) => b && b.time > size / 2 && origin + (n + .5) * size <= end
+            ? { t: origin + (n + .5) * size, ac: b.ac / b.time, pv: b.pv === null ? null : b.pv / b.time, bat: b.bat / b.time, dc: b.dc / b.time, ...this._efficiencies({ loss: b.loss / b.time, input: b.input / b.time, system: b.system === null ? null : b.system / b.time }) }
             : null);
     }
     _updateHome() {
@@ -2136,21 +2127,32 @@ class SigenergyFlowCard extends HTMLElement {
         const soc = this._num(this._socEntity), raw = this._scaled(this._ent('battery_power')), bat = raw === null ? null : raw * this._batterySign();
         this._text('socNow', soc === null ? '—' : `${soc.toFixed(1)}%`);
         this._text('batteryNow', bat === null ? '—' : `${this._power(bat)} ${bat > .025 ? 'charging' : bat < -.025 ? 'discharging' : 'idle'}`);
-        const mean = this._invMean, percent = v => v === null ? '—' : `${(v * 100).toFixed(1)}%`;
-        this._id('invIntakeRow').hidden = this._id('invLossRow').hidden = this._id('invEffRow').hidden = this._id('invNote').hidden = !mean;
+        const mean = this._invNow, percent = v => v === null ? '—' : `${(v * 100).toFixed(1)}%`;
+        this._id('invIntakeRow').hidden = this._id('invAcRow').hidden = this._id('invLossRow').hidden = this._id('invEffRow').hidden = this._id('invNote').hidden = !mean;
         this._id('sysEffRow').hidden = !mean || mean.sysEff === null;
         if (mean) {
             this._text('invIntakeNow', this._power(mean.input));
+            const sources = [['Solar DC', mean.pv], ['battery', -mean.bat], ['car (V2X)', -mean.dc], ['AC drawn', -mean.ac]].filter(([, kw]) => kw > .005);
+            this._id('invSources').hidden = !sources.length;
+            this._text('invSources', sources.length ? `from ${sources.map(([name, kw]) => `${name} ${this._power(kw)}`).join(' · ')}` : '');
+            this._text('invAcLabel', mean.ac < -.005 ? 'Inverter AC drawn' : 'Inverter AC output');
+            this._text('invAcNow', this._power(mean.ac));
             this._text('invLossNow', `${mean.loss < 0 ? '−' : ''}${this._power(mean.loss)}`);
             this._text('invEffNow', percent(mean.eff));
             this._text('sysEffNow', percent(mean.sysEff));
         }
         const trip = this._roundTrip;
+        const over = trip ? ` · last ${trip.days} day${trip.days === 1 ? '' : 's'}` : '';
         this._id('tripRow').hidden = !trip;
+        this._id('tripAcRow').hidden = trip?.ac === null || trip?.ac === undefined;
         this._text('tripNow', trip ? percent(trip.value) : '—');
-        this._text('tripLabel', trip ? `Battery round trip · last ${trip.days} day${trip.days === 1 ? '' : 's'}` : 'Battery round trip');
-        this._id('tripGap').hidden = !trip?.missing;
-        this._text('tripGap', trip?.missing ? `⚠ No data recorded on ${trip.missing} of ${trip.days} days: the round trip leaves them out.` : '');
+        this._text('tripAcNow', trip?.ac === null || trip?.ac === undefined ? '—' : percent(trip.ac));
+        this._text('tripLabel', `Battery round trip (DC)${over}`);
+        this._text('tripAcLabel', `Battery round trip (AC)${over}`);
+        const notes = [trip?.missing ? `No data recorded on ${trip.missing} of ${trip.days} days: the round trips leave them out.` : '',
+            trip?.ac !== null && trip?.unrecorded ? `${trip.unrecorded} hour${trip.unrecorded === 1 ? '' : 's'} without the inverter's statistics are left out of the AC round trip.` : ''].filter(Boolean);
+        this._id('tripGap').hidden = !notes.length;
+        this._text('tripGap', notes.length ? `⚠ ${notes.join(' ')}` : '');
     }
     // The inverter's last 24 hours as 5-minute means: its intake, AC power, battery and DC charger (discharge positive, as in
     // Power metrics), loss, and efficiency on a right-hand axis.
@@ -2166,9 +2168,12 @@ class SigenergyFlowCard extends HTMLElement {
             const end = Date.now(), { start, data } = await this._history(ids, new Date(end - 24 * 3600e3));
             if (request !== svg._request) return;
             const buckets = this._inverterBuckets(data, ids, start, end, size);
-            const line = (key, scale) => {
-                const points = buckets.filter(b => b && b[key] !== null).map(b => ({ t: b.t, v: b[key] * scale }));
-                const breaks = points.slice(1).filter((p, i) => p.t - points[i].t > size * 1.5).map(p => ({ start: p.t - size, end: p.t - 1 }));
+            // [least]: values at or below it are left out, the line broken there.
+            const line = (key, scale, least = -Infinity) => {
+                const points = buckets.filter(b => b && b[key] !== null && b[key] > least).map(b => ({ t: b.t, v: b[key] * scale }));
+                const breaks = points.slice(1).map((p, i) => ({ start: points[i].t + 1, end: p.t - 1 })).filter(gap => gap.end - gap.start > size * 1.5);
+                const last = points.at(-1);
+                if (last && end - last.t > size * 1.5) breaks.push({ start: last.t + 1, end: Infinity });
                 return { points, breaks };
             };
             // Intake = AC output + battery and vehicle charging + loss, each a 5-minute mean so the tip adds up. Without
@@ -2179,30 +2184,41 @@ class SigenergyFlowCard extends HTMLElement {
             this._id('invLegendDc').hidden = !dcRan;
             const series = [
                 { ...line('input', 1), color: 'var(--c-solar)', name: 'Intake' },
-                { ...line('ac', 1), color: 'var(--c-home)', name: 'AC', note: v => v > .005 ? 'output' : v < -.005 ? 'drawn' : '' },
+                { ...line('pv', 1, .005), color: 'var(--c-solar)', name: 'Solar DC', tipOnly: true },
                 ...(batId ? [flowing ? { ...line('bat', -1), color: 'var(--c-battery)', name: 'Battery', note: charging }
                     : { points: this._series(data, [batId])[0].map(p => ({ t: p.t, v: p.v * k })), color: 'var(--c-battery)', name: 'Battery', note: charging }] : []),
-                ...(dcRan ? [{ ...line('dc', -1), color: 'var(--c-dc)', name: 'EVDC', note: charging }] : []),
-                { ...line('loss', 1), color: 'var(--c-loss)', name: 'Loss' },
+                ...(dcRan ? [{ ...line('dc', -1), color: 'var(--c-dc)', name: 'EVDC', note: v => v > .005 ? 'V2X' : v < -.005 ? 'charging' : '' }] : []),
+                { ...line('ac', 1), color: 'var(--c-home)', name: 'AC', note: v => v > .005 ? 'output' : v < -.005 ? 'drawn' : '' },
+                { ...line('loss', 1), color: 'var(--c-loss)', name: 'Loss', note: v => v < -.005 ? 'negative: readings out of step' : '' },
                 { ...line('eff', 100), color: 'var(--c-eff)', name: 'Efficiency', unit: '%', digits: 1, axis: 'right' },
             ];
-            const hasData = this._showChart(svg, series, start, true, undefined, { end });
-            this._text('invChartStatus', !hasData ? 'No recorded inverter history' : series[series.length - 1].points.length ? 'Last 24 hours' : 'Last 24 hours · no loss: the inverter AC power or PV strings are missing');
+            const hasData = this._showChart(svg, series, start, true, undefined, { end, period: size });
+            this._text('invChartStatus', !hasData ? 'No recorded inverter history' : series[series.length - 1].points.length ? 'Last 24 hours · 5-minute means' : 'Last 24 hours · no loss: the inverter AC power or PV strings are missing');
         } catch (e) {
             if (request !== svg._request) return;
             this._text('invChartStatus', 'History unavailable');
         }
     }
-    // The battery's round trip over the last 30 days, from the lifetime counters: what it discharged over what it
-    // charged less the energy it gained (from the SOC's first and last hourly means).
+    // The battery's round trip over the last 30 days, corrected for the energy it gained (from the SOC's first and last
+    // hourly means). DC: what it discharged over what it charged, from its lifetime counters. AC: what its discharge
+    // delivered over what its charge took in, inverter included; each hour's inverter loss is shared between its flows
+    // in proportion to their size, from the hourly statistics of the counters, PV strings and inverter AC power.
     async _loadRoundTrip() {
         const [chargeId, dischargeId] = ['stat_battery_charge', 'stat_battery_discharge'].map(key => this._ent(key)), cap = this._scaled(this._ent('battery_capacity'));
         const request = this._tripRequest = (this._tripRequest ?? 0) + 1;
         this._roundTrip = null;
         if (!this._hass || !this.config.battery_present || !this._has(chargeId) || !this._has(dischargeId) || !cap || !this._socEntity) return this._updateBatteryDialog();
         const end = zoneMidnight(Date.now(), this._zone), start = zoneMidnight(end.getTime() - 29.5 * 86400e3, this._zone);
+        const strings = this._pv.filter(pv => PV_KEYS.some(key => this._has(pv[key]))).map(pv => pv.power), acId = this._ent('inverter_active_power');
+        const dcId = this._has(this._ent('dc_charger_power')) ? this._ent('dc_charger_power') : null;
+        const flowIds = strings.every(id => this._has(id)) && strings.length && this._has(acId) ? [...strings, acId, ...(dcId ? [dcId] : [])] : [];
         try {
-            const [days, hours] = await Promise.all([this._statistics([chargeId, dischargeId], start, end, 'day', ['change']), this._statistics([this._socEntity], start, end, 'hour', ['mean'])]);
+            const [days, socHours, counterHours, flowHours] = await Promise.all([
+                this._statistics([chargeId, dischargeId], start, end, 'day', ['change']),
+                this._statistics([this._socEntity], start, end, 'hour', ['mean']),
+                flowIds.length ? this._statistics([chargeId, dischargeId], start, end, 'hour', ['change']) : {},
+                flowIds.length ? this._statistics(flowIds, start, end, 'hour', ['mean']) : {},
+            ]);
             if (request !== this._tripRequest) return;
             const at = row => typeof row.start === 'number' ? row.start : Date.parse(row.start);
             // The days from the counters' first recorded one: days without a row from both after it are missing data, and
@@ -2210,9 +2226,31 @@ class SigenergyFlowCard extends HTMLElement {
             const recorded = id => new Set((days[id] ?? []).map(at)), charges = recorded(chargeId), common = new Set([...charges].filter(t => recorded(dischargeId).has(t)));
             const sum = id => (days[id] ?? []).filter(row => common.has(at(row))).reduce((total, row) => total + (row.change ?? 0), 0) * this._factor(id);
             const both = common.size, first = Math.min(...charges, ...recorded(dischargeId)), count = Math.round((end - first) / 86400e3);
-            const soc = (hours[this._socEntity] ?? []).filter(row => row.mean !== null && row.mean !== undefined && at(row) >= first);
-            const charged = sum(chargeId) - (soc.length > 1 ? (soc.at(-1).mean - soc[0].mean) / 100 * cap : NaN);
-            this._roundTrip = charged > 0 && both ? { value: sum(dischargeId) / charged, missing: count - both, days: count } : null;
+            const soc = (socHours[this._socEntity] ?? []).filter(row => row.mean !== null && row.mean !== undefined && at(row) >= first);
+            const gained = soc.length > 1 ? (soc.at(-1).mean - soc[0].mean) / 100 * cap : NaN;
+            const charged = sum(chargeId) - gained;
+            const dc = charged > 0 && both ? sum(dischargeId) / charged : null;
+            // AC: the DC round trip times the inverter's efficiency charging and discharging the battery, each over the
+            // hours with its statistics: what it took to store each hour's charge (the charge plus its share of the loss) and
+            // what each hour's discharge delivered (the discharge less its share).
+            const energy = id => new Map((counterHours[id] ?? []).map(row => [at(row), (row.change ?? 0) * this._factor(id)]));
+            const mean = id => new Map((flowHours[id] ?? []).filter(row => row.mean !== null && row.mean !== undefined).map(row => [at(row), row.mean * this._factor(id)]));
+            const charge = energy(chargeId), discharge = energy(dischargeId), pv = strings.map(mean), ac = mean(acId), vehicle = dcId ? mean(dcId) : new Map();
+            let used = 0, returned = 0, stored = 0, drawn = 0, unrecorded = 0;
+            for (const t of new Set([...charge.keys(), ...discharge.keys()])) {
+                const c = charge.get(t) ?? 0, d = discharge.get(t) ?? 0, a = ac.get(t), sun = pv.map(m => m.get(t));
+                if (t < first || (c <= 0 && d <= 0)) continue;
+                if (a === undefined || sun.includes(undefined)) { unrecorded++; continue; }
+                const v = vehicle.get(t) ?? 0;
+                const intake = sun.reduce((x, y) => x + y, 0) + d + Math.max(0, -a) + Math.max(0, -v), delivered = Math.max(0, a) + c + Math.max(0, v);
+                if (intake <= 0 || delivered <= 0) continue;
+                used += c * intake / delivered;
+                returned += d * delivered / intake;
+                stored += c;
+                drawn += d;
+            }
+            const acTrip = dc !== null && used > 0 && drawn > 0 ? dc * (stored / used) * (returned / drawn) : null;
+            this._roundTrip = dc === null ? null : { value: dc, ac: acTrip, unrecorded, missing: count - both, days: count };
         } catch (e) {
             if (request !== this._tripRequest) return;
         }
@@ -2465,7 +2503,7 @@ class SigenergyFlowCard extends HTMLElement {
         const grid = imp === null && exp === null ? null : (imp ?? 0) - (exp ?? 0);
         this._text('pv', this._power(pv));
         this._text('home', this._power(home));
-        const mean = this._invMean = this._inverterMean();
+        const mean = this._invNow = this._inverterNow();
         if (this.config.battery_present) {
             this._text('battery', this._power(bat));
             const eff = this.config.show_inverter_efficiency ? mean?.eff ?? null : null;
@@ -3532,7 +3570,7 @@ class SigenergyFlowCard extends HTMLElement {
             cursor.append(dot);
             return dot;
         });
-        svg._chart = { series, start, end, now, width, left, right, x, y, yRight, top: upper, bottom: lower, cursor, line, dots, gaps };
+        svg._chart = { series, start, end, now, width, left, right, x, y, yRight, top: upper, bottom: lower, cursor, line, dots, gaps, period: window?.period };
         if (svg._lastHover !== undefined) this._hoverAt(svg, svg._tip, svg._lastHover);
     }
     // Linear interpolation between recorded states, matching the drawn line.
@@ -3560,7 +3598,10 @@ class SigenergyFlowCard extends HTMLElement {
         }
         // Past now the forecast is read; without one the readings stay at now.
         const t = chart.start + (ux - chart.left) / (chart.right - chart.left) * (chart.end - chart.start);
-        svg._lastHover = chart.series.some(s => s.forecast) ? t : Math.min(chart.now, t);
+        // A chart of means per [period] reads the period under the pointer.
+        let snapped = chart.period ? (Math.floor(t / chart.period) + .5) * chart.period : t;
+        if (chart.period && snapped > chart.now) snapped -= chart.period;
+        svg._lastHover = chart.series.some(s => s.forecast) ? snapped : Math.min(chart.now, snapped);
         this._hoverAt(svg, tip, svg._lastHover);
     }
     _hoverAt(svg, tip, t) {
@@ -3583,7 +3624,8 @@ class SigenergyFlowCard extends HTMLElement {
             rows.set(s.name, row);
         });
         chart.cursor.setAttribute('display', 'inline');
-        const time = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: this._zone });
+        const clock = at => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: this._zone });
+        const time = chart.period ? `${clock(t - chart.period / 2)}–${clock(t + chart.period / 2)}` : clock(t);
         // Series names can be PV string names from the card config, so the rows are built as text, not HTML.
         const lines = [...rows.values()].map(r => {
             const note = r.note?.(r.v);
