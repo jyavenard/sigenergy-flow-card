@@ -572,15 +572,49 @@ With `show_grid_voltage: true`, **GRID (231V)** shows the phases' average voltag
 
 ### Inverter efficiency
 
-Tapping **SigenStor** shows the battery's power, its state of charge, the inverter's intake and where it comes from (solar DC, the battery, a car supplying the house through the DC charger (V2X) or AC drawn), its AC output, loss and efficiency, and the battery's round trip. The chart draws the last 24 hours as 5-minute means: the inverter's intake, its AC power (positive while it feeds the house and grid, negative while it draws from them), the battery and, when it ran, the DC charger (discharging above zero), and the loss, in kW on the left axis; and its efficiency, in % on the right axis. At any time, the intake is the AC output plus what charges the battery and the vehicle plus the loss.
+Tap **SigenStor** for the battery and the inverter. The dialog shows:
 
-The loss is what the first inverter takes in on its DC side, from its PV strings and the battery (and a vehicle on the DC charger), less what it delivers: its AC power, the battery's charge and the DC charger's. Its efficiency is what it delivers over what it takes in. Sigenergy's own PV power figures (`pv_power`, `pv_strings_power`, and the PV energy counters) are measured after conversion, so they carry no loss: the card takes the strings' power (voltage × current, the `pv_strings` entities) instead. The loss includes the inverter's own consumption (fans, electronics and lights), which is about constant, so the efficiency drops at low power: a fixed 200 W is a third of a 600 W discharge. The efficiency beside SigenStor (with `show_inverter_efficiency: true`) and the dialog's figures are the current readings, like the battery's power. The PV string and AC power readings aren't sampled together, so they can disagree for a moment while the sun moves; the chart draws 5-minute means, which smooth that out. The efficiency is hidden below 20 W of intake.
+- the battery's power and state of charge;
+- the inverter's intake, and where it comes from: solar DC, the battery, a car on the DC charger (V2X), or AC drawn;
+- its AC output, loss and efficiency;
+- the whole-system efficiency;
+- the battery's round trip, AC and DC.
 
-The **whole-system efficiency** compares the loss with all that the system takes in: the PV strings and any third-party inverter, grid import, and battery and vehicle discharge. The **battery round trip** covers the last 30 days, corrected for the energy the battery gained (from the state of charge's first and last hourly means). **(DC)** is the battery alone: what it discharged over what it charged, from its lifetime counters (`stat_battery_charge`, `stat_battery_discharge`), which count at the battery. **(AC)** includes the inverter: what the battery's discharge delivered over what its charge took in, from the solar or the grid. It is the DC round trip times the inverter's efficiency charging and discharging the battery, from the hourly statistics of the counters, the PV strings and the inverter's AC power; each hour's loss is shared between its flows in proportion to their size, so the inverter's own consumption weighs on the low-power hours, typically the night's discharge. Days without statistics are left out and marked ⚠, as are hours without the inverter's statistics for the AC figure.
+These figures are the current readings. The chart below them covers the last 24 hours, as 5-minute means. It draws the intake, the AC power, the battery, the DC charger (when it ran) and the loss, in kW. The efficiency is in % on the right axis. At any time, the intake equals the AC output, plus what charges the battery and the car, plus the loss.
 
-sigenergy2mqtt publishes the loss itself (**Self-Consumed Power**), which the card uses. With Sigenergy Local Modbus, the card computes it from `sensor.sigen_inverter_active_power` and the PV string power entities.
+**The loss** is what the inverter takes in, less what it delivers:
 
-By default only the first inverter is covered: its PV strings are the ones the card lists. With several inverters, set `inverter_active_power` to the plant's active power (`sensor.sigen_plant_plant_active_power`, or sigenergy2mqtt's `sensor.sigen_0_plant_active_power`, which is disabled by default) and list every inverter's strings in `pv_strings` with their `power` entities; with sigenergy2mqtt, also set `inverter_loss_power` to its plant-level `sensor.sigen_0_self_consumed_power`. `battery_power` already covers every battery.
+- It takes in power from the PV strings, the battery and a car on the DC charger. When it charges from the grid, it also draws AC.
+- It delivers AC power, and the charge of the battery and the car.
+- The efficiency is what it delivers over what it takes in. It is hidden below 20 W of intake.
+
+The card reads the solar from the strings (voltage × current, the `pv_strings` entities). Sigenergy's own PV figures (`pv_power`, `pv_strings_power` and the PV energy counters) are measured after conversion, so they show no loss.
+
+The inverter uses some power itself, for its fans, electronics and lights. That part is about constant, so the efficiency drops at low power: 200 W is a third of a 600 W discharge.
+
+The inverter doesn't read the strings and its AC power at the same moment. While the sun moves, the live figures can disagree for a moment. The chart's 5-minute means smooth that out.
+
+**Whole-system efficiency** compares the loss with everything the system takes in: the strings, any third-party inverter, grid import, and battery and car discharge.
+
+**Battery round trip** covers the last 30 days. Both figures allow for the energy the battery gained over that time.
+
+- **(AC)** is what you get back for what you put in. It is the energy the battery returned to the house, over the energy it took from the solar or the grid to charge it. It includes the inverter's loss both ways. The card splits each hour's loss between that hour's flows, in proportion to their size. So the inverter's own consumption weighs most on low-power hours, such as a discharge at night.
+- **(DC)** is the battery alone. It comes from the battery's own counters (`stat_battery_charge`, `stat_battery_discharge`), which count at the battery.
+
+Days without statistics are left out and marked ⚠. For the AC figure, so are hours without the inverter's statistics.
+
+**Entities:**
+
+- With sigenergy2mqtt, the card uses its **Self-Consumed Power** sensor, which gives the loss.
+- With Sigenergy Local Modbus, the card computes the loss from `sensor.sigen_inverter_active_power` and the PV string power entities.
+
+**Several inverters:** by default, only the first inverter is covered, as its strings are the ones the card lists. To cover them all:
+
+1. Set `inverter_active_power` to the plant's active power: `sensor.sigen_plant_plant_active_power`, or sigenergy2mqtt's `sensor.sigen_0_plant_active_power` (disabled by default).
+2. List every inverter's strings in `pv_strings`, with their `power` entities.
+3. With sigenergy2mqtt, also set `inverter_loss_power` to `sensor.sigen_0_self_consumed_power`.
+
+`battery_power` already covers every battery.
 
 ### Electricity prices
 
