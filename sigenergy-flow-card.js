@@ -461,6 +461,16 @@ const allocateFlows = (sources, sinks) => {
     return flows;
 };
 
+// The least and greatest of [values]: a chart can hold more points than a call takes arguments.
+const extent = values => {
+    let least = Infinity, most = -Infinity;
+    for (const v of values) {
+        if (v < least) least = v;
+        if (v > most) most = v;
+    }
+    return [least, most];
+};
+
 // Dates and times follow Home Assistant's time zone ([zone]), not the browser's; undefined is the browser's.
 const zoneFormats = new Map();
 // Wall-clock fields of the instant [t] in [zone].
@@ -2300,6 +2310,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._text(status, hasData ? hours ? `Last ${hours} hours` : 'Midnight → now' : empty);
         } catch (e) {
             if (request !== svg._request) return;
+            console.error('sigenergy-flow-card: history chart failed:', e);
             this._text(status, 'Recorder history unavailable');
             svg.replaceChildren();
         }
@@ -3247,6 +3258,7 @@ class SigenergyFlowCard extends HTMLElement {
             this._renderChart(data, specs, start, past ? { hourly } : null);
         } catch (e) {
             if (request !== this._historyRequest) return;
+            console.error('sigenergy-flow-card: Power metrics failed:', e);
             this._chartLive = null;
             this._text('chartStatus', 'Recorder history unavailable');
             this._id('chart').replaceChildren();
@@ -3517,12 +3529,11 @@ class SigenergyFlowCard extends HTMLElement {
             return { low, max: low + 2 * gap, places: [gap, low].reduce((d, v) => { while (d < 4 && Math.abs(Math.round(v * 10 ** d) - v * 10 ** d) > 1e-6) d++; return d; }, 0) };
         };
         // A signed chart's limit is rounded up to a half, whole, 5, 10, 50… kW, as in Sigenergy's app, so the labels are exact.
-        const peak = Math.max(1, ...values), step = 10 ** Math.floor(Math.log10(peak)) / 2;
-        let max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.max(1, Math.ceil(Math.max(0, ...values))));
+        const peak = Math.max(1, extent(values)[1]), step = 10 ** Math.floor(Math.log10(peak)) / 2;
+        let max = top ?? (signed ? Math.ceil(peak / step - 1e-9) * step : Math.ceil(peak));
         let low = 0, places = null;
         if (window?.fit && values.length) {
-            const all = drawn.flatMap(s => s.points.map(p => p.v));
-            ({ low, max, places } = span(Math.min(...all), Math.max(...all)));
+            ({ low, max, places } = span(...extent(drawn.flatMap(s => s.points.map(p => p.v)))));
         }
         const left = 38, right = width - (righted.length ? 40 : 12);
         const x = t => left + (right - left) * (t - start) / Math.max(1, end - start);
@@ -3536,8 +3547,8 @@ class SigenergyFlowCard extends HTMLElement {
         let yRight = null;
         if (righted.length) {
             // A percentage tops out at 100, its labels a tenth apart or more.
-            const all = righted.flatMap(s => s.points.map(p => p.v)), least = Math.min(...all);
-            const r = righted[0].unit === '%' ? { low: Math.min(80, Math.max(0, Math.floor(least / 10) * 10)), max: 100, places: 0 } : span(least, Math.max(...all));
+            const [least, most] = extent(righted.flatMap(s => s.points.map(p => p.v)));
+            const r = righted[0].unit === '%' ? { low: Math.min(80, Math.max(0, Math.floor(least / 10) * 10)), max: 100, places: 0 } : span(least, most);
             yRight = v => lower - (lower - upper) * (v - r.low) / (r.max - r.low);
             for (const v of [r.low, (r.low + r.max) / 2, r.max])
                 add('text', { x: width - 2, y: yRight(v) + 4, fill: 'var(--axis)', 'font-size': 10, 'text-anchor': 'end' }, `${v.toFixed(r.places)}${righted[0].unit ?? ''}`);
