@@ -192,6 +192,7 @@ All options are optional.
 | `name` | `My Home` | Second part of the heading (your home's name). An empty value hides that part. |
 | `show_phase_mode` | `false` | Show the phase power mode under **GRID**. |
 | `show_grid_voltage` | `false` | Show the voltage beside **GRID**, e.g. **GRID (231V)** (see [Grid details](#grid-details)). |
+| `flow_line_scale` | `1` | Thickness of the flow lines and their moving highlights, as a multiple of the default: e.g. `1.5` for half as thick again, `0.5` for half. From 0.25 to 4. |
 | `show_inverter_efficiency` | `false` | Show the inverter's efficiency beside SigenStor's power, e.g. **553 W (η 68%)** (see [Inverter efficiency](#inverter-efficiency)). |
 | `battery_remaining_target` | `auto` | The SOC the battery's remaining time counts down to while discharging: `auto` the Backup SOC on grid and the discharge cut-off SOC off grid (by `grid_status`; on grid without it); `backup_soc` always the Backup SOC (also for the idle power-cut estimate); `discharge_cut_off_soc` always the discharge cut-off SOC. |
 | `home_includes_ac_charger` | `false` | `home_power` includes the AC charger (and the second one, if any), e.g. a third-party one: HOME, its chart line and its forecast deduct the charger's power (see [A third-party charger](#a-third-party-charger)). |
@@ -288,7 +289,7 @@ theme: dark
 
 ### Flow animation
 
-Each flow's highlight moves from its source to its destination at `60 + 35 × √kW` scene units per second, using that flow's own power, so a 5 kW flow runs about 1.6 times faster than a 0.6 kW one. A flow below 0.025 kW is idle. The short branch of the home line into the glass doors continues the home flow's animation from the point where it forks, at the same speed. With *reduce motion* enabled in the operating system, the lines are drawn without moving highlights.
+Each flow's highlight moves from its source to its destination at `60 + 35 × √kW` scene units per second, using that flow's own power, so a 5 kW flow runs about 1.6 times faster than a 0.6 kW one. A flow below 0.025 kW is idle. The short branch of the home line into the glass doors continues the home flow's animation from the point where it forks, at the same speed. With *reduce motion* enabled in the operating system, the lines are drawn without moving highlights. `flow_line_scale` makes the lines and highlights thicker or thinner; they scale with the photo either way.
 
 ### Custom entities
 

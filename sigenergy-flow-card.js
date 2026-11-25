@@ -577,6 +577,7 @@ class SigenergyFlowCard extends HTMLElement {
         if (config.home_includes_ac_charger !== undefined && typeof config.home_includes_ac_charger !== 'boolean') throw new Error('home_includes_ac_charger must be true or false');
         if (config.weather_scene !== undefined && typeof config.weather_scene !== 'boolean') throw new Error('weather_scene must be true or false');
         if (config.show_inverter_efficiency !== undefined && typeof config.show_inverter_efficiency !== 'boolean') throw new Error('show_inverter_efficiency must be true or false');
+        if (config.flow_line_scale !== undefined && !(typeof config.flow_line_scale === 'number' && config.flow_line_scale >= .25 && config.flow_line_scale <= 4)) throw new Error('flow_line_scale must be a number from 0.25 to 4');
         if (config.home_entities !== undefined && config.home_entities !== false && config.home_entities !== null && !Array.isArray(config.home_entities)) throw new Error('home_entities must be a list of entities or false');
         this.config = {
             pv_strings: ['PV1', 'PV2', 'PV3', 'PV4'],
@@ -586,6 +587,7 @@ class SigenergyFlowCard extends HTMLElement {
             show_phase_mode: false,
             show_grid_voltage: false,
             show_inverter_efficiency: false,
+            flow_line_scale: 1,
             home_includes_ac_charger: false,
             battery_remaining_target: 'auto',
             garage: 'auto',
@@ -810,10 +812,10 @@ class SigenergyFlowCard extends HTMLElement {
       .plane>svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
       .fade{stop-color:var(--fade)}.fadeRect{opacity:var(--fade-opacity)}
       .leader{fill:none;stroke:var(--leader);stroke-width:1;vector-effect:non-scaling-stroke}
-      .wire{fill:none;stroke:rgba(18,26,30,.4);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;transition:stroke .4s}
+      .wire{fill:none;stroke:rgba(18,26,30,.4);stroke-width:${3 * this.config.flow_line_scale};stroke-linecap:round;stroke-linejoin:round;transition:stroke .4s}
       .flow.active .wire{stroke:var(--wire-on)}
       .glow,.comet{fill:none;stroke:var(--comet);stroke-linecap:round;stroke-linejoin:round;display:none}
-      .glow{stroke-width:9;opacity:.6}.comet{stroke-width:3.4;opacity:.3}
+      .glow{stroke-width:${9 * this.config.flow_line_scale};opacity:.6}.comet{stroke-width:${3.4 * this.config.flow_line_scale};opacity:.3}
       .flow.active.moving .glow,.flow.active.moving .comet{display:inline}
       .node{position:absolute;z-index:2;color:var(--node-fg);white-space:nowrap;line-height:1.2;text-shadow:var(--node-shadow)}
       .node strong{display:block;font-size:clamp(14px,calc(27px * var(--s)),30px);font-weight:580}
