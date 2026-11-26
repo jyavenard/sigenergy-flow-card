@@ -700,7 +700,7 @@ class SigenergyFlowCard extends HTMLElement {
           <rect x="0" y="${-PHOTO.bleed}" width="${PHOTO.width}" height="${PHOTO.bleed + FADE.topEnd}" class="fadeRect" fill="url(#fadeTop)"/>
           <rect x="0" y="${FADE.bottomStart}" width="${PHOTO.width}" height="${SCENE.height - FADE.bottomStart + PHOTO.bleed}" class="fadeRect" fill="url(#fadeBottom)"/>
           <rect x="0" y="${-PHOTO.bleed}" width="520" height="${SCENE.height + 2 * PHOTO.bleed}" fill="url(#fadeLeft)"/>
-          ${LEADERS.map((d, i) => battery || i !== 2 ? `<path class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>` : '').join('')}
+          ${LEADERS.map((d, i) => battery || i !== 2 ? `<path${i === 3 ? ' id="gridLeader"' : ''} class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>` : '').join('')}
           <path id="chargerLeader" class="leader" display="none"/><path id="chargerLeader2" class="leader" display="none"/>
           ${flows}
         </svg>
@@ -709,7 +709,7 @@ class SigenergyFlowCard extends HTMLElement {
         <div class="node lead" style="${placeAt(READINGS.home)}"><button id="homeButton" title="Show home power usage" disabled><strong id="home">—</strong><small>HOME<span id="homeMore" hidden> ›</span></small></button></div>
         <div class="lower" style="${lowerStyle}">
           ${battery ? '<div class="node"><button id="batteryButton" title="Show SigenStor details"><strong><span id="battery">—</span><span class="eff" id="batteryEff" hidden></span></strong><small>SigenStor · <span id="soc">—</span> ›</small></button><em id="battStatus"></em></div>' : ''}
-          <div class="node"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
+          <div class="node" id="gridNode"${battery ? '' : ' style="grid-column:2"'}><button id="gridButton" title="Show grid details"><strong id="grid">—</strong><small>GRID <span class="nobreak"><span id="gridLabel"></span><span id="gridMore"> ›</span></span></small></button><em id="gridStatus"></em><em id="phaseMode"></em></div>
         </div>
         <div class="sidecol" id="chargers">
           <div class="node" id="acNode"><strong id="ac">—</strong><small id="acName">AC CHARGER</small><em id="acSoc"></em><em id="acTotal"></em></div>
@@ -793,9 +793,9 @@ class SigenergyFlowCard extends HTMLElement {
         };
         // A standalone card is its part under a header that holds what the panel's heading held.
         // With a tap_action, the title ends with a › (the tap itself is handled by the card).
-        const more = this._tapAction() ? '<span class="more"> ›</span>' : '';
+        const more = this._tapAction() ? '<span class="more"> ›</span>' : '', offGrid = '<span id="offGrid" hidden> (Off&nbsp;Grid)</span>';
         const header = (heading, sub = '', bar = picker) => `<div class="header"><div class="title"><div class="heading">${heading}</div>${sub}</div>${bar}</div>`;
-        const body = !solo ? `<div class="header"><div class="title"><div class="heading"><span id="heading"></span>${more}</div><div class="sub">Live power flow</div></div>${picker}<div class="sub" id="stamp"></div></div>
+        const body = !solo ? `<div class="header"><div class="title"><div class="heading"><span id="heading"></span>${offGrid}${more}</div><div class="sub">Live power flow</div></div>${picker}<div class="sub" id="stamp"></div></div>
       <div class="frame"><div class="layout">${scene}<aside class="sidebar fill">${battery ? `<section class="panel"><h3>Battery level</h3>${batteryLevel}</section>` : ''}
         <section class="panel daypanel"><h3>Energy statistics</h3>${tiles}</section>
       </aside></div></div>
@@ -803,7 +803,7 @@ class SigenergyFlowCard extends HTMLElement {
       ${metrics}</section>
       <section class="panel statpanel" id="statPanel"${this.config.show_energy_statistics ? '' : ' hidden'}><div class="charthead"><h3>Energy statistics<button class="gap" id="statGap" title="Missing data" hidden>⚠</button></h3><span class="muted" id="statStatus">Loading…</span></div>
       ${sankey}</section>` : {
-            scene: () => header(`<span id="heading"></span>${more}`, '<div class="sub">Live power flow</div>', '<div class="sub" id="stamp"></div>') + scene,
+            scene: () => header(`<span id="heading"></span>${offGrid}${more}`, '<div class="sub">Live power flow</div>', '<div class="sub" id="stamp"></div>') + scene,
             battery: () => header(`<span id="heading"></span>${more}`, '', '') + (battery ? batteryLevel : ''),
             tiles: () => header(`<span id="heading"></span>${more}`) + tiles,
             metrics: () => header(`<span id="heading"></span><span id="chartTitle"${this.config.title ? ' hidden' : ''}>Power metrics · Today</span>${more}`, '<div class="sub" id="chartStatus">Loading history…</div>') + metrics,
@@ -1451,6 +1451,10 @@ class SigenergyFlowCard extends HTMLElement {
     _factor(id) {
         return { W: .001, Wh: .001, MW: 1000, MWh: 1000 }[this._hass?.states[id]?.attributes?.unit_of_measurement] ?? 1;
     }
+    // Off Grid (Auto) or (Manual), as grid_status reports it.
+    _offGrid() {
+        return /^off[ _]?grid/i.test(this._hass?.states[this._ent('grid_status')]?.state ?? '');
+    }
     // The battery's remaining time at the current power, as "1h10m to 20%": while charging, to its charge
     // cut-off SOC; while discharging, to its Backup SOC on grid (where it stops then) and to its discharge cut-off SOC off
     // grid (battery_remaining_target: auto), or always to one of them. While idle, it is how long the battery would run
@@ -1466,7 +1470,7 @@ class SigenergyFlowCard extends HTMLElement {
         const charging = bat > .025, power = idle ? (home === null ? 0 : home + overhead.kw) : Math.abs(bat);
         if (power <= .025) return '';
         const level = key => this._num(this._ent(key)), mode = this.config.battery_remaining_target;
-        const offGrid = /^off[ _]?grid/i.test(this._hass.states[this._ent('grid_status')]?.state ?? '');
+        const offGrid = this._offGrid();
         const cutOff = level('battery_discharge_cut_off_soc') ?? 0, backup = level('battery_backup_soc');
         const reserve = backup !== null && backup > cutOff && (mode === 'backup_soc' || (mode === 'auto' && !idle && !offGrid));
         const target = charging ? level('battery_charge_cut_off_soc') ?? 100 : reserve ? backup : cutOff;
@@ -2527,6 +2531,15 @@ class SigenergyFlowCard extends HTMLElement {
             this._learnOverhead(pv, imp, exp, bat, this._acPower(), dc, home);
             // The bracket stays on one line: a narrow column wraps before it.
             this._text('battStatus', remaining ? `${battStatus} (${remaining})` : battStatus);
+        }
+        const off = this._offGrid();
+        this._id('gridNode').hidden = off;
+        this._id('offGrid').hidden = !off;
+        this._id('gridLeader')?.setAttribute('display', off ? 'none' : 'inline');
+        this._id('gridFlow').setAttribute('display', off ? 'none' : 'inline');
+        if (off !== this._wasOffGrid) {
+            this._wasOffGrid = off;
+            this._fitScene();
         }
         this._text('grid', this._power(grid));
         const gridWord = grid === null ? '' : grid > 0.025 ? 'Importing' : grid < -.025 ? 'Exporting' : 'Idle'

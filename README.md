@@ -112,6 +112,7 @@ Between sunset and sunrise, or with `style: night`, the card shows the night pho
 - The photo follows the weather: cloud, fog, rain, storms, hail, snow or wind (see [Weather](#weather)).
 - The current weather at the top left, as in Sigenergy's app. An icon shows the condition, with a moon after sunset, next to the temperature. Tap it for the forecast.
 - Power readings for solar, home, SigenStor (with its state of charge), grid, and the AC and DC chargers when present.
+- Off grid, GRID and its line are hidden, and the title ends with "(Off Grid)" (from `grid_status`).
 
 **The battery's remaining time**
 
@@ -410,7 +411,7 @@ Units:
 | `battery_charge_cut_off_soc` | `sensor.sigen_plant_charge_cut_off_soc`, fallback `number.sigen_plant_ess_charge_cut_off_state_of_charge` | Remaining time while charging. Without it, the time counts to 100%. Disabled by default in the Sigenergy integration. |
 | `battery_discharge_cut_off_soc` | `sensor.sigen_plant_discharge_cut_off_soc`, fallback `number.sigen_plant_ess_discharge_cut_off_state_of_charge` | Remaining time while discharging off grid, and the idle power-cut estimate. Without it, the time counts to 0%. Disabled by default in the Sigenergy integration. |
 | `battery_backup_soc` | `number.sigen_plant_ess_backup_state_of_charge` | Remaining time while discharging on grid, down to this SOC (see `battery_remaining_target`). Disabled by default in the Sigenergy integration. |
-| `grid_status` | `sensor.sigen_plant_grid_connection_status` | On or off grid, for the remaining time's target. Without it, the card assumes on grid. |
+| `grid_status` | `sensor.sigen_plant_grid_connection_status` | On or off grid. Off grid, GRID is hidden and the title ends with "(Off Grid)". Also the remaining time's target. Without it, or with `false`, the card assumes on grid. |
 | `grid_import_power` | `sensor.sigen_plant_grid_import_power` | GRID value and status, wire, chart. Positive while importing. |
 | `grid_export_power` | `sensor.sigen_plant_grid_export_power` | GRID value and status, wire, chart. Positive while exporting. |
 | `phase_mode` | `switch.sigen_plant_independent_phase_power_control` | Phase power mode line under GRID |
