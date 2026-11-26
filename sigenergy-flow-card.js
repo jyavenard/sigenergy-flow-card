@@ -2441,6 +2441,8 @@ class SigenergyFlowCard extends HTMLElement {
         return nearest;
     }
     disconnectedCallback() {
+        // Close any left opened modal dialogs.
+        this.root?.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
         if (this._chartObserver) { this._chartObserver.disconnect(); this._chartObserver = null; }
         if (this._flowFrame) cancelAnimationFrame(this._flowFrame);
         this._flowFrame = null;
