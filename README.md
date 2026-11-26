@@ -924,6 +924,7 @@ While the entity is unknown or unavailable, or its state isn't a car's name, the
 - `mg4-camden-grey`: MG4, Camden Grey
 - `mg4-urban-stone-green`: MG4 Urban, Stone Green
 - `peugeot-e3008-ingaro-blue`: Peugeot E-3008, Ingaro Blue
+- `polestar-2-storm`: Polestar 2, Storm
 - `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
 - `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
 - `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
