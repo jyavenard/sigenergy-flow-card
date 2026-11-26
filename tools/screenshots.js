@@ -41,6 +41,9 @@ const at = h => {
     else imp = -surplus;
     return { pv, home, ac, charge, discharge, imp, exp, bat: charge - discharge };
 };
+// The inverter's AC power: its DC intake (the strings and battery discharge) less a loss of about 210 W plus 4 % of
+// the intake, and less the battery charge.
+const inverterAc = p => p.pv - p.bat - (.21 + .04 * (p.pv + p.discharge));
 const STEP = 5 / 60, hours = [];
 for (let h = 0; h <= 14.5 + 1e-9; h += STEP) hours.push(+h.toFixed(4));
 const samples = hours.map(h => ({ h, t: MIDNIGHT + h * 3600e3, ...at(h) }));
@@ -66,7 +69,7 @@ const states = {
     'sensor.sigen_plant_grid_import_power': kw(live.imp), 'sensor.sigen_plant_grid_export_power': kw(live.exp),
     'sensor.sigen_ac_charger_charging_power': kw(live.ac), 'sensor.sigen_ac_charger_system_state': { state: 'Charging', attributes: {} },
     'sensor.car_soc': { state: '64', attributes: { unit_of_measurement: '%' } }, 'sensor.car_range': { state: '301', attributes: { unit_of_measurement: 'km' } },
-    'sensor.sigen_inverter_dc_charger_output_power': kw(0),
+    'sensor.sigen_inverter_dc_charger_output_power': kw(0), 'sensor.sigen_inverter_active_power': kw(inverterAc(live)),
     'sensor.sigen_plant_daily_pv_energy': kwh(sum('pv')), 'sensor.sigen_plant_daily_grid_import_energy': kwh(sum('imp')),
     'sensor.sigen_plant_daily_grid_export_energy': kwh(sum('exp')), 'sensor.sigen_plant_daily_battery_charge_energy': kwh(sum('charge')),
     'sensor.sigen_plant_daily_battery_discharge_energy': kwh(sum('discharge')),
@@ -75,6 +78,8 @@ const states = {
     'sensor.sigen_plant_total_imported_energy': kwh(2210.7), 'sensor.sigen_plant_total_exported_energy': kwh(6930.2),
     'sensor.sigen_plant_total_charged_energy_of_the_evac': kwh(3911.0),
     'weather.forecast_home': { state: 'partlycloudy', attributes: { temperature: 24.3, temperature_unit: '°C', friendly_name: 'Forecast Home' } },
+    'sensor.amber_general_price': { state: '0.2814', attributes: { unit_of_measurement: '$/kWh' } },
+    'sensor.amber_feed_in_price': { state: '0.065', attributes: { unit_of_measurement: '$/kWh' } },
 };
 STRINGS.forEach(([, kwNow, , v, a, life], i) => Object.assign(states, {
     [`sensor.sigen_inverter_pv${i + 1}_power`]: kw(kwNow), [`sensor.sigen_inverter_pv${i + 1}_voltage`]: { state: String(v), attributes: { unit_of_measurement: 'V' } },
@@ -112,6 +117,12 @@ for (let t = NOW - 86400e3; t <= NOW; t += 300e3) times24.push(t);
     states[`sensor.sigen_plant_grid_phase_${phase}_active_power`] = kw(gridKw(14.5));
     grid24[`sensor.sigen_plant_grid_phase_${phase}_active_power`] = times24.map(t => +gridKw((t - MIDNIGHT) / 3600e3).toFixed(3));
 });
+// The same 24 hours of the inverter's strings, battery and AC power, for the SigenStor dialog.
+const inv24 = {};
+const day24 = times24.map(t => at((((t - MIDNIGHT) / 3600e3) % 24 + 24) % 24));
+STRINGS.forEach((_, i) => { inv24[`sensor.sigen_inverter_pv${i + 1}_power`] = times24.map(t => +stringKw(i, (((t - MIDNIGHT) / 3600e3) % 24 + 24) % 24).toFixed(3)); });
+inv24['sensor.sigen_plant_battery_power'] = day24.map(p => +p.bat.toFixed(3));
+inv24['sensor.sigen_inverter_active_power'] = day24.map(p => +inverterAc(p).toFixed(3));
 states['sensor.sigen_inverter_power_factor'] = { state: '0.99' };
 grid24['sensor.sigen_inverter_power_factor'] = times24.map((t, i) => +(.985 + .01 * Math.sin(i / 9)).toFixed(3));
 const statistics = {
@@ -182,7 +193,11 @@ for (let h = 0; h < 48; h++) {
 states[FORECAST] = { state: (pvDay * FORECAST_TODAY).toFixed(2), attributes: { unit_of_measurement: 'kWh', device_class: 'energy' } };
 forecastStates.push({ t: MIDNIGHT + 1800e3, v: +states[FORECAST].state });
 const data = {
-    states, times: samples.map(s => s.t), means, times24, grid24, dailyPv, forecastStates, whHours, pastHourly, pastDaily,
+    // The Energy dashboard's grid connection, with a retailer's buy and sell price entities, shown under GRID.
+    prefs: { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.sigen_plant_total_imported_energy', stat_energy_to: 'sensor.sigen_plant_total_exported_energy',
+        stat_cost: null, entity_energy_price: 'sensor.amber_general_price', number_energy_price: null,
+        stat_compensation: null, entity_energy_price_export: 'sensor.amber_feed_in_price', number_energy_price_export: null, cost_adjustment_day: 0 }], device_consumption: [] },
+    states, times: samples.map(s => s.t), means, times24, grid24, inv24, dailyPv, forecastStates, whHours, pastHourly, pastDaily,
     history: Object.fromEntries(Object.entries(history).map(([id, v]) => [id, v.map(x => +x.toFixed(3))])),
     statistics: Object.fromEntries(Object.entries(statistics).map(([id, key]) => [id, intervals.map(r => ({ start: r.t, end: r.t + 300e3, change: +(r[key] * STEP).toFixed(4) }))])),
 };
@@ -198,16 +213,18 @@ async function mount(page, style, tag = 'sigenergy-flow-card', extra = {}) {
     await page.evaluate(({ data, config, style, tag }) => {
         const hass = {
             states: data.states, language: 'en', locale: { language: 'en', time_zone: 'server' }, themes: {},
-            config: { latitude: -33.87, longitude: 151.21, time_zone: 'Australia/Sydney', unit_system: { temperature: '°C' } },
+            config: { currency: 'AUD', latitude: -33.87, longitude: 151.21, time_zone: 'Australia/Sydney', unit_system: { temperature: '°C' } },
             callApi: async (method, query) => {
                 const ids = decodeURIComponent(query.split('filter_entity_id=')[1].split('&')[0]).split(',');
+                const day = Date.parse(decodeURIComponent(query.split('history/period/')[1].split('?')[0])) < data.times[0] - 60e3;
                 const rows = id => id === 'sensor.energy_production_today' ? [data.forecastStates.map(p => p.v), data.forecastStates.map(p => p.t)]
-                    : data.grid24[id] ? [data.grid24[id], data.times24] : [data.history[id], data.times];
+                    : data.grid24[id] ? [data.grid24[id], data.times24] : day && data.inv24[id] ? [data.inv24[id], data.times24] : [data.history[id], data.times];
                 return ids.filter(id => rows(id)[0]).map(id => rows(id)[0].map((v, i) => ({ ...(i ? {} : { entity_id: id }), state: String(v), last_changed: new Date(rows(id)[1][i]).toISOString() })));
             },
             // A solar forecast integration (Forecast.Solar) for today's solar; the home's forecast uses the 7-day averages.
             callWS: async msg => {
                 if (msg.type === 'energy/solar_forecast') return { 1: { wh_hours: data.whHours } };
+                if (msg.type === 'energy/get_prefs') return data.prefs;
                 // Today's lifetime counters have 5-minute statistics; the days before, hourly and daily ones.
                 const hourly = Object.fromEntries(Object.keys(data.pastHourly).map(id => [id, [...data.pastHourly[id], ...(data.statistics[id] ?? [])]]));
                 // The month's statistics, from the days'; the card finds each counter's first day from them.
@@ -298,7 +315,7 @@ async function newContext(browser, options) {
             const statName = `stat-${shot.name === 'desktop' ? 'desk' : 'phone'}-${night ? 'night' : 'day'}`;
             await page.screenshot({ path: `${out}/${statName}.png`, clip: await statClip(page, shot.pad), fullPage: true });
             if (!night) {
-                for (const [file, button] of [['solar', 'pvButton'], ['grid', 'gridButton'], ['home', 'homeButton'], ['energy', 'capacity']]) {
+                for (const [file, button] of [['solar', 'pvButton'], ['grid', 'gridButton'], ['home', 'homeButton'], ['energy', 'capacity'], ['battery', 'batteryButton']]) {
                     await page.evaluate(() => scrollTo(0, 0));
                     await openDialog(page, button);
                     await page.screenshot({ path: `${out}/${shot.name}-${file}.png` });
