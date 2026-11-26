@@ -2,6 +2,13 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v81
+
+- Energy statistics greys out a source or consumer that wasn't used in the period, with 0 kWh beside it, like the mySigen app does ([#30](https://github.com/jyavenard/sigenergy-flow-card/issues/30)). An off-grid system's GRID no longer looks in use. A total that rounds to 0.00 kWh counts as unused.
+- The battery's remaining time shows "over 99h" from 100 hours ([#29](https://github.com/jyavenard/sigenergy-flow-card/issues/29)). It was hidden, so a slow charge into a large battery showed just "Charging". In a narrow column, the time now wraps as a whole after the status.
+- Power metrics and the dialogs' charts draw a day of 1-second readings ([#16](https://github.com/jyavenard/sigenergy-flow-card/pull/16)). With that many points, Chrome showed "Recorder history unavailable" although the history had loaded. A chart that fails to draw now logs the error to the browser console.
+- New cars: a BYD Seal in Indigo Grey and a Peugeot E-3008 in Ingaro Blue ([#17](https://github.com/jyavenard/sigenergy-flow-card/pull/17)), an Audi Q4 e-tron in Black and a Tesla Model Y in Stealth Grey ([#19](https://github.com/jyavenard/sigenergy-flow-card/pull/19)), and a Mazda CX-80 PHEV in Machine Grey Metallic ([#23](https://github.com/jyavenard/sigenergy-flow-card/pull/23)). Cars load from GitHub, so they already show with v80.
+
 ## v80
 
 - The SigenStor dialog shows two battery round trip calculations:
