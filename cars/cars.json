@@ -1,6 +1,7 @@
 [
   {"id": "byd-atto3-orange", "model": "BYD Atto 3", "colour": "Orange"},
   {"id": "lotus-eletre-red", "model": "Lotus Eletre", "colour": "Red"},
+  {"id": "mazda-cx80-machine-grey", "model": "Mazda CX-80 PHEV", "colour": "Machine Grey Metallic"},
   {"id": "mg-zsev-diamond-red", "model": "MG ZS EV Excite", "colour": "Diamond Red"},
   {"id": "mg4-camden-grey", "model": "MG4", "colour": "Camden Grey"},
   {"id": "mg4-urban-stone-green", "model": "MG4 Urban", "colour": "Stone Green"},
