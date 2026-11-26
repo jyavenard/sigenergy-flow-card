@@ -2,6 +2,12 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v83
+
+- A dialog opens again after you leave the view while it is open and come back ([#33](https://github.com/jyavenard/sigenergy-flow-card/issues/33)). Leaving the view by the browser's Back button, or by swiping in the Companion app, left it unable to reopen until a reload.
+- New car: a Polestar 2 in Storm ([#32](https://github.com/jyavenard/sigenergy-flow-card/pull/32)). Cars load from GitHub, so it already shows with v82.
+- The README is reorganised. It calls the integration Sigenergy ESS, its name in Marketplace.
+
 ## v82
 
 - Off grid, GRID and its line are hidden, and the title ends with "(Off Grid)". This follows `grid_status`, which both integrations enable by default. Off grid, GRID used to read "0 W · Idle", like a balanced on-grid system.
