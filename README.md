@@ -224,6 +224,35 @@ To update, copy the new file over the old one. Then raise the `?v=` number in th
 
 Remove the `/local/sigenergy-flow-card.js` resource and delete `/config/www/sigenergy-flow-card.js`, so only the HACS copy loads. The `/config/www/Sigenergy/` artwork directory is no longer used, and can be deleted.
 
+### Sensors to enable
+
+Both integrations create some of the sensors the card reads disabled. The card works without them, but the parts that need them stay empty or less accurate.
+
+- Enable them in **Settings → Devices & services → Entities**: search for the entity, open it, then ⚙ → **Enabled**.
+- Home Assistant keeps statistics only from when a sensor is enabled, so enable the energy counters early.
+
+**Sigenergy Local Modbus:**
+
+| Enable | For |
+| --- | --- |
+| `sensor.sigen_plant_charge_cut_off_soc`, `sensor.sigen_plant_discharge_cut_off_soc`, `number.sigen_plant_ess_backup_state_of_charge` | The battery's remaining time. Without them, it counts to 100% and 0%. |
+| `sensor.sigen_inverter_phase_a_voltage`, `…_current` (and phases B, C), `sensor.sigen_inverter_power_factor`, `sensor.sigen_plant_grid_phase_a_active_power` (and B, C) | The grid details, when you tap GRID. |
+| `sensor.sigen_plant_third_party_pv_power`, `sensor.sigen_plant_total_generation_of_third_party_inverter` | A third-party inverter: its row under SOLAR, and its solar in past periods. |
+| `switch.sigen_plant_independent_phase_power_control` | The phase power mode under GRID, with `show_phase_mode: true`. |
+| `sensor.sigen_plant_total_charged_energy_of_the_evdc`, `…_discharged_energy_of_the_evdc` | Energy statistics with DC chargers on several inverters. With one, the charger's own totals are enough. |
+
+**sigenergy2mqtt** creates most sensors disabled:
+
+| Enable | For |
+| --- | --- |
+| `sensor.sigen_0_plant_rated_energy_capacity` | The stored energy and the battery's remaining time. |
+| `sensor.sigen_0_dc_charger_1_output_power`, `…_vehicle_soc`, `…_total_charging_capacity`, `…_total_discharging_capacity`, `sensor.sigen_0_evdc_total_charge_energy`, `…_discharge_energy` | A DC charger: its power, the car's SOC, and EVDC in Energy statistics. |
+| `sensor.sigen_0_inverter_1_active_power` | The inverter's efficiency and the SigenStor details. |
+| `sensor.sigen_0_inverter_1_pv1_voltage`, `…_pv1_current` (and each string) | The strings' voltage and current, when you tap SOLAR. |
+| `sensor.sigen_0_general_load_power` | HOME as measured. Without it, the card calculates HOME. |
+| `sensor.sigen_0_inverter_1_phase_a_voltage`, `…_current` (and phases B, C), `sensor.sigen_0_inverter_1_power_factor`, `sensor.sigen_0_plant_grid_phase_a_active_power` (and B, C) | The grid details, when you tap GRID. |
+| `sensor.sigen_0_third_party_pv_power`, `sensor.sigen_0_third_party_pv_lifetime_production` | A third-party inverter's row under SOLAR. |
+
 ## Configuration
 
 All options are optional.
