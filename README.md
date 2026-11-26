@@ -884,11 +884,13 @@ While the entity is unknown or unavailable, or its state isn't a car's name, the
 
 <!-- cars: generated from cars/cars.json by tools/make-car.py -->
 - `byd-atto3-orange`: BYD Atto 3, Orange
+- `byd-seal-indigo-grey`: BYD Seal, Indigo Grey
 - `lotus-eletre-red`: Lotus Eletre, Red
 - `mazda-cx80-machine-grey`: Mazda CX-80 PHEV, Machine Grey Metallic
 - `mg-zsev-diamond-red`: MG ZS EV Excite, Diamond Red
 - `mg4-camden-grey`: MG4, Camden Grey
 - `mg4-urban-stone-green`: MG4 Urban, Stone Green
+- `peugeot-e3008-ingaro-blue`: Peugeot E-3008, Ingaro Blue
 - `taycan-dolomite-grey`: Porsche Taycan, Dolomite Grey
 - `model-3-stealth-grey`: Tesla Model 3, Stealth Grey
 - `model-y-glacier-blue`: Tesla Model Y, Glacier Blue
