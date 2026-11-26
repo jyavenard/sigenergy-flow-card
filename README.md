@@ -203,7 +203,7 @@ Under SigenStor, the card shows how long the battery lasts at the current power,
 
 ## Requirements
 
-The card reads all its data locally, over modbus, through the [Sigenergy ESS](https://github.com/TypQxQ/Sigenergy-Local-Modbus) integration (formerly Sigenergy Local Modbus).
+The card reads all its data locally, over modbus, through the [Sigenergy ESS](https://github.com/TypQxQ/Sigenergy-Local-Modbus) integration (repository Sigenergy-Local-Modbus).
 
 - Install it through Marketplace ([open it in Marketplace](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)) and configure it first.
 - The card uses its default entity IDs: `sensor.sigen_plant_*`, `sensor.sigen_inverter_*` and `sensor.sigen_ac_charger_*`.
