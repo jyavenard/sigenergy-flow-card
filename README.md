@@ -160,7 +160,7 @@ Under SigenStor, the card shows how long the battery lasts at the current power,
 - While discharging off grid, it counts to the discharge cut-off SOC. `battery_remaining_target` changes this.
 - From 100 hours, it shows "over 99h".
 - While idle, it shows how long the battery would run the home in a power cut, down to the discharge cut-off SOC. That is the home's consumption plus the system's own base load. The card learns the base load while the battery alone supplies the home, typically at night, and keeps it in the browser. Until it has learnt it, idle shows no time.
-- Without the cut-off and backup SOC entities, it counts to 100% and 0%. Sigenergy Local Modbus disables them by default. Enable **Charge Cut-Off SOC**, **Discharge Cut-Off SOC** and **ESS Backup State of Charge**. sigenergy2mqtt enables its own.
+- Without the cut-off and backup SOC entities, it counts to 100% and 0%. Sigenergy ESS disables them by default. Enable **Charge Cut-Off SOC**, **Discharge Cut-Off SOC** and **ESS Backup State of Charge**. sigenergy2mqtt enables its own.
 
 **The period and its totals**
 
@@ -203,7 +203,7 @@ Under SigenStor, the card shows how long the battery lasts at the current power,
 
 ## Requirements
 
-The card reads all its data locally, over Modbus, through the [Sigenergy Local Modbus](https://github.com/TypQxQ/Sigenergy-Local-Modbus) integration.
+The card reads all its data locally, over modbus, through the [Sigenergy ESS](https://github.com/TypQxQ/Sigenergy-Local-Modbus) integration (formerly Sigenergy Local Modbus).
 
 - Install it through Marketplace ([open it in Marketplace](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)) and configure it first.
 - The card uses its default entity IDs: `sensor.sigen_plant_*`, `sensor.sigen_inverter_*` and `sensor.sigen_ac_charger_*`.
@@ -251,7 +251,7 @@ Both integrations create some of the sensors the card reads disabled. The card w
 - Enable them in **Settings → Devices & services → Entities**: search for the entity, open it, then ⚙ → **Enabled**.
 - Home Assistant keeps statistics only from when a sensor is enabled, so enable the energy counters early.
 
-**Sigenergy Local Modbus:**
+**Sigenergy ESS (formerly Sigenergy Local Modbus):**
 
 | Enable | For |
 | --- | --- |
@@ -279,7 +279,7 @@ All options are optional.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `sigenergy_backend` | `sigenergy_local_modbus` | The integration the default entities come from: `sigenergy_local_modbus` ([Sigenergy Local Modbus](https://github.com/TypQxQ/Sigenergy-Local-Modbus)) or `sigenergy2mqtt` ([sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt)). See [sigenergy2mqtt](#sigenergy2mqtt). |
+| `sigenergy_backend` | `sigenergy_local_modbus` | The integration the default entities come from: `sigenergy_local_modbus` ([Sigenergy ESS](https://github.com/TypQxQ/Sigenergy-Local-Modbus)) or `sigenergy2mqtt` ([sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt)). See [sigenergy2mqtt](#sigenergy2mqtt). |
 | `entities` | Sigenergy entities | Replaces the entities the card reads, for other inverter brands or integrations. See [Custom entities](#custom-entities). |
 | `battery_present` | `true` | `false` hides everything battery-related, for a system without a battery: the SigenStor reading, the battery tiles, the battery level panel, and the battery in the charts and the Energy statistics. |
 | `battery_power_invert` | `false` | `true` if your battery power sensor is positive while **discharging**. The card expects positive while charging. |
@@ -441,7 +441,7 @@ The inverter's readings are the first inverter's, at its AC terminals. Neither i
 
 Entities:
 
-- **Sigenergy Local Modbus:** enable the inverter's **Phase A/B/C Voltage**, **Phase A/B/C Current** and **Power Factor** entities, and the plant's **Grid Phase A/B/C Active Power** entities. They're disabled by default. It creates all three phases' entities even on a single-phase system, where phases B and C read 0.
+- **Sigenergy ESS:** enable the inverter's **Phase A/B/C Voltage**, **Phase A/B/C Current** and **Power Factor** entities, and the plant's **Grid Phase A/B/C Active Power** entities. They're disabled by default. It creates all three phases' entities even on a single-phase system, where phases B and C read 0.
 - **sigenergy2mqtt:** it creates only the phases the inverter has. A single-phase inverter keeps the `phase_a` entity IDs.
 
 The phases shown are those whose voltage or grid power isn't 0, or `grid_phases` when set. A single-phase system can have phase B and C entities reading 0. Without any phase entity, GRID can't be tapped.
@@ -507,7 +507,7 @@ A second Sigenergy AC charger shows as **AC CHARGER 2**, beside **AC CHARGER 1**
 
 The integrations number it by its Modbus address, so the card looks for it:
 
-- Sigenergy Local Modbus: `sensor.sigen_ac_charger_<number>_charging_power`. The first charger has no number.
+- Sigenergy ESS: `sensor.sigen_ac_charger_<number>_charging_power`. The first charger has no number.
 - sigenergy2mqtt: `sensor.sigen_0_ac_charger_<number>_charging_power`, other than the first charger's.
 - Its state and energy consumed are the same charger's `system_state` (sigenergy2mqtt: `running_state`) and `total_energy_consumed`.
 
@@ -567,7 +567,7 @@ The example below uses [Tessie](https://www.home-assistant.io/integrations/tessi
 2. **Create the automation**: Settings → Automations & scenes → Create automation → ⋮ → Edit in YAML, and paste the YAML below. Then replace:
    - `car_a` and `car_b` with your cars' names in their entity IDs (e.g. `sensor.glacier_charger_power`);
    - `model-y-glacier-blue` and `model-3-stealth-grey` with your cars from the [list above](#changing-the-car), car A's and car B's;
-   - the Sigenergy entities, if yours differ from Sigenergy Local Modbus's defaults. With sigenergy2mqtt, they are `sensor.sigen_0_ac_charger_1_charging_power`, `sensor.sigen_0_ac_charger_1_running_state`, `sensor.sigen_0_dc_charger_1_output_power`, `sensor.sigen_0_dc_charger_1_running_state` and `sensor.sigen_0_dc_charger_1_vehicle_soc`.
+   - the Sigenergy entities, if yours differ from Sigenergy ESS's defaults. With sigenergy2mqtt, they are `sensor.sigen_0_ac_charger_1_charging_power`, `sensor.sigen_0_ac_charger_1_running_state`, `sensor.sigen_0_dc_charger_1_output_power`, `sensor.sigen_0_dc_charger_1_running_state` and `sensor.sigen_0_dc_charger_1_vehicle_soc`.
 
    Save it, then run it once from its ⋮ menu.
 3. **Point the card at the helpers**:
@@ -635,7 +635,7 @@ variables:
       {{ states('sensor.car_b_charging')
          not in ['disconnected', 'unknown', 'unavailable'] }}
     {%- endif -%}
-  # A charger with a vehicle connected. Sigenergy Local Modbus 2.0
+  # A charger with a vehicle connected. Sigenergy ESS 2.0
   # stores keys (ev_ready), 1.x labels (EV Ready), sigenergy2mqtt longer
   # labels (Occupied (Charging Gun plugged in...)): all read as keys.
   ac_in: >-
@@ -809,7 +809,7 @@ Days without statistics are left out and marked ⚠. For the AC figure, so are h
 **Entities:**
 
 - With sigenergy2mqtt, the card uses its **Self-Consumed Power** sensor, which gives the loss.
-- With Sigenergy Local Modbus, the card computes the loss from `sensor.sigen_inverter_active_power` and the PV string power entities.
+- With Sigenergy ESS, the card computes the loss from `sensor.sigen_inverter_active_power` and the PV string power entities.
 
 **Several inverters:** by default, only the first inverter is covered, as its strings are the ones the card lists. To cover them all:
 
@@ -974,13 +974,13 @@ The solar keys `pv_power`, `daily_pv_energy` and `stat_pv` cover all PV, the thi
 - An entity you set for one of them is taken as that total.
 - Some defaults count only the Sigenergy PV. With a third-party inverter fitted, the card adds its energy to them (`third_party_pv_daily_energy`, `third_party_pv_lifetime_energy`).
 
-> **Third-party inverter, especially as the only PV (Sigenergy Local Modbus):** enable **Total Generation of Third Party Inverter** (`sensor.sigen_plant_total_generation_of_third_party_inverter`) on the plant device, under Settings → Devices & services → Sigenergy. The integration creates it disabled.
+> **Third-party inverter, especially as the only PV (Sigenergy ESS):** enable **Total Generation of Third Party Inverter** (`sensor.sigen_plant_total_generation_of_third_party_inverter`) on the plant device, under Settings → Devices & services → Sigenergy. The integration creates it disabled.
 >
 > The totals for past periods, the Energy metrics and the Energy statistics read the solar from the lifetime counters. Without this one, the card falls back to the statistics of **Daily Third Party Inverter Energy**. Those miss any time Home Assistant wasn't recording. Home Assistant keeps statistics only from when the sensor is enabled.
 
 You can replace every entity the card reads under `entities:`. For each key:
 
-- **Not set:** the card uses the default for the `sigenergy_backend`. For the plant/inverter pairs, that's the plant sensor first, then the inverter one. The table below lists the Sigenergy Local Modbus defaults; [sigenergy2mqtt](#sigenergy2mqtt) lists that backend's.
+- **Not set:** the card uses the default for the `sigenergy_backend`. For the plant/inverter pairs, that's the plant sensor first, then the inverter one. The table below lists the Sigenergy ESS defaults; [sigenergy2mqtt](#sigenergy2mqtt) lists that backend's.
 - **Set to an entity ID:** the card uses that entity, with no fallback.
 - **Set to `false`:** the item is hidden. Its tile, line or charger disappears.
 
@@ -1105,7 +1105,7 @@ entities:
 **A charger on the Gateway's smart port:** Sigenergy sees it as a smart load and counts its power in the home's consumption. It's set up like any other third-party charger, with the smart load's sensors.
 
 1. Enable the smart load's power and total consumption sensors. Both integrations create them disabled. The number is the smart port's slot.
-   - Sigenergy Local Modbus: `sensor.sigen_plant_smart_load_1_power` and `sensor.sigen_plant_smart_load_1_total_consumption`.
+   - Sigenergy ESS: `sensor.sigen_plant_smart_load_1_power` and `sensor.sigen_plant_smart_load_1_total_consumption`.
    - sigenergy2mqtt: `sensor.sigen_0_smart_load_01_power` and `sensor.sigen_0_smart_load_01_total_consumption`.
 2. Point the AC charger's keys at them:
 
