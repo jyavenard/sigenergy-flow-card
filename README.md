@@ -431,11 +431,11 @@ Units:
 | `dc_charger_power` | `sensor.sigen_inverter_dc_charger_output_power` | DC charger value, chart. The DC charger only appears if this exists. |
 | `dc_charger_state` | `sensor.sigen_inverter_dc_charger_running_state` | DC charger state. A vehicle shows in the garage while it's connected: Occupied, Preparing, Charging, Scheduled, Ended or Discharging. |
 | `dc_charger_vehicle_soc` | `sensor.sigen_inverter_dc_charger_vehicle_soc` | Vehicle battery level on the DC charger. It's above 0 while a vehicle is plugged in, which shows it in the garage. |
-| `dc_charger_limit` | `number.sigen_inverter_dc_charger_max_charging_power_limit` | Opens when you tap the DC charger (⚙) |
+| `dc_charger_limit` | `number.sigen_inverter_dc_charger_max_charging_power_limit`, fallback `number.sigen_inverter_dc_charger_maximum_charging_power_limit` (Sigenergy ESS 2.0 installs) | Opens when you tap the DC charger (⚙) |
 | `car_charging` | none | Shows the car in the garage while on, `charging` or above 0, e.g. a car's or third-party charger's charging sensor |
 | `car_charging_2` | none | With the double garage, shows the second car while on, `charging` or above 0 |
-| `dc_charger_lifetime_charged_energy` | `sensor.sigen_plant_total_charged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_charging_capacity` | DC charger lifetime line (↓ charged) |
-| `dc_charger_lifetime_discharged_energy` | `sensor.sigen_plant_total_discharged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_discharging_capacity` | DC charger lifetime line (↑ discharged, hidden while 0) |
+| `dc_charger_lifetime_charged_energy` | `sensor.sigen_plant_total_charged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_charging_capacity`, then `sensor.sigen_inverter_dc_charger_total_charging_energy` (Sigenergy ESS 2.0 installs) | DC charger lifetime line (↓ charged) |
+| `dc_charger_lifetime_discharged_energy` | `sensor.sigen_plant_total_discharged_energy_of_the_evdc`, fallback `sensor.sigen_inverter_dc_charger_total_discharging_capacity`, then `sensor.sigen_inverter_dc_charger_total_discharging_energy` (Sigenergy ESS 2.0 installs) | DC charger lifetime line (↑ discharged, hidden while 0) |
 | `pv_strings_power` | `sensor.sigen_plant_sigen_pv_power` | PV Strings **Total** power, for the Sigenergy PV inputs. The Total row adds `third_party_pv_power`. |
 | `pv_strings_lifetime_energy` | `sensor.sigen_plant_total_generation_of_self_pv`, fallback `sensor.sigen_plant_total_pv_generation`, then `sensor.sigen_inverter_total_pv_energy` | PV Strings **Total** lifetime energy, for the Sigenergy PV inputs. The Total row adds `third_party_pv_lifetime_energy`. Systems with only Sigenergy PV usually have just `sensor.sigen_plant_total_pv_generation` enabled. |
 | `third_party_pv_power` | `sensor.sigen_plant_third_party_pv_power` | PV Strings **Third-party PV** row and chart line |
@@ -710,7 +710,7 @@ Plant sensors are the primary data source. They combine every inverter and batte
 | Today's battery charged | `sensor.sigen_plant_daily_battery_charge_energy` | `sensor.sigen_inverter_daily_charge_energy` |
 | Today's battery discharged | `sensor.sigen_plant_daily_battery_discharge_energy` | `sensor.sigen_inverter_daily_discharge_energy` |
 
-The DC charger is attached to an inverter, so its entities are inverter sensors only: `sensor.sigen_inverter_dc_charger_output_power`, `sensor.sigen_inverter_dc_charger_vehicle_soc` and `number.sigen_inverter_dc_charger_max_charging_power_limit`.
+The DC charger is attached to an inverter, so its entities are inverter sensors only: `sensor.sigen_inverter_dc_charger_output_power`, `sensor.sigen_inverter_dc_charger_vehicle_soc` and `number.sigen_inverter_dc_charger_max_charging_power_limit` (`…_maximum_charging_power_limit` on Sigenergy ESS 2.0 installs).
 
 ### Phase power mode
 
@@ -780,7 +780,7 @@ Days without statistics are left out and marked ⚠. For the AC figure, so are h
 
 **Several inverters:** by default, only the first inverter is covered, as its strings are the ones the card lists. To cover them all:
 
-1. Set `inverter_active_power` to the plant's active power: `sensor.sigen_plant_plant_active_power`, or sigenergy2mqtt's `sensor.sigen_0_plant_active_power` (disabled by default).
+1. Set `inverter_active_power` to the plant's active power: `sensor.sigen_plant_plant_active_power` (`sensor.sigen_plant_active_power` on Sigenergy ESS 2.0 installs), or sigenergy2mqtt's `sensor.sigen_0_plant_active_power` (disabled by default).
 2. List every inverter's strings in `pv_strings`, with their `power` entities.
 3. With sigenergy2mqtt, also set `inverter_loss_power` to `sensor.sigen_0_self_consumed_power`.
 
