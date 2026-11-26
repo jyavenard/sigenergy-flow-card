@@ -2,6 +2,12 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v82
+
+- Off grid, GRID and its line are hidden, and the title ends with "(Off Grid)". This follows `grid_status`, which both integrations enable by default. Off grid, GRID used to read "0 W · Idle", like a balanced on-grid system.
+- On a new Sigenergy ESS 2.0 install, the DC charger shows in Energy statistics and Energy metrics again, with its lifetime line, and tapping it opens its power limit ([#31](https://github.com/jyavenard/sigenergy-flow-card/issues/31)). 2.0 renamed three of its entities. The card now finds both the old and the new names.
+- The README lists the sensors to enable for each integration, under Installation.
+
 ## v81
 
 - Energy statistics greys out a source or consumer that wasn't used in the period, with 0 kWh beside it, like the mySigen app does ([#30](https://github.com/jyavenard/sigenergy-flow-card/issues/30)). An off-grid system's GRID no longer looks in use. A total that rounds to 0.00 kWh counts as unused.
