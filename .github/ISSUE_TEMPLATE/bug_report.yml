@@ -84,8 +84,17 @@ body:
     id: config
     attributes:
       label: Card Configuration
-      description: Paste the card's YAML (dashboard → edit card → Show code editor). This will be automatically formatted into code, so no need for backticks.
+      description: |
+        Paste your complete Sigenergy Flow Card YAML configuration.
+        In Home Assistant, go to Dashboard → Edit dashboard → Edit card → Show code editor.
+        Copy the entire configuration, starting with `type: custom:sigenergy-flow-card`.
+        Do not include backticks; the configuration will be automatically formatted as YAML.
+      placeholder: |
+        type: custom:sigenergy-flow-card
+        ...
       render: yaml
+    validations:
+      required: true
   - type: textarea
     id: logs
     attributes:
