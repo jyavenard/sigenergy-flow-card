@@ -25,7 +25,7 @@ jobs:
             const valid = /^type:[ \t]+custom:sigenergy-flow-card[ \t]*\r?$/m
               .test(configuration);
 
-            const label = 'missing-config';
+            const label = 'invalid-config';
 
             if (!valid) {
               await github.rest.issues.addLabels({
