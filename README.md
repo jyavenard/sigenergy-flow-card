@@ -215,6 +215,8 @@ The card reads all its data locally, over modbus, through the [Sigenergy ESS](ht
 
 - Install it through Marketplace ([open it in Marketplace](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)) and configure it first.
 - The card uses its default entity IDs: `sensor.sigen_plant_*`, `sensor.sigen_inverter_*` and `sensor.sigen_ac_charger_*`.
+  - Since 2026.8, Home Assistant puts a device's area in front of its new entity IDs, e.g. `sensor.garage_sigen_plant_pv_power`. The card finds these by itself, for each device.
+  - It also finds a device you renamed, e.g. `sensor.home_battery_pv_power`.
 - With [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt) instead, set `sigenergy_backend: sigenergy2mqtt` (see [sigenergy2mqtt](#sigenergy2mqtt)).
 - Optional: the [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on, or sigenergy2mqtt's cloud access, for each battery module's readings (see [Battery modules](#battery-modules)).
 
@@ -1016,6 +1018,7 @@ The solar keys `pv_power`, `daily_pv_energy` and `stat_pv` cover all PV, the thi
 You can replace every entity the card reads under `entities:`. For each key:
 
 - **Not set:** the card uses the default for the `sigenergy_backend`. For the plant/inverter pairs, that's the plant sensor first, then the inverter one. The table below lists the Sigenergy ESS defaults; [sigenergy2mqtt](#sigenergy2mqtt) lists that backend's.
+  - With Sigenergy ESS, each default follows its device's registered entity IDs. A plant in the Garage area reads `sensor.garage_sigen_plant_pv_power` for `sensor.sigen_plant_pv_power`.
 - **Set to an entity ID:** the card uses that entity, with no fallback.
 - **Set to `false`:** the item is hidden. Its tile, line or charger disappears.
 

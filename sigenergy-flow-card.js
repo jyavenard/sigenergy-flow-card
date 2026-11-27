@@ -240,6 +240,13 @@ const BACKENDS = {
     sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, homeBalance: true, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}`,
         acCharger: { power: /^sensor\.sigen_0_ac_charger_(\d+)_(?:rated_)?charging_power$/, prefix: 'sensor.sigen_0_ac_charger_', state: 'running_state' } },
 };
+// Sigenergy Local Modbus entities, enabled by default, one on each kind of device, by translation key: the end of
+// their entity IDs. Home Assistant puts the device's area in front of new entity IDs (since 2026.8) and the user's
+// name for the device in place of its own; the rest of such an entity's ID stands for its device.
+const LOCAL_ANCHORS = {
+    plant_photovoltaic_power: 'pv_power', inverter_active_power: 'active_power',
+    ac_charger_charging_power: 'charging_power', dc_charger_output_power: 'output_power',
+};
 // The hundredth of a currency that electricity prices are quoted in, by the unit's currency part.
 const PRICE_CENTS = { '$': '¢', AUD: '¢', USD: '¢', NZD: '¢', CAD: '¢', SGD: '¢', HKD: '¢', EUR: 'c', '€': 'c', GBP: 'p', '£': 'p', NOK: 'øre', SEK: 'öre', DKK: 'øre' };
 const AC_CHARGER_1 = new Set(['ac_charger_power', 'ac_charger_state', 'ac_charger_total_energy']);
@@ -649,7 +656,7 @@ class SigenergyFlowCard extends HTMLElement {
             sigenergy_backend: backend,
         };
         this._backend = BACKENDS[backend];
-        this._acFound = this._modulesFound = null;
+        this._acFound = this._modulesFound = this._stems = this._defaultIds = null;
         this._shown = new Set(this.constructor.parts);
         // Each string is a name, which reads the backend's pattern (sensor.sigen_inverter_pv<n>_* for Sigenergy Local
         // Modbus, sensor.sigen_0_inverter_1_pv<n>_* for sigenergy2mqtt), or an object
@@ -657,10 +664,11 @@ class SigenergyFlowCard extends HTMLElement {
         // A string none of whose entities exist in Home Assistant is treated as not fitted and hidden.
         this._pv = this.config.pv_strings.map((item, i) => {
             const object = typeof item === 'object' && item !== null;
-            const pv = { name: (object ? item.name : item) ?? `PV${i + 1}` };
-            for (const key of PV_KEYS) pv[key] = object ? (typeof item[key] === 'string' ? item[key] : null) : this._backend.pvString(i + 1, key);
+            const pv = { name: (object ? item.name : item) ?? `PV${i + 1}`, pattern: !object };
+            if (object) for (const key of PV_KEYS) pv[key] = typeof item[key] === 'string' ? item[key] : null;
             return pv;
         });
+        this._pvPatterns();
         this._build();
         if (this.isConnected && !this._flowFrame) this._startFlowAnimation();
     }
@@ -669,7 +677,10 @@ class SigenergyFlowCard extends HTMLElement {
         this._hass = hass;
         const count = hass.entities ? 0 : Object.keys(hass.states).length;
         if (hass.entities !== previous?.entities || count !== this._stateCount) { this._stateCount = count; this._acFound = null; }
-        if (hass.entities !== previous?.entities || hass.devices !== previous?.devices) this._modulesFound = null;
+        if (hass.entities !== previous?.entities || hass.devices !== previous?.devices) {
+            this._modulesFound = this._acFound = this._stems = this._defaultIds = null;
+            this._pvPatterns();
+        }
         if (!this.root)
             return;
         this._update();
@@ -1451,21 +1462,58 @@ class SigenergyFlowCard extends HTMLElement {
         if (set) return set;
         if (key === 'solar_forecast_today' && this._forecastToday()) return this._forecastToday();
         if (key in AC_CHARGER_2) return this._acCharger2(AC_CHARGER_2[key]);
-        const ids = this._backend.entities[key];
+        const ids = this._defaults(key);
         // sigenergy2mqtt's first AC charger is the first that exists, available or not, so the two never swap.
         if (AC_CHARGER_1.has(key)) return ids.find(id => this._live(id)) ?? ids[0] ?? null;
         return ids.find(id => !['unknown', 'unavailable', undefined].includes(this._hass?.states[id]?.state)) ?? ids[0] ?? null;
+    }
+    // The registered part of each Sigenergy Local Modbus device's entity IDs, e.g. sigen_plant: garage_sigen_plant for a
+    // plant in the Garage area; null when two devices claim the same part.
+    _localStems() {
+        if (this._stems) return this._stems;
+        const stems = {};
+        if (!this._hass?.entities || this._backend !== BACKENDS.sigenergy_local_modbus) return stems;
+        for (const entry of Object.values(this._hass.entities)) {
+            const tail = entry.platform === 'sigen' && LOCAL_ANCHORS[entry.translation_key];
+            const name = tail && this._hass.devices?.[entry.device_id]?.name;
+            const object = entry.entity_id.slice(entry.entity_id.indexOf('.') + 1);
+            if (!name || !object.endsWith(`_${tail}`)) continue;
+            const part = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''), stem = object.slice(0, -tail.length - 1);
+            stems[part] = part in stems && stems[part] !== stem ? null : stem;
+        }
+        return this._stems = stems;
+    }
+    // A default Sigenergy Local Modbus entity ID as its device registered it.
+    _localId(id) {
+        const stems = this._localStems(), dot = id.indexOf('.'), object = id.slice(dot + 1);
+        const part = Object.keys(stems).filter(part => stems[part] && object.startsWith(`${part}_`)).sort((a, b) => b.length - a.length)[0];
+        return part ? `${id.slice(0, dot + 1)}${stems[part]}${object.slice(part.length)}` : id;
+    }
+    _defaults(key) {
+        return (this._defaultIds ??= {})[key] ??= this._backend.entities[key].map(id => this._localId(id));
+    }
+    // The pv_strings given by name read the backend's pattern.
+    _pvPatterns() {
+        this._pv?.forEach((pv, i) => {
+            if (pv.pattern) for (const key of PV_KEYS) pv[key] = this._localId(this._backend.pvString(i + 1, key));
+        });
     }
     // The second Sigenergy AC charger's [part] entity (power, state or total_energy_consumed): the lowest-numbered one
     // besides the first, while ac_charger_power is left at its default.
     _acCharger2(part) {
         const scan = this._backend.acCharger, first = this._ent('ac_charger_power');
         if (this.config.entities?.ac_charger_power !== undefined) return null;
-        this._acFound ??= Object.keys(this._hass.entities ?? this._hass.states).map(power => ({ power, n: Number(scan.power.exec(power)?.[1]) }))
-            .filter(found => Number.isFinite(found.n)).sort((a, b) => a.n - b.n);
+        if (!this._acFound) {
+            const found = new Map(Object.keys(this._hass.entities ?? this._hass.states).map(power => [Number(scan.power.exec(power)?.[1]), power]));
+            for (const device of Object.keys(this._localStems())) {
+                const n = Number(/^sigen_ac_charger_(\d+)$/.exec(device)?.[1]);
+                if (Number.isFinite(n)) found.set(n, this._localId(`${scan.prefix}${n}_charging_power`));
+            }
+            this._acFound = [...found].filter(([n]) => Number.isFinite(n)).map(([n, power]) => ({ n, power })).sort((a, b) => a.n - b.n);
+        }
         const own = Number(scan.power.exec(first)?.[1]), found = this._acFound.find(charger => charger.n !== own && this._live(charger.power));
         if (!found) return null;
-        return part === 'power' ? found.power : `${scan.prefix}${found.n}_${part === 'state' ? scan.state : part}`;
+        return part === 'power' ? found.power : this._localId(`${scan.prefix}${found.n}_${part === 'state' ? scan.state : part}`);
     }
     _num(id) {
         const s = id ? this._hass?.states[id]?.state : undefined;
@@ -1852,7 +1900,7 @@ class SigenergyFlowCard extends HTMLElement {
     _pvSources(key, thirdKey, statistics = false) {
         const id = this._ent(key);
         if (!id) return [];
-        if (this.config.entities?.[key] !== undefined || !SIGEN_ONLY_PV.has(id) || !this._hasThirdPartyPv()) return [id];
+        if (this.config.entities?.[key] !== undefined || ![...SIGEN_ONLY_PV].some(only => this._localId(only) === id) || !this._hasThirdPartyPv()) return [id];
         let third = this._ent(thirdKey);
         if (statistics && !(third && this._has(third)) && thirdKey === 'third_party_pv_lifetime_energy' && this.config.entities?.[thirdKey] === undefined)
             third = this._ent('third_party_pv_daily_energy');
