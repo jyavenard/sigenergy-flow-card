@@ -107,7 +107,9 @@ const DEFAULT_ENTITIES = {
     ac_charger_total_energy_2: [],
     ac_charger_vehicle_soc_2: [],
     ac_charger_vehicle_range_2: [],
-    dc_charger_power: ['sensor.sigen_inverter_dc_charger_output_power'],
+    // An install from before Sigenergy Local Modbus 1.1.7 keeps the entity name "DC Charger Output Power", so its
+    // recreated entity ID repeats dc_charger.
+    dc_charger_power: ['sensor.sigen_inverter_dc_charger_output_power', 'sensor.sigen_inverter_dc_charger_dc_charger_output_power'],
     dc_charger_state: ['sensor.sigen_inverter_dc_charger_running_state'],
     dc_charger_vehicle_soc: ['sensor.sigen_inverter_dc_charger_vehicle_soc'],
     dc_charger_limit: ['number.sigen_inverter_dc_charger_max_charging_power_limit', 'number.sigen_inverter_dc_charger_maximum_charging_power_limit'],
@@ -239,13 +241,6 @@ const BACKENDS = {
         acCharger: { power: /^sensor\.sigen_ac_charger_(\d+)_charging_power$/, prefix: 'sensor.sigen_ac_charger_', state: 'system_state' } },
     sigenergy2mqtt: { entities: SIGENERGY2MQTT_ENTITIES, homeBalance: true, pvString: (n, key) => `sensor.sigen_0_inverter_1_pv${n}_${key === 'accumulated_energy' ? 'lifetime_energy' : key}`,
         acCharger: { power: /^sensor\.sigen_0_ac_charger_(\d+)_(?:rated_)?charging_power$/, prefix: 'sensor.sigen_0_ac_charger_', state: 'running_state' } },
-};
-// Sigenergy Local Modbus entities, enabled by default, one on each kind of device, by translation key: the end of
-// their entity IDs. Home Assistant puts the device's area in front of new entity IDs (since 2026.8) and the user's
-// name for the device in place of its own; the rest of such an entity's ID stands for its device.
-const LOCAL_ANCHORS = {
-    plant_photovoltaic_power: 'pv_power', inverter_active_power: 'active_power',
-    ac_charger_charging_power: 'charging_power', dc_charger_output_power: 'output_power',
 };
 // The hundredth of a currency that electricity prices are quoted in, by the unit's currency part.
 const PRICE_CENTS = { '$': '¢', AUD: '¢', USD: '¢', NZD: '¢', CAD: '¢', SGD: '¢', HKD: '¢', EUR: 'c', '€': 'c', GBP: 'p', '£': 'p', NOK: 'øre', SEK: 'öre', DKK: 'øre' };
@@ -1468,17 +1463,22 @@ class SigenergyFlowCard extends HTMLElement {
         return ids.find(id => !['unknown', 'unavailable', undefined].includes(this._hass?.states[id]?.state)) ?? ids[0] ?? null;
     }
     // The registered part of each Sigenergy Local Modbus device's entity IDs, e.g. sigen_plant: garage_sigen_plant for a
-    // plant in the Garage area; null when two devices claim the same part.
+    // plant in the Garage area (Home Assistant puts the area in front of new entity IDs since 2026.8), or home_battery
+    // for a plant renamed Home Battery; null when two devices claim the same part.
     _localStems() {
         if (this._stems) return this._stems;
-        const stems = {};
+        const stems = {}, found = new Set();
         if (!this._hass?.entities || this._backend !== BACKENDS.sigenergy_local_modbus) return stems;
+        const slug = text => text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
         for (const entry of Object.values(this._hass.entities)) {
-            const tail = entry.platform === 'sigen' && LOCAL_ANCHORS[entry.translation_key];
-            const name = tail && this._hass.devices?.[entry.device_id]?.name;
-            const object = entry.entity_id.slice(entry.entity_id.indexOf('.') + 1);
-            if (!name || !object.endsWith(`_${tail}`)) continue;
-            const part = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''), stem = object.slice(0, -tail.length - 1);
+            const device = entry.platform === 'sigen' && !found.has(entry.device_id) && this._hass.devices?.[entry.device_id];
+            if (!device?.name) continue;
+            // A renamed device keeps its own name in the entity IDs it had before.
+            const object = `_${entry.entity_id.slice(entry.entity_id.indexOf('.') + 1)}`, part = slug(device.name);
+            const shown = [device.name_by_user && slug(device.name_by_user), part].find(name => name && object.includes(`_${name}_`));
+            if (!shown) continue;
+            found.add(entry.device_id);
+            const stem = object.slice(1, object.indexOf(`_${shown}_`) + shown.length + 1);
             stems[part] = part in stems && stems[part] !== stem ? null : stem;
         }
         return this._stems = stems;
