@@ -63,7 +63,7 @@ jobs:
                     'type: custom:sigenergy-flow-card',
                     '```',
                     '',
-                    'The missing-config label will be removed automatically once the configuration is provided.'
+                    'The invalid-config label will be removed automatically once the configuration is corrected.'
                   ].join('\n')
                 });
               }
