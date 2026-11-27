@@ -2,6 +2,16 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v84-pre2
+
+Pre-release, for testing.
+
+- The card finds Sigenergy ESS entities whose IDs start with the device's area ([#34](https://github.com/jyavenard/sigenergy-flow-card/issues/34)).
+  - Since 2026.8, Home Assistant puts a device's area in front of its new entity IDs, e.g. `sensor.garage_sigen_plant_pv_power`.
+  - New installs with their devices in an area showed every reading empty.
+  - Each device is found by itself, with its own area. A device you renamed is found too.
+  - Entities set under `entities:` are used as written.
+
 ## v84-pre1
 
 Pre-release, for testing.
