@@ -1,6 +1,6 @@
 name: Bug report
 description: Report a problem with the Sigenergy Flow Card
-labels: ['type/bug']
+labels: ['bug']
 body:
   - type: markdown
     attributes:
