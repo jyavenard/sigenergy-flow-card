@@ -96,7 +96,7 @@ Tapping **SigenStor**:
 
 ![Desktop SigenStor details](docs/screenshots/desktop-battery.png)
 
-Tapping the SigenStor in the photo, with the mySigen add-on:
+Tapping the SigenStor in the photo, with the battery modules from mySigen:
 
 ![Desktop battery modules](docs/screenshots/desktop-modules.png)
 
@@ -197,7 +197,7 @@ Under SigenStor, the card shows how long the battery lasts at the current power,
 
 - Tap **SOLAR** for each PV string's voltage, current, power, and today's and lifetime production, with a chart of each string's power today. The integration counts the strings' lifetime energy from their power, so it can miss production. The **Total** is the inverter's own counter. A note shows when the strings don't add up to it.
 - Tap **SigenStor** for the battery and the inverter. It shows their power, the inverter's loss and efficiency over the last 24 hours, and the battery's round trip and state of charge (see [Inverter efficiency](#inverter-efficiency)).
-- With the mySigen add-on, tap the SigenStor in the photo for each battery module (see [Battery modules](#battery-modules)).
+- With the battery modules from mySigen, tap the SigenStor in the photo for each module (see [Battery modules](#battery-modules)).
 - Tap **HOME** for a live breakdown of power use across the entities you list, from highest to lowest.
 - Tap **DC CHARGER** to adjust the DC charger's maximum charging power.
 
@@ -216,7 +216,7 @@ The card reads all its data locally, over modbus, through the [Sigenergy ESS](ht
 - Install it through Marketplace ([open it in Marketplace](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)) and configure it first.
 - The card uses its default entity IDs: `sensor.sigen_plant_*`, `sensor.sigen_inverter_*` and `sensor.sigen_ac_charger_*`.
 - With [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt) instead, set `sigenergy_backend: sigenergy2mqtt` (see [sigenergy2mqtt](#sigenergy2mqtt)).
-- Optional: the [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on, for each battery module's readings (see [Battery modules](#battery-modules)).
+- Optional: the [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on, or sigenergy2mqtt's cloud access, for each battery module's readings (see [Battery modules](#battery-modules)).
 
 The house photos are AVIF images. They need a browser or Home Assistant app that can show AVIF:
 
@@ -950,7 +950,12 @@ The DC charger is attached to an inverter, so its entities are inverter sensors 
 
 ## Battery modules
 
-The [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on reads each battery module from mySigen. With it installed, tap the SigenStor in the photo. The dialog shows the stack: the inverter, the DC charger, then each module filled to its charge level.
+mySigen knows each battery module. Two integrations bring those readings into Home Assistant:
+
+- the [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on, for Sigenergy ESS;
+- [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt), with its Cloud access set up.
+
+With either one, tap the SigenStor in the photo. The dialog shows the stack: the inverter, the DC charger, then each module filled to its charge level. Without them, the photo isn't clickable.
 
 Beside each module:
 
@@ -964,6 +969,8 @@ Tap a reading, other than cycles, to chart it for every module over the last 24 
 The card finds the modules by itself; there is nothing to configure. A reading whose entity is disabled shows "—".
 
 The add-on reads each module about every 5 minutes, so the charts move in steps. Total energy discharged moves in steps of 10 kWh, as mySigen reports it in MWh.
+
+With sigenergy2mqtt, enable each module's **Rated Battery Capacity** sensor (`sensor.sigen_0_cloud_4_<serial>_rated_battery_capacity`) for the cycles. It is disabled by default.
 
 With several inverters, each one gets its own stack.
 

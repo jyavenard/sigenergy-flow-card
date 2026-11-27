@@ -311,12 +311,18 @@ const CHART_SERIES = [
     { key: 'home_power', color: 'var(--c-home)', name: 'Home', negate: true },
 ];
 const PV_COLORS = [0, 1, 2, 3, 4, 5].map(i => `var(--pv${i})`);
-// The battery module sensors of the mySigen add-on (Sigenergy ESS – mySigen cloud), by translation key. Their entity
-// IDs follow Home Assistant's language; each module is a device of its own, under its inverter.
+// The battery module sensors from mySigen, each module a device of its own. The mySigen add-on's (Sigenergy ESS –
+// mySigen cloud), by translation key: their entity IDs follow Home Assistant's language. sigenergy2mqtt's cloud
+// sensors, by the end of their entity ID: sensor.sigen_0_cloud_4_<serial>_<mySigen's parameter name>.
 const MODULE_PLATFORM = 'sigen_mysigen';
 const MODULE_KEYS = {
     battery_module_soc: 'soc', battery_module_cell_temperature: 'temp', battery_module_cell_voltage: 'volts',
     battery_module_discharged: 'discharged', battery_module_capacity: 'capacity',
+};
+const CLOUD_MODULE = /^sensor\.\w+?_\d+_cloud_4_\w+?_(battery_soc|average_cell_temperature|average_cell_voltage|total_discharge_amount|rated_battery_capacity)$/;
+const CLOUD_MODULE_KEYS = {
+    battery_soc: 'soc', average_cell_temperature: 'temp', average_cell_voltage: 'volts',
+    total_discharge_amount: 'discharged', rated_battery_capacity: 'capacity',
 };
 // The readings each module shows; cycles is energy discharged over rated capacity. A tap charts any but cycles.
 const MODULE_FIELDS = {
@@ -2234,15 +2240,31 @@ class SigenergyFlowCard extends HTMLElement {
         if (this._modulesFound) return this._modulesFound;
         const devices = this._hass?.devices ?? {}, found = {};
         for (const entry of Object.values(this._hass?.entities ?? {})) {
-            const field = entry.platform === MODULE_PLATFORM && entry.device_id && MODULE_KEYS[entry.translation_key];
-            if (field) (found[entry.device_id] ??= { device: entry.device_id, ids: {} }).ids[field] = entry.entity_id;
+            const field = entry.platform === MODULE_PLATFORM ? MODULE_KEYS[entry.translation_key] : CLOUD_MODULE_KEYS[CLOUD_MODULE.exec(entry.entity_id)?.[1]];
+            if (field && entry.device_id) (found[entry.device_id] ??= { device: entry.device_id, ids: {} }).ids[field] = entry.entity_id;
         }
         const modules = Object.values(found).map(module => {
             const device = devices[module.device] ?? {};
-            return { ...module, position: Number(/(\d+)\s*$/.exec(device.name ?? '')?.[1]) || Infinity, custom: device.name_by_user || null, model: device.model || null, inverter: device.via_device_id ?? null };
+            return { ...module, position: this._modulePosition(device), custom: device.name_by_user || null, model: device.model || null, inverter: device.via_device_id ?? null };
         }).sort((a, b) => (a.position - b.position) || Object.values(a.ids)[0].localeCompare(Object.values(b.ids)[0]));
-        modules.forEach((module, i) => { module.label = module.custom ?? `Battery ${Number.isFinite(module.position) ? module.position : i + 1}`; });
-        return this._modulesFound = modules;
+        // A module without a position takes the lowest number no other module has.
+        const taken = new Set(modules.map(module => module.position));
+        let next = 1;
+        for (const module of modules) {
+            if (!Number.isFinite(module.position)) {
+                while (taken.has(next)) next++;
+                taken.add(module.number = next);
+            }
+            module.number ??= module.position;
+            module.label = module.custom ?? `Battery ${module.number}`;
+        }
+        return this._modulesFound = modules.sort((a, b) => a.number - b.number);
+    }
+    // The number ending the module's device name: the add-on's "Sigen battery module 2", sigenergy2mqtt's
+    // "SigenStor BAT 8.0 2". sigenergy2mqtt ends the name with the serial number when mySigen gives no position.
+    _modulePosition(device) {
+        const last = (device.name ?? '').trim().split(/\s+/).at(-1);
+        return /^\d+$/.test(last) && last.toLowerCase() !== String(device.serial_number ?? '').toLowerCase() ? Number(last) : Infinity;
     }
     _shownModules() {
         return this._hass && this.config.battery_present ? this._batteryModules() : [];
