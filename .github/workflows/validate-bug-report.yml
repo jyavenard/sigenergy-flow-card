@@ -18,9 +18,8 @@ jobs:
           script: |
             const body = context.payload.issue.body || '';
             const section = body.match(
-              /^### Card Configuration[ \t]*\r?\n([\s\S]*?)(?=^### |\s*$)/m
+              /^### Card Configuration[ \t]*\r?\n([\s\S]*?)(?=^### |(?![\s\S]))/m
             );
-
             const configuration = section ? section[1].trim() : '';
             const valid = /^type:[ \t]+custom:sigenergy-flow-card[ \t]*\r?$/m
               .test(configuration);
