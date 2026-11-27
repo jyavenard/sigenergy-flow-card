@@ -1,0 +1,78 @@
+name: Validate bug report
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  validate:
+    if: contains(github.event.issue.labels.*.name, 'type/bug')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate card configuration
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const section = body.match(
+              /^### Card Configuration[ \t]*\r?\n([\s\S]*?)(?=^### |\s*$)/m
+            );
+
+            const configuration = section ? section[1].trim() : '';
+            const valid = /^type:[ \t]+custom:sigenergy-flow-card[ \t]*\r?$/m
+              .test(configuration);
+
+            const label = 'missing-config';
+
+            if (!valid) {
+              await github.rest.issues.addLabels({
+                ...context.repo,
+                issue_number: context.issue.number,
+                labels: [label]
+              });
+
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  ...context.repo,
+                  issue_number: context.issue.number
+                }
+              );
+
+              if (!comments.some(c =>
+                c.user.login === 'github-actions[bot]' &&
+                c.body.includes('<!-- missing-card-config -->')
+              )) {
+                await github.rest.issues.createComment({
+                  ...context.repo,
+                  issue_number: context.issue.number,
+                  body: [
+                    '<!-- missing-card-config -->',
+                    'Thank you for reporting this issue.',
+                    '',
+                    'Your bug report is missing a valid card configuration.',
+                    'Please edit your original issue and paste the complete YAML configuration under **Card Configuration**.',
+                    '',
+                    'In Home Assistant, go to Dashboard → Edit dashboard → Edit card → Show code editor.',
+                    '',
+                    'Your configuration should start with:',
+                    '```yaml',
+                    'type: custom:sigenergy-flow-card',
+                    '```',
+                    '',
+                    'The missing-config label will be removed automatically once the configuration is provided.'
+                  ].join('\n')
+                });
+              }
+            } else if (context.payload.issue.labels.some(
+              l => l.name === label
+            )) {
+              await github.rest.issues.removeLabel({
+                ...context.repo,
+                issue_number: context.issue.number,
+                name: label
+              });
+            }
