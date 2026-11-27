@@ -2,6 +2,26 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v84
+
+- Tap the SigenStor in the photo to see each battery module, as in the mySigen app, without tapping each module.
+  - It draws the stack: the inverter, the DC charger, then each module filled to its charge level.
+  - Above the stack: the solar, battery and grid power.
+  - Beside each module: its state of charge, average cell temperature and voltage, total energy discharged, and cycles (energy discharged over rated capacity).
+  - Tap a reading, other than cycles, to chart it for every module over the last 24 hours.
+- The modules come from mySigen, through either:
+  - the [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on;
+  - sigenergy2mqtt with its Cloud access set up. Enable each module's Rated Battery Capacity sensor for the cycles, and the inverter's Active Power for its power.
+- Without either, the photo isn't clickable. There is nothing to configure.
+- The card finds Sigenergy ESS entities whose IDs don't start with the default name ([#34](https://github.com/jyavenard/sigenergy-flow-card/issues/34)).
+  - Since 2026.8, Home Assistant puts a device's area in front of its new entity IDs, e.g. `sensor.garage_sigen_plant_pv_power`.
+  - New installs with their devices in an area showed every reading empty.
+  - Each device is found by itself. The plant, the inverter, each PV string and each charger can be in a different area.
+  - A device you renamed is found too, whether or not you recreated its entity IDs.
+  - An install upgraded from Sigenergy Local Modbus 1.x keeps the DC charger's old output power name, which recreated IDs carry. The card finds it.
+  - Entities set under `entities:` are used as written.
+- The README lists the sensors to enable for the battery modules dialog, for each integration.
+
 ## v84-pre2
 
 Pre-release, for testing.
