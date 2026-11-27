@@ -2,6 +2,19 @@
 
 Each release is tagged `vN` on GitHub; HACS offers the newest release as the update.
 
+## v84-pre1
+
+Pre-release, for testing.
+
+- Tap the SigenStor in the photo to see each battery module, as in the mySigen app, without tapping each module.
+  - It draws the stack: the inverter, the DC charger, then each module filled to its charge level.
+  - Beside each module: its state of charge, average cell temperature and voltage, total energy discharged, and cycles (energy discharged over rated capacity).
+  - Tap a reading, other than cycles, to chart it for every module over the last 24 hours.
+- The modules come from mySigen, through either:
+  - the [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on;
+  - sigenergy2mqtt with its Cloud access set up. Enable each module's Rated Battery Capacity sensor for the cycles.
+- Without either, the photo isn't clickable. There is nothing to configure.
+
 ## v83
 
 - A dialog opens again after you leave the view while it is open and come back ([#33](https://github.com/jyavenard/sigenergy-flow-card/issues/33)). Leaving the view by the browser's Back button, or by swiping in the Companion app, left it unable to reopen until a reload.
