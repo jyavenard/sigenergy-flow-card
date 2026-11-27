@@ -284,6 +284,18 @@ Both integrations create some of the sensors the card reads disabled. The card w
 | `sensor.sigen_0_inverter_1_phase_a_voltage`, `…_current` (and phases B, C), `sensor.sigen_0_inverter_1_power_factor`, `sensor.sigen_0_plant_grid_phase_a_active_power` (and B, C) | The grid details, when you tap GRID. |
 | `sensor.sigen_0_third_party_pv_power`, `sensor.sigen_0_third_party_pv_lifetime_production` | A third-party inverter's row under SOLAR. |
 
+#### Battery modules dialog
+
+The dialog that opens when you tap the SigenStor in the photo (see [Battery modules](#battery-modules)).
+
+- **Sigenergy ESS with the [mySigen cloud add-on](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen):** nothing to enable. The add-on enables the module readings the card uses.
+- **sigenergy2mqtt:** the modules come from its Cloud access, which must be set up.
+
+| Enable | For |
+| --- | --- |
+| `sensor.sigen_0_cloud_4_<serial>_rated_battery_capacity` (each module, from the cloud) | Each module's cycles. |
+| `sensor.sigen_0_inverter_1_active_power` (Modbus) | The inverter's power, at the top of the stack. |
+
 ## Configuration
 
 All options are optional.
@@ -959,6 +971,8 @@ mySigen knows each battery module. Two integrations bring those readings into Ho
 
 With either one, tap the SigenStor in the photo. The dialog shows the stack: the inverter, the DC charger, then each module filled to its charge level. Without them, the photo isn't clickable.
 
+Above the stack, a line shows the solar, battery and grid power.
+
 Beside each module:
 
 - its state of charge;
@@ -972,7 +986,14 @@ The card finds the modules by itself; there is nothing to configure. A reading w
 
 The add-on reads each module about every 5 minutes, so the charts move in steps. Total energy discharged moves in steps of 10 kWh, as mySigen reports it in MWh.
 
-With sigenergy2mqtt, enable each module's **Rated Battery Capacity** sensor (`sensor.sigen_0_cloud_4_<serial>_rated_battery_capacity`) for the cycles. It is disabled by default.
+Sensors to enable:
+
+- **mySigen cloud add-on:** none. The readings the card uses are enabled by default.
+- **sigenergy2mqtt:**
+  - each module's **Rated Battery Capacity** (`sensor.sigen_0_cloud_4_<serial>_rated_battery_capacity`), for the cycles;
+  - the inverter's **Active Power** (`sensor.sigen_0_inverter_1_active_power`), for the inverter's power.
+
+  Both are disabled by default.
 
 With several inverters, each one gets its own stack.
 

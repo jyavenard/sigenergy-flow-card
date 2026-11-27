@@ -811,6 +811,7 @@ class SigenergyFlowCard extends HTMLElement {
     <dialog id="modulesDialog" aria-labelledby="modulesTitle"><div class="dlg">
       ${head('modules', 'Battery modules')}
       <section class="panel" id="modulesPanel"><div class="charthead"><h3>Real time info</h3><span class="muted" id="modulesInfo"></span></div>
+      <div class="modflow" id="modulesFlow"></div>
       <div class="modules" id="modules"></div>
       <div class="muted" id="modulesNote">From mySigen, each module read about every 5 minutes. Cycles: energy discharged over rated capacity.</div></section>
       <section class="panel" id="modulesChartPanel"><div class="charthead"><h3 id="modulesChartTitle"></h3><span class="muted" id="modulesChartStatus"></span></div>
@@ -956,7 +957,7 @@ class SigenergyFlowCard extends HTMLElement {
       .brick.inv::after{content:'';position:absolute;right:7px;top:50%;width:7px;height:7px;margin-top:-5.5px;border-radius:50%;border:2px solid var(--c-battery)}.brick.dc::after{content:'';position:absolute;left:8px;right:8px;top:50%;height:3px;margin-top:-1.5px;border-radius:2px;background:var(--c-dc)}
       .brick span{position:absolute;left:6px;right:6px;top:50%;height:8px;margin-top:-4px;border-radius:4px;background:var(--bar);overflow:hidden}.brick span i{display:block;height:100%;width:0;background:var(--c-battery)}
       .mvals{flex:1;min-width:0;display:grid;grid-template-columns:5.4em repeat(5,minmax(0,1fr));gap:4px 6px;align-items:center;padding:3px 0;font-size:13px;font-variant-numeric:tabular-nums}
-      .mname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mplain{grid-column:2/-1;font-weight:600;padding:6px 0}
+      .modflow{font-size:13px;margin:0 0 10px;font-variant-numeric:tabular-nums}.mname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mplain{grid-column:2/-1;font-weight:600;padding:6px 0}
       .mval{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:7px 4px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}.mval[disabled]{cursor:default;color:var(--muted)}.mval.still{cursor:default}
       .mval[aria-pressed=true]{outline:2px solid var(--c-battery);outline-offset:-2px}.mval:focus-visible{outline:2px solid #71d3d1}
       @container mods (max-width:470px){.mrow{gap:8px}.brick{width:34px}.mvals{grid-template-columns:repeat(3,minmax(0,1fr));padding:5px 0}.mod .mname{grid-column:1/-1}.mval{padding:6px 2px}}
@@ -2251,11 +2252,15 @@ class SigenergyFlowCard extends HTMLElement {
         }
         this._updateForecastTile();
     }
+    _batteryPowerText() {
+        const raw = this._scaled(this._ent('battery_power')), bat = raw === null ? null : raw * this._batterySign();
+        return bat === null ? null : `${this._power(bat)} ${bat > .025 ? 'charging' : bat < -.025 ? 'discharging' : 'idle'}`;
+    }
     _updateBatteryDialog() {
         if (!this._hass || !this._id('batteryDialog')?.open) return;
-        const soc = this._num(this._socEntity), raw = this._scaled(this._ent('battery_power')), bat = raw === null ? null : raw * this._batterySign();
+        const soc = this._num(this._socEntity);
         this._text('socNow', soc === null ? '—' : `${soc.toFixed(1)}%`);
-        this._text('batteryNow', bat === null ? '—' : `${this._power(bat)} ${bat > .025 ? 'charging' : bat < -.025 ? 'discharging' : 'idle'}`);
+        this._text('batteryNow', this._batteryPowerText() ?? '—');
         const mean = this._invNow, percent = v => v === null ? '—' : `${(v * 100).toFixed(1)}%`;
         this._id('invIntakeRow').hidden = this._id('invAcRow').hidden = this._id('invLossRow').hidden = this._id('invEffRow').hidden = this._id('invNote').hidden = !mean;
         this._id('sysEffRow').hidden = !mean || mean.sysEff === null;
@@ -2361,7 +2366,13 @@ class SigenergyFlowCard extends HTMLElement {
             this._modulesKey = key;
             this._buildModules(modules);
         }
-        if (this._id('modInv')) this._text('modInv', this._power(this._scaled(this._ent('inverter_active_power'))));
+        const kw = key => this._scaled(this._ent(key)), ac = kw('inverter_active_power'), imp = kw('grid_import_power'), exp = kw('grid_export_power');
+        if (this._id('modInv')) this._text('modInv', this._power(ac));
+        const grid = imp === null && exp === null || this._offGrid() ? null : (imp ?? 0) - (exp ?? 0), bat = this._batteryPowerText();
+        // Each reading stays on one line; the line wraps between them.
+        this._text('modulesFlow', [['Solar', kw('pv_power') === null ? null : this._power(kw('pv_power'))], ['Battery', bat],
+            ['Grid', grid === null ? null : `${this._power(grid)} ${grid > .025 ? 'importing' : grid < -.025 ? 'exporting' : 'idle'}`]]
+            .filter(([, text]) => text).map(([name, text]) => `${name} ${text}`.replace(/ /g, '\u00A0')).join(' · '));
         if (this._id('modDc')) this._text('modDc', this._power(this._scaled(this._ent('dc_charger_power'))));
         const unit = (id, fallback) => this._hass.states[id]?.attributes?.unit_of_measurement ?? fallback, caps = new Set(), models = new Set();
         modules.forEach((module, i) => {
