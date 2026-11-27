@@ -125,6 +125,33 @@ inv24['sensor.sigen_plant_battery_power'] = day24.map(p => +p.bat.toFixed(3));
 inv24['sensor.sigen_inverter_active_power'] = day24.map(p => +inverterAc(p).toFixed(3));
 states['sensor.sigen_inverter_power_factor'] = { state: '0.99' };
 grid24['sensor.sigen_inverter_power_factor'] = times24.map((t, i) => +(.985 + .01 * Math.sin(i / 9)).toFixed(3));
+// The mySigen add-on's five battery modules (CAP in all) under the inverter, with the plant's SOC give or take a little,
+// cell temperatures that rise with the charge power, and their lifetime discharge. Each is a device; the entities are
+// found by platform and translation key.
+const MODULES = [[.1, .4, 2960], [.3, .9, 2950], [0, -.2, 2970], [.1, .2, 2960], [0, 1.1, 2950]];
+const devices = { inverter: { name: 'Sigen Inverter' } }, moduleEntities = {};
+const socAt = t => {
+    const h = (t - MIDNIGHT) / 3600e3;
+    if (h >= 0) return stored[Math.min(stored.length - 1, Math.round(h / STEP))] / CAP * 100;
+    return h < -6 ? 79 + 6 * (h + 9.5) / 3.5 : stored[0] / CAP * 100 + (85 - stored[0] / CAP * 100) * -h / 6;
+};
+const cellTemp = (t, offset) => { const p = at((((t - MIDNIGHT) / 3600e3) % 24 + 24) % 24); return 22.6 + offset + .9 * Math.abs(p.bat) + .4 * Math.sin((t - MIDNIGHT) / 3600e3 / 3.8); };
+MODULES.forEach(([socOffset, tempOffset, discharged], i) => {
+    const n = i + 1, base = `sensor.sigen_battery_module_${n}_`, device = `module${n}`;
+    devices[device] = { name: `Sigen battery module ${n}`, model: 'SigenStor BAT 8.0', serial_number: `BAT${n}`, via_device_id: 'inverter' };
+    const soc = socAt(NOW) + socOffset, volts = s => 3.21 + .0019 * s + .002 * i;
+    const add = (key, name, state, unit, series) => {
+        const id = `${base}${name}_mysigen`;
+        states[id] = { state, attributes: { unit_of_measurement: unit } };
+        moduleEntities[id] = { entity_id: id, platform: 'sigen_mysigen', translation_key: `battery_module_${key}`, device_id: device };
+        if (series) grid24[id] = series;
+    };
+    add('soc', 'state_of_charge', soc.toFixed(1), '%', times24.map(t => +(socAt(t) + socOffset).toFixed(1)));
+    add('cell_temperature', 'average_cell_temperature', cellTemp(NOW, tempOffset).toFixed(1), '°C', times24.map(t => +cellTemp(t, tempOffset).toFixed(1)));
+    add('cell_voltage', 'average_cell_voltage', volts(soc).toFixed(3), 'V', times24.map(t => +volts(socAt(t) + socOffset).toFixed(3)));
+    add('discharged', 'total_energy_discharged', String(discharged), 'kWh', times24.map(t => discharged - (t < MIDNIGHT ? 10 : 0)));
+    add('capacity', 'rated_capacity', (CAP / MODULES.length).toFixed(2), 'kWh');
+});
 const statistics = {
     'sensor.sigen_plant_total_pv_generation': 'pv', 'sensor.sigen_plant_total_discharged_energy_of_the_ess': 'discharge',
     'sensor.sigen_plant_total_imported_energy': 'imp', 'sensor.sigen_plant_total_charged_energy_of_the_ess': 'charge',
@@ -197,7 +224,8 @@ const data = {
     prefs: { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.sigen_plant_total_imported_energy', stat_energy_to: 'sensor.sigen_plant_total_exported_energy',
         stat_cost: null, entity_energy_price: 'sensor.amber_general_price', number_energy_price: null,
         stat_compensation: null, entity_energy_price_export: 'sensor.amber_feed_in_price', number_energy_price_export: null, cost_adjustment_day: 0 }], device_consumption: [] },
-    states, times: samples.map(s => s.t), means, times24, grid24, inv24, dailyPv, forecastStates, whHours, pastHourly, pastDaily,
+    states, devices, entities: { ...Object.fromEntries(Object.keys(states).map(id => [id, { entity_id: id }])), ...moduleEntities },
+    times: samples.map(s => s.t), means, times24, grid24, inv24, dailyPv, forecastStates, whHours, pastHourly, pastDaily,
     history: Object.fromEntries(Object.entries(history).map(([id, v]) => [id, v.map(x => +x.toFixed(3))])),
     statistics: Object.fromEntries(Object.entries(statistics).map(([id, key]) => [id, intervals.map(r => ({ start: r.t, end: r.t + 300e3, change: +(r[key] * STEP).toFixed(4) }))])),
 };
@@ -212,7 +240,7 @@ async function mount(page, style, tag = 'sigenergy-flow-card', extra = {}) {
     await page.addScriptTag({ path: card, type: 'module' });
     await page.evaluate(({ data, config, style, tag }) => {
         const hass = {
-            states: data.states, language: 'en', locale: { language: 'en', time_zone: 'server' }, themes: {},
+            states: data.states, entities: data.entities, devices: data.devices, language: 'en', locale: { language: 'en', time_zone: 'server' }, themes: {},
             config: { currency: 'AUD', latitude: -33.87, longitude: 151.21, time_zone: 'Australia/Sydney', unit_system: { temperature: '°C' } },
             callApi: async (method, query) => {
                 const ids = decodeURIComponent(query.split('filter_entity_id=')[1].split('&')[0]).split(',');
@@ -321,6 +349,11 @@ async function newContext(browser, options) {
                     await page.screenshot({ path: `${out}/${shot.name}-${file}.png` });
                     await page.evaluate(() => document.querySelector('sigenergy-flow-card').shadowRoot.querySelectorAll('dialog[open]').forEach(d => d.close()));
                 }
+                // The battery modules, from the SigenStor in the photo.
+                await page.evaluate(() => { const root = document.querySelector('sigenergy-flow-card').shadowRoot; root.getElementById('modulesHit')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); root.activeElement?.blur(); });
+                await page.waitForTimeout(900);
+                await page.screenshot({ path: `${out}/${shot.name}-modules.png` });
+                await page.evaluate(() => document.querySelector('sigenergy-flow-card').shadowRoot.querySelectorAll('dialog[open]').forEach(d => d.close()));
                 // The week before, its energy metrics bars, with the desktop's tip on its third day.
                 await page.evaluate(() => {
                     const root = document.querySelector('sigenergy-flow-card').shadowRoot, range = root.getElementById('statRange');

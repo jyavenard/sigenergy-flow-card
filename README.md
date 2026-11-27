@@ -47,6 +47,7 @@ No other custom cards (button-card, card-mod, Mushroom) are needed.
 - [Energy statistics](#energy-statistics)
 - [sigenergy2mqtt](#sigenergy2mqtt)
 - [Plant and inverter sensors](#plant-and-inverter-sensors)
+- [Battery modules](#battery-modules)
 - [Style](#style)
 - [Flow animation](#flow-animation)
 - [Custom entities](#custom-entities)
@@ -95,6 +96,10 @@ Tapping **SigenStor**:
 
 ![Desktop SigenStor details](docs/screenshots/desktop-battery.png)
 
+Tapping the SigenStor in the photo, with the mySigen add-on:
+
+![Desktop battery modules](docs/screenshots/desktop-modules.png)
+
 ### iPhone (portrait)
 
 <table>
@@ -107,6 +112,7 @@ Tapping **SigenStor**:
     <th>HOME</th>
     <th>Battery energy</th>
     <th>SigenStor</th>
+    <th>Battery modules</th>
   </tr>
   <tr>
     <td><img src="docs/screenshots/iphone-main.png" alt="iPhone main view" width="200"></td>
@@ -117,6 +123,7 @@ Tapping **SigenStor**:
     <td valign="top"><img src="docs/screenshots/iphone-home.png" alt="iPhone home power usage" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-energy.png" alt="iPhone battery energy" width="200"></td>
     <td valign="top"><img src="docs/screenshots/iphone-battery.png" alt="iPhone SigenStor details" width="200"></td>
+    <td valign="top"><img src="docs/screenshots/iphone-modules.png" alt="iPhone battery modules" width="200"></td>
   </tr>
 </table>
 
@@ -190,6 +197,7 @@ Under SigenStor, the card shows how long the battery lasts at the current power,
 
 - Tap **SOLAR** for each PV string's voltage, current, power, and today's and lifetime production, with a chart of each string's power today. The integration counts the strings' lifetime energy from their power, so it can miss production. The **Total** is the inverter's own counter. A note shows when the strings don't add up to it.
 - Tap **SigenStor** for the battery and the inverter. It shows their power, the inverter's loss and efficiency over the last 24 hours, and the battery's round trip and state of charge (see [Inverter efficiency](#inverter-efficiency)).
+- With the mySigen add-on, tap the SigenStor in the photo for each battery module (see [Battery modules](#battery-modules)).
 - Tap **HOME** for a live breakdown of power use across the entities you list, from highest to lowest.
 - Tap **DC CHARGER** to adjust the DC charger's maximum charging power.
 
@@ -208,6 +216,7 @@ The card reads all its data locally, over modbus, through the [Sigenergy ESS](ht
 - Install it through Marketplace ([open it in Marketplace](https://my.home-assistant.io/redirect/hacs_repository/?owner=TypQxQ&repository=Sigenergy-Local-Modbus&category=integration)) and configure it first.
 - The card uses its default entity IDs: `sensor.sigen_plant_*`, `sensor.sigen_inverter_*` and `sensor.sigen_ac_charger_*`.
 - With [sigenergy2mqtt](https://github.com/seud0nym/sigenergy2mqtt) instead, set `sigenergy_backend: sigenergy2mqtt` (see [sigenergy2mqtt](#sigenergy2mqtt)).
+- Optional: the [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on, for each battery module's readings (see [Battery modules](#battery-modules)).
 
 The house photos are AVIF images. They need a browser or Home Assistant app that can show AVIF:
 
@@ -938,6 +947,25 @@ Plant sensors are the primary data source. They combine every inverter and batte
 | Today's battery discharged | `sensor.sigen_plant_daily_battery_discharge_energy` | `sensor.sigen_inverter_daily_discharge_energy` |
 
 The DC charger is attached to an inverter, so its entities are inverter sensors only: `sensor.sigen_inverter_dc_charger_output_power`, `sensor.sigen_inverter_dc_charger_vehicle_soc` and `number.sigen_inverter_dc_charger_max_charging_power_limit` (`…_maximum_charging_power_limit` on Sigenergy ESS 2.0 installs).
+
+## Battery modules
+
+The [Sigenergy ESS – mySigen cloud](https://github.com/TypQxQ/Sigenergy-Local-Modbus-mySigen) add-on reads each battery module from mySigen. With it installed, tap the SigenStor in the photo. The dialog shows the stack: the inverter, the DC charger, then each module filled to its charge level.
+
+Beside each module:
+
+- its state of charge;
+- its average cell temperature and voltage;
+- its total energy discharged;
+- its cycles: the energy discharged over its rated capacity.
+
+Tap a reading, other than cycles, to chart it for every module over the last 24 hours.
+
+The card finds the modules by itself; there is nothing to configure. A reading whose entity is disabled shows "—".
+
+The add-on reads each module about every 5 minutes, so the charts move in steps. Total energy discharged moves in steps of 10 kWh, as mySigen reports it in MWh.
+
+With several inverters, each one gets its own stack.
 
 ## Style
 

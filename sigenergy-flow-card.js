@@ -283,6 +283,8 @@ const GATEWAY_ENDS = { inverterFlow: 'end', homeFlow: 'start', gridFlow: 'start'
 // the inverter's pulse starts, so a pulse runs on from SOLAR too. The speed, in scene units per second, is
 // [speed][0] + [speed][1] × √(home kW), so everything runs quicker as the house uses more; [length] is in scene units.
 const PULSE = { speed: [110, 65], length: 130 };
+// The SigenStor in the photo, which opens the battery modules.
+const SIGENSTOR = { at: [700, 350], size: [90, 150] };
 const LEADERS = ['M820 18 V200', 'M1110 18 V227', 'M712 498 V641', 'M1030 526 V641'];
 // Reading positions: [x, y, edge], where y is the reading's top or bottom edge. [lower] places the
 // SigenStor and GRID readings: the row's left edge, each reading's left edge, and the row's bottom edge; [rise] is how far
@@ -309,6 +311,21 @@ const CHART_SERIES = [
     { key: 'home_power', color: 'var(--c-home)', name: 'Home', negate: true },
 ];
 const PV_COLORS = [0, 1, 2, 3, 4, 5].map(i => `var(--pv${i})`);
+// The battery module sensors of the mySigen add-on (Sigenergy ESS – mySigen cloud), by translation key. Their entity
+// IDs follow Home Assistant's language; each module is a device of its own, under its inverter.
+const MODULE_PLATFORM = 'sigen_mysigen';
+const MODULE_KEYS = {
+    battery_module_soc: 'soc', battery_module_cell_temperature: 'temp', battery_module_cell_voltage: 'volts',
+    battery_module_discharged: 'discharged', battery_module_capacity: 'capacity',
+};
+// The readings each module shows; cycles is energy discharged over rated capacity. A tap charts any but cycles.
+const MODULE_FIELDS = {
+    soc: { name: 'State of charge', unit: '%', digits: 1 },
+    temp: { name: 'Average cell temperature', unit: '°C', digits: 1 },
+    volts: { name: 'Average cell voltage', unit: 'V', digits: 3 },
+    discharged: { name: 'Total energy discharged', unit: 'kWh', digits: 0 },
+    cycles: { name: 'Cycles', unit: '', digits: 0, still: true },
+};
 const STYLES = {
     night: {
         'fg': '#edf3f6', 'sub': '#96a5af', 'card': '#11191d', 'card-line': '#343b44', 'panel': '#222831', 'panel-line': '#35414a',
@@ -626,7 +643,7 @@ class SigenergyFlowCard extends HTMLElement {
             sigenergy_backend: backend,
         };
         this._backend = BACKENDS[backend];
-        this._acFound = null;
+        this._acFound = this._modulesFound = null;
         this._shown = new Set(this.constructor.parts);
         // Each string is a name, which reads the backend's pattern (sensor.sigen_inverter_pv<n>_* for Sigenergy Local
         // Modbus, sensor.sigen_0_inverter_1_pv<n>_* for sigenergy2mqtt), or an object
@@ -646,6 +663,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._hass = hass;
         const count = hass.entities ? 0 : Object.keys(hass.states).length;
         if (hass.entities !== previous?.entities || count !== this._stateCount) { this._stateCount = count; this._acFound = null; }
+        if (hass.entities !== previous?.entities || hass.devices !== previous?.devices) this._modulesFound = null;
         if (!this.root)
             return;
         this._update();
@@ -703,6 +721,7 @@ class SigenergyFlowCard extends HTMLElement {
           ${LEADERS.map((d, i) => battery || i !== 2 ? `<path${i === 3 ? ' id="gridLeader"' : ''} class="leader${i >= 2 ? ' lowerLeader' : ''}" data-d="${d}" d="${d}"/>` : '').join('')}
           <path id="chargerLeader" class="leader" display="none"/><path id="chargerLeader2" class="leader" display="none"/>
           ${flows}
+          ${battery ? `<rect id="modulesHit" class="hit" x="${SIGENSTOR.at[0]}" y="${SIGENSTOR.at[1]}" width="${SIGENSTOR.size[0]}" height="${SIGENSTOR.size[1]}" rx="6" role="button" tabindex="0" aria-label="Show the battery modules" display="none"><title>Show the battery modules</title></rect>` : ''}
         </svg>
         <div class="node weather" id="weather" hidden><button id="weatherButton" title="Show the weather forecast"><span id="weatherIcon"></span><strong id="weatherTemp"></strong></button></div>
         <div class="node lead" style="${placeAt(READINGS.pv)}"><button id="pvButton" title="Show PV string details"><strong id="pv">—</strong><small>SOLAR ›</small></button></div>
@@ -776,6 +795,16 @@ class SigenergyFlowCard extends HTMLElement {
       <section class="panel"><div class="charthead"><h3>State of charge (%) · Today</h3><span class="muted" id="socChartStatus"></span></div>
       <div class="chart-wrap"><svg id="socChart"></svg><div class="tip" id="socChartTip" hidden></div></div></section>
     </div></dialog>`,
+            modulesDialog: `
+    <dialog id="modulesDialog" aria-labelledby="modulesTitle"><div class="dlg">
+      ${head('modules', 'Battery modules')}
+      <section class="panel" id="modulesPanel"><div class="charthead"><h3>Real time info</h3><span class="muted" id="modulesInfo"></span></div>
+      <div class="modules" id="modules"></div>
+      <div class="muted" id="modulesNote">From mySigen, each module read about every 5 minutes. Cycles: energy discharged over rated capacity.</div></section>
+      <section class="panel" id="modulesChartPanel"><div class="charthead"><h3 id="modulesChartTitle"></h3><span class="muted" id="modulesChartStatus"></span></div>
+      <div class="legend" id="modulesLegend"></div>
+      <div class="chart-wrap"><svg id="modulesChart"></svg><div class="tip" id="modulesChartTip" hidden></div></div></section>
+    </div></dialog>`,
             homeDialog: `
     <dialog id="homeDialog" aria-labelledby="homeTitle"><div class="dlg">
       ${head('home', 'Home power usage')}
@@ -809,7 +838,7 @@ class SigenergyFlowCard extends HTMLElement {
             metrics: () => header(`<span id="heading"></span><span id="chartTitle"${this.config.title ? ' hidden' : ''}>Power metrics · Today</span>${more}`, '<div class="sub" id="chartStatus">Loading history…</div>') + metrics,
             sankey: () => header(`<span id="heading"></span>${more}<button class="gap" id="statGap" title="Missing data" hidden>⚠</button>`, '<div class="sub" id="statStatus">Loading…</div>') + sankey,
         }[part]();
-        const dialogIds = !solo ? Object.keys(dialogs) : { scene: ['pvDialog', 'gridDialog', 'batteryDialog', 'homeDialog'], battery: ['energyDialog'], tiles: ['forecastDialog'] }[part] ?? [];
+        const dialogIds = !solo ? Object.keys(dialogs) : { scene: ['pvDialog', 'gridDialog', 'batteryDialog', 'modulesDialog', 'homeDialog'], battery: ['energyDialog'], tiles: ['forecastDialog'] }[part] ?? [];
         this.shadowRoot.innerHTML = `<style>
       :host{display:block;color:var(--fg);font-family:Roboto,Arial,sans-serif;${styleVars('night')}}
       :host([light]){${styleVars('day')}}
@@ -908,6 +937,18 @@ class SigenergyFlowCard extends HTMLElement {
       .load.other{cursor:default;background:transparent;border:1px dashed var(--other-line)}.load.other .bar i{background:var(--other-fill)}
       .home-total{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--icon)}.home-total b{font-size:22px;color:var(--fg)}
       .effrows{display:grid;gap:6px;margin:10px 0 8px}.effrows>div{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--icon)}.effrows b{color:var(--fg);font-weight:600}.effrows>.from{display:block;margin-top:-4px;font-size:12px;color:var(--muted);text-align:right}
+      .modules{container:mods/inline-size;display:flex;flex-direction:column}
+      .hit{fill:transparent;cursor:pointer;pointer-events:all}.hit:focus-visible{outline:none;stroke:#71d3d1;stroke-width:3}
+      .mrow{display:flex;gap:12px;align-items:stretch}.mrow.last{margin-bottom:8px}
+      .brick{flex:none;width:46px;position:relative;box-sizing:border-box;background:var(--tile);border:1px solid var(--panel-line);border-top:0}.mrow.first .brick{border-top:1px solid var(--panel-line);border-radius:10px 10px 0 0}.mrow.last .brick{border-radius:0 0 8px 8px}
+      .brick.inv::after{content:'';position:absolute;right:7px;top:50%;width:7px;height:7px;margin-top:-5.5px;border-radius:50%;border:2px solid var(--c-battery)}.brick.dc::after{content:'';position:absolute;left:8px;right:8px;top:50%;height:3px;margin-top:-1.5px;border-radius:2px;background:var(--c-dc)}
+      .brick span{position:absolute;left:6px;right:6px;top:50%;height:8px;margin-top:-4px;border-radius:4px;background:var(--bar);overflow:hidden}.brick span i{display:block;height:100%;width:0;background:var(--c-battery)}
+      .mvals{flex:1;min-width:0;display:grid;grid-template-columns:5.4em repeat(5,minmax(0,1fr));gap:4px 6px;align-items:center;padding:3px 0;font-size:13px;font-variant-numeric:tabular-nums}
+      .mname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mplain{grid-column:2/-1;font-weight:600;padding:6px 0}
+      .mval{all:unset;box-sizing:border-box;background:var(--tile);border-radius:8px;padding:7px 4px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}.mval[disabled]{cursor:default;color:var(--muted)}.mval.still{cursor:default}
+      .mval[aria-pressed=true]{outline:2px solid var(--c-battery);outline-offset:-2px}.mval:focus-visible{outline:2px solid #71d3d1}
+      @container mods (max-width:470px){.mrow{gap:8px}.brick{width:34px}.mvals{grid-template-columns:repeat(3,minmax(0,1fr));padding:5px 0}.mod .mname{grid-column:1/-1}.mval{padding:6px 2px}}
+      #modulesPanel .charthead{flex-wrap:wrap;gap:0 12px}#modulesInfo{margin-bottom:11px}#modulesLegend>span{display:inline-block;white-space:nowrap;margin-right:8px}
       .frame{container-type:inline-size}
       @container (max-width:800px){.layout{grid-template-columns:1fr}}
       @container (max-width:680px){.header{grid-template-areas:'title stamp' 'bar bar'}.statbar{justify-content:space-between;margin-top:8px}}
@@ -942,6 +983,7 @@ class SigenergyFlowCard extends HTMLElement {
         });
         this._loadRows = new Map();
         this._loadsEmpty = null;
+        this._modulesKey = null;
         this._flowItems = !this._shown.has('scene') ? [] : Object.keys(FLOWS).map(id => {
             const group = this._id(id);
             return { id, group, wire: group.querySelector('.wire'), length: 0, glow: group.querySelector('.glow'), comets: [...group.querySelectorAll('.comet')] };
@@ -956,6 +998,7 @@ class SigenergyFlowCard extends HTMLElement {
             ['homeButton', 'homeDialog', () => this._updateHome()],
             ['capacity', 'energyDialog', () => { this._updateEnergy(); this._loadEnergyHistory(); }],
             ['batteryButton', 'batteryDialog', () => { this._updateBatteryDialog(); this._loadInverterHistory(); this._loadSocHistory(); this._loadRoundTrip(); }],
+            ['modulesHit', 'modulesDialog', () => { this._updateModules(); this._loadModuleHistory(); }],
             ['forecastStat', 'forecastDialog', () => { this._updateForecastDialog(); this._loadForecastChart(); }],
         ]) if (this._id(id)) this._id(button)?.addEventListener('click', () => { this._id(id).showModal(); show(); });
         for (const d of this.root.querySelectorAll('dialog')) {
@@ -982,6 +1025,22 @@ class SigenergyFlowCard extends HTMLElement {
             this._updateGrid();
             this._loadGridHistory();
         });
+        // A tap doesn't focus it, so the dialog doesn't hand focus (and its ring) back to it on closing.
+        this._id('modulesHit')?.addEventListener('mousedown', e => e.preventDefault());
+        this._id('modulesHit')?.addEventListener('keydown', e => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            e.currentTarget.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        // A module's reading charts that reading for every module.
+        this._modulePick ??= 'temp';
+        this._id('modules')?.addEventListener('click', e => {
+            const pick = e.target.closest('[data-field]');
+            if (!pick || pick.disabled) return;
+            this._modulePick = pick.dataset.field;
+            this._updateModules();
+            this._loadModuleHistory();
+        });
         for (const stat of this.root.querySelectorAll('.stat:not(#forecastStat), #socLevel'))
             stat.addEventListener('click', e => {
                 const gap = e.target.closest('.gap');
@@ -998,13 +1057,13 @@ class SigenergyFlowCard extends HTMLElement {
         // tap_action runs on a tap anywhere but the card's own controls: buttons, the range, links, the metrics chart (a
         // tap shows its tip) and the Sankey's nodes. On the full card, only the header and the scene: its panels are
         // where the period is explored.
-        const tap = this._tapAction(), skip = `button, select, a, #chart, [data-side]${this._solo ? '' : ', .sidebar, .chartpanel, .statpanel'}`;
+        const tap = this._tapAction(), skip = `button, select, a, #chart, [data-side], #modulesHit${this._solo ? '' : ', .sidebar, .chartpanel, .statpanel'}`;
         if (tap) this.root.querySelector('ha-card').addEventListener('click', e => {
             if (e.composedPath().some(el => el.matches?.(skip))) return;
             this.dispatchEvent(new CustomEvent('hass-action', { bubbles: true, composed: true, detail: { config: { entity: tap.entity, tap_action: tap }, action: 'tap' } }));
         });
         this._observeCharts();
-        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['invChart', 'invChartTip'], ['forecastChart', 'forecastChartTip']]) {
+        for (const [chart, tip] of [['chart', 'chartTip'], ['pvChart', 'pvChartTip'], ['gridChart', 'gridChartTip'], ['energyChart', 'energyChartTip'], ['socChart', 'socChartTip'], ['invChart', 'invChartTip'], ['modulesChart', 'modulesChartTip'], ['forecastChart', 'forecastChartTip']]) {
             const svg = this._id(chart), box = this._id(tip);
             if (!svg) continue;
             const show = e => this._hoverChart(svg, box, e);
@@ -1023,7 +1082,7 @@ class SigenergyFlowCard extends HTMLElement {
         this._chartObserver = new ResizeObserver(entries => {
             for (const entry of entries) (entry.target._redraw ?? entry.target.fit)?.();
         });
-        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'invChart', 'forecastChart', 'statChart']) if (this._id(id)) this._chartObserver.observe(this._id(id));
+        for (const id of ['chart', 'pvChart', 'gridChart', 'energyChart', 'socChart', 'invChart', 'modulesChart', 'forecastChart', 'statChart']) if (this._id(id)) this._chartObserver.observe(this._id(id));
         const scene = this._id('scene'), sidebar = this.root.querySelector('.sidebar');
         if (!scene) return;
         scene.fit = () => this._fitScene();
@@ -2170,6 +2229,121 @@ class SigenergyFlowCard extends HTMLElement {
         this._id('tripGap').hidden = !notes.length;
         this._text('tripGap', notes.length ? `⚠ ${notes.join(' ')}` : '');
     }
+    // The mySigen add-on's battery modules in their positions' order, each with its readings' entities.
+    _batteryModules() {
+        if (this._modulesFound) return this._modulesFound;
+        const devices = this._hass?.devices ?? {}, found = {};
+        for (const entry of Object.values(this._hass?.entities ?? {})) {
+            const field = entry.platform === MODULE_PLATFORM && entry.device_id && MODULE_KEYS[entry.translation_key];
+            if (field) (found[entry.device_id] ??= { device: entry.device_id, ids: {} }).ids[field] = entry.entity_id;
+        }
+        const modules = Object.values(found).map(module => {
+            const device = devices[module.device] ?? {};
+            return { ...module, position: Number(/(\d+)\s*$/.exec(device.name ?? '')?.[1]) || Infinity, custom: device.name_by_user || null, model: device.model || null, inverter: device.via_device_id ?? null };
+        }).sort((a, b) => (a.position - b.position) || Object.values(a.ids)[0].localeCompare(Object.values(b.ids)[0]));
+        modules.forEach((module, i) => { module.label = module.custom ?? `Battery ${Number.isFinite(module.position) ? module.position : i + 1}`; });
+        return this._modulesFound = modules;
+    }
+    _shownModules() {
+        return this._hass && this.config.battery_present ? this._batteryModules() : [];
+    }
+    // A stack per inverter: its cap, the DC charger (with a single inverter), then a brick per module filled to its SOC,
+    // each beside its readings.
+    _buildModules(modules) {
+        const box = this._id('modules'), groups = new Map(), single = new Set(modules.map(m => m.inverter)).size === 1;
+        const el = (tag, className, text) => Object.assign(document.createElement(tag), { className }, text === undefined ? {} : { textContent: text });
+        for (const [i, module] of modules.entries()) groups.set(module.inverter, [...(groups.get(module.inverter) ?? []), [i, module]]);
+        box.replaceChildren();
+        for (const [inverter, list] of groups) {
+            const rows = [], row = (brick, className) => {
+                const line = el('div', `mrow ${className}`), values = el('div', 'mvals');
+                line.append(el('div', `brick ${brick}`), values);
+                rows.push(line);
+                return values;
+            };
+            const device = this._hass.devices?.[inverter];
+            const cap = row('inv', 'cap');
+            cap.append(el('span', 'mname', single ? 'Inverter' : device?.name_by_user || device?.name || 'Inverter'));
+            if (single) cap.append(Object.assign(el('b', 'mplain', '—'), { id: 'modInv' }));
+            if (single && this._has(this._ent('dc_charger_power'))) row('dc', 'dc').append(el('span', 'mname', 'DC charger'), Object.assign(el('b', 'mplain', '—'), { id: 'modDc' }));
+            for (const [i, module] of list) {
+                const values = row('bat', 'mod'), brick = values.previousElementSibling, track = el('span', '');
+                track.append(Object.assign(el('i', ''), { id: `mod${i}Fill` }));
+                brick.append(track);
+                values.append(el('span', 'mname', module.label), ...Object.keys(MODULE_FIELDS).map(field => {
+                    const { name, still } = MODULE_FIELDS[field], cell = Object.assign(el(still ? 'span' : 'button', still ? 'mval still' : 'mval', '—'), { id: `mod${i}_${field}`, title: name });
+                    if (!still) cell.dataset.field = field;
+                    return cell;
+                }));
+            }
+            rows[0].classList.add('first');
+            rows.at(-1).classList.add('last');
+            box.append(...rows);
+        }
+    }
+    _updateModules() {
+        const modules = this._shownModules();
+        this._id('modulesHit')?.setAttribute('display', modules.length ? 'inline' : 'none');
+        if (!this._id('modulesDialog')?.open) return;
+        if (!modules.length) return this._id('modulesDialog').close();
+        const key = `${modules.map(m => `${m.device}:${m.label}:${m.inverter}`).join()}:${this._has(this._ent('dc_charger_power'))}`;
+        if (key !== this._modulesKey) {
+            this._modulesKey = key;
+            this._buildModules(modules);
+        }
+        if (this._id('modInv')) this._text('modInv', this._power(this._scaled(this._ent('inverter_active_power'))));
+        if (this._id('modDc')) this._text('modDc', this._power(this._scaled(this._ent('dc_charger_power'))));
+        const unit = (id, fallback) => this._hass.states[id]?.attributes?.unit_of_measurement ?? fallback, caps = new Set(), models = new Set();
+        modules.forEach((module, i) => {
+            const { ids } = module, soc = this._num(ids.soc), temp = this._num(ids.temp), volts = this._num(ids.volts);
+            const discharged = this._scaled(ids.discharged), cap = this._scaled(ids.capacity), voltUnit = unit(ids.volts, 'V');
+            caps.add(cap);
+            models.add(module.model);
+            this._id(`mod${i}Fill`).style.width = `${Math.max(0, Math.min(100, soc ?? 0))}%`;
+            const values = {
+                soc: soc === null ? null : `${soc.toFixed(1)}%`,
+                temp: temp === null ? null : `${temp.toFixed(1)} ${unit(ids.temp, '°C')}`,
+                volts: volts === null ? null : `${volts.toFixed(voltUnit === 'mV' ? 0 : 3)} ${voltUnit}`,
+                discharged: discharged === null ? null : `${Math.round(discharged).toLocaleString()} kWh`,
+                cycles: discharged === null || !cap ? null : `${Math.round(discharged / cap).toLocaleString()} cycles`,
+            };
+            for (const [field, text] of Object.entries(values)) {
+                const cell = this._id(`mod${i}_${field}`);
+                this._setText(cell, text ?? '—');
+                if (MODULE_FIELDS[field].still) continue;
+                cell.disabled = !this._has(ids[field]);
+                cell.setAttribute('aria-pressed', field === this._modulePick);
+            }
+        });
+        const cap = caps.size === 1 ? [...caps][0] : null, model = models.size === 1 ? [...models][0] : null;
+        this._text('modulesInfo', [model, cap ? `${modules.length} × ${cap.toFixed(2)} kWh` : ''].filter(Boolean).join(' · '));
+    }
+    // The chosen reading of every module over the last 24 hours.
+    async _loadModuleHistory() {
+        const modules = this._shownModules();
+        if (!this._id('modulesChart') || !modules.length) return;
+        const charted = field => modules.map((m, i) => ({ ...m, color: PV_COLORS[i % PV_COLORS.length] })).filter(m => this._has(m.ids[field]));
+        if (!charted(this._modulePick).length) {
+            const other = Object.keys(MODULE_FIELDS).find(field => !MODULE_FIELDS[field].still && charted(field).length);
+            if (!other) return;
+            this._modulePick = other;
+            this._updateModules();
+        }
+        const field = this._modulePick, spec = MODULE_FIELDS[field], list = charted(field), ids = list.map(m => m.ids[field]);
+        const unit = field === 'temp' || field === 'volts' ? this._hass.states[ids[0]].attributes?.unit_of_measurement ?? spec.unit : spec.unit;
+        this._text('modulesChartTitle', `${spec.name}${unit ? ` (${unit})` : ''}`);
+        this._id('modulesLegend').replaceChildren(...list.map(m => {
+            const item = document.createElement('span'), dot = document.createElement('i');
+            dot.className = 'dot';
+            dot.style.background = m.color;
+            item.append(dot, m.label);
+            return item;
+        }));
+        await this._dialogChart('modulesChart', 'modulesChartStatus', 'No recorded history in the last 24 hours', ids, series => series.map((points, i) => {
+            const scale = field === 'discharged' ? this._factor(ids[i]) : 1;
+            return { points: points.map(p => ({ t: p.t, v: p.v * scale })), color: list[i].color, name: list[i].label, unit, digits: spec.digits };
+        }), undefined, { hours: 24, fit: true });
+    }
     // The inverter's last 24 hours as 5-minute means: its intake, AC power, battery and DC charger (discharge positive, as in
     // Power metrics), loss, and efficiency on a right-hand axis.
     async _loadInverterHistory() {
@@ -2463,6 +2637,7 @@ class SigenergyFlowCard extends HTMLElement {
         if (this._shown.has('tiles')) this._updateDaily();
         if (this._shown.has('battery') && this.config.battery_present) this._updateBattery();
         this._updateBatteryDialog();
+        this._updateModules();
         this._updateEnergy();
     }
     // The scene's readings and flows.
